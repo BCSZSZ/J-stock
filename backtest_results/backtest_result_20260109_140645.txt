@@ -1,0 +1,829 @@
+
+================================================================================
+回测配置
+================================================================================
+配置文件: backtest_config.json
+股票代码: ['7203'] (1 只)
+策略组合: 4 个
+总回测数: 4
+回测期间: 2021-01-01 至 2026-01-08
+起始资金: ¥5,000,000
+包含TOPIX基准: 否
+输出文件: backtest_results\backtest_result_20260109_140645.txt
+================================================================================
+
+开始回测...
+
+  📊 BUY  2021-05-13: 588 shares @ ¥8,500.00 (Score: 69.0)
+  📈 SELL 2021-06-22: 588 shares @ ¥9,915.00 (+16.65%, ¥+832,020) - HIGH: Trailing stop hit: ¥9,638 < ¥9,659 (Peak-3.0*ATR, was +20.4%)
+  📊 BUY  2023-06-07: 2,833 shares @ ¥2,058.00 (Score: 65.0)
+  📈 SELL 2023-07-13: 2,833 shares @ ¥2,192.50 (+6.54%, ¥+381,038) - HIGH: Trailing stop hit: ¥2,198 < ¥2,205 (Peak-3.0*ATR, was +13.8%)
+  📊 BUY  2023-07-19: 2,741 shares @ ¥2,266.50 (Score: 68.0)
+  📈 SELL 2023-08-21: 2,741 shares @ ¥2,349.50 (+3.66%, ¥+227,503) - HIGH: Trailing stop hit: ¥2,349 < ¥2,351 (Peak-3.0*ATR, was +10.4%)
+  📊 BUY  2023-09-01: 2,591 shares @ ¥2,485.00 (Score: 67.0)
+  📈 SELL 2023-10-02: 2,591 shares @ ¥2,700.50 (+8.67%, ¥+558,360) - HIGH: Trailing stop hit: ¥2,678 < ¥2,696 (Peak-3.0*ATR, was +15.9%)
+  📊 BUY  2023-11-02: 2,488 shares @ ¥2,812.00 (Score: 71.0)
+  📉 SELL 2023-12-11: 2,488 shares @ ¥2,701.00 (-3.95%, ¥-276,168) - HIGH: Trailing stop hit: ¥2,680 < ¥2,683 (Peak-3.0*ATR, was +2.9%)
+  📊 BUY  2023-12-12: 2,465 shares @ ¥2,727.00 (Score: 67.0)
+  📉 SELL 2023-12-15: 2,465 shares @ ¥2,617.00 (-4.03%, ¥-271,150) - EMERGENCY: Hard stop hit: ¥2,572 < ¥2,590 (Entry-2.0*ATR)
+  📊 BUY  2023-12-19: 2,462 shares @ ¥2,620.00 (Score: 66.0)
+  📈 SELL 2024-03-13: 2,462 shares @ ¥3,506.00 (+33.82%, ¥+2,181,332) - HIGH: Trailing stop hit: ¥3,475 < ¥3,489 (Peak-3.0*ATR, was +43.9%)
+  📊 BUY  2024-03-14: 2,502 shares @ ¥3,450.00 (Score: 66.0)
+  📈 SELL 2024-04-18: 2,502 shares @ ¥3,567.00 (+3.39%, ¥+292,734) - HIGH: Trailing stop hit: ¥3,597 < ¥3,598 (Peak-3.0*ATR, was +12.2%)
+  📊 BUY  2024-04-19: 2,514 shares @ ¥3,550.00 (Score: 66.0)
+  📉 SELL 2024-05-31: 2,514 shares @ ¥3,370.00 (-5.07%, ¥-452,520) - EMERGENCY: Hard stop hit: ¥3,330 < ¥3,384 (Entry-2.0*ATR)
+  📊 BUY  2024-06-03: 2,490 shares @ ¥3,402.00 (Score: 69.0)
+  📉 SELL 2024-06-06: 2,490 shares @ ¥3,258.00 (-4.23%, ¥-358,560) - EMERGENCY: Hard stop hit: ¥3,218 < ¥3,236 (Entry-2.0*ATR)
+  📊 BUY  2024-06-25: 2,536 shares @ ¥3,199.00 (Score: 65.0)
+  📉 SELL 2024-07-19: 2,536 shares @ ¥3,147.00 (-1.63%, ¥-131,872) - HIGH: Trailing stop hit: ¥3,141 < ¥3,190 (Peak-3.0*ATR, was +6.0%)
+  📊 BUY  2024-12-24: 2,800 shares @ ¥2,850.00 (Score: 66.0)
+  📈 SELL 2025-01-14: 2,800 shares @ ¥2,932.00 (+2.88%, ¥+229,600) - HIGH: Trailing stop hit: ¥2,932 < ¥2,946 (Peak-3.0*ATR, was +11.9%)
+  📊 BUY  2025-02-05: 2,838 shares @ ¥2,893.00 (Score: 65.0)
+  📉 SELL 2025-02-21: 2,838 shares @ ¥2,686.00 (-7.16%, ¥-587,466) - EMERGENCY: Hard stop hit: ¥2,710 < ¥2,738 (Entry-2.0*ATR)
+  📊 BUY  2025-03-06: 2,666 shares @ ¥2,860.00 (Score: 69.0)
+  📉 SELL 2025-03-31: 2,666 shares @ ¥2,630.50 (-8.02%, ¥-611,847) - EMERGENCY: Hard stop hit: ¥2,700 < ¥2,702 (Entry-2.0*ATR)
+  📊 BUY  2025-04-30: 2,508 shares @ ¥2,795.50 (Score: 68.0)
+  📉 SELL 2025-05-23: 2,508 shares @ ¥2,647.00 (-5.31%, ¥-372,438) - EMERGENCY: Hard stop hit: ¥2,620 < ¥2,626 (Entry-2.0*ATR)
+  📊 BUY  2025-06-02: 2,425 shares @ ¥2,737.50 (Score: 71.0)
+  📉 SELL 2025-06-16: 2,425 shares @ ¥2,580.50 (-5.74%, ¥-380,725) - EMERGENCY: Hard stop hit: ¥2,555 < ¥2,611 (Entry-2.0*ATR)
+  📊 BUY  2025-07-25: 2,222 shares @ ¥2,816.00 (Score: 66.0)
+  📉 SELL 2025-08-05: 2,222 shares @ ¥2,671.50 (-5.13%, ¥-321,079) - EMERGENCY: Hard stop hit: ¥2,675 < ¥2,678 (Entry-2.0*ATR)
+  📊 BUY  2025-08-07: 2,180 shares @ ¥2,723.00 (Score: 70.0)
+  📉 SELL 2025-08-08: 2,180 shares @ ¥2,699.50 (-0.86%, ¥-51,230) - HIGH: Score decay: 47 < 50 (Entry was 70, thesis invalidated)
+  📊 BUY  2025-08-12: 2,101 shares @ ¥2,802.00 (Score: 65.0)
+  📈 SELL 2025-10-03: 2,101 shares @ ¥2,806.00 (+0.14%, ¥+8,404) - HIGH: Trailing stop hit: ¥2,805 < ¥2,807 (Peak-3.0*ATR, was +6.0%)
+  📊 BUY  2025-10-08: 1,933 shares @ ¥3,050.00 (Score: 69.0)
+  📉 SELL 2025-10-14: 1,933 shares @ ¥2,848.50 (-6.61%, ¥-389,500) - EMERGENCY: Hard stop hit: ¥2,898 < ¥2,922 (Entry-2.0*ATR)
+  📊 BUY  2025-10-16: 1,857 shares @ ¥2,964.00 (Score: 68.0)
+  📈 SELL 2025-12-04: 1,857 shares @ ¥3,028.00 (+2.16%, ¥+118,848) - HIGH: Trailing stop hit: ¥3,005 < ¥3,027 (Peak-3.0*ATR, was +8.6%)
+  📊 BUY  2025-12-05: 1,842 shares @ ¥3,053.00 (Score: 75.0)
+  📊 BUY  2021-05-13: 588 shares @ ¥8,500.00 (Score: 69.0)
+  📉 SELL 2021-05-14: 588 shares @ ¥8,449.00 (-0.60%, ¥-29,988) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-17: 579 shares @ ¥8,580.00 (Score: 69.0)
+  📈 SELL 2021-05-18: 579 shares @ ¥8,700.00 (+1.40%, ¥+69,480) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-19: 575 shares @ ¥8,750.00 (Score: 69.0)
+  📉 SELL 2021-05-20: 575 shares @ ¥8,680.00 (-0.80%, ¥-40,250) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-21: 574 shares @ ¥8,703.00 (Score: 68.0)
+  📈 SELL 2021-05-24: 574 shares @ ¥8,784.00 (+0.93%, ¥+46,494) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-25: 568 shares @ ¥8,882.00 (Score: 68.0)
+  📉 SELL 2021-05-26: 568 shares @ ¥8,855.00 (-0.30%, ¥-15,336) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-27: 565 shares @ ¥8,901.00 (Score: 69.0)
+  📈 SELL 2021-05-28: 565 shares @ ¥9,130.00 (+2.57%, ¥+129,385) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-07: 2,507 shares @ ¥2,058.00 (Score: 65.0)
+  📉 SELL 2023-06-08: 2,507 shares @ ¥2,038.50 (-0.95%, ¥-48,886) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-12: 2,474 shares @ ¥2,065.50 (Score: 67.0)
+  📈 SELL 2023-06-13: 2,474 shares @ ¥2,100.00 (+1.67%, ¥+85,353) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-20: 2,309 shares @ ¥2,250.00 (Score: 66.0)
+  📉 SELL 2023-06-21: 2,309 shares @ ¥2,222.00 (-1.24%, ¥-64,652) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-22: 2,284 shares @ ¥2,246.00 (Score: 66.0)
+  📈 SELL 2023-06-23: 2,284 shares @ ¥2,252.00 (+0.27%, ¥+13,704) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-26: 2,334 shares @ ¥2,204.00 (Score: 70.0)
+  📈 SELL 2023-06-27: 2,334 shares @ ¥2,248.00 (+2.00%, ¥+102,696) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-03: 2,273 shares @ ¥2,308.00 (Score: 65.0)
+  📈 SELL 2023-07-04: 2,273 shares @ ¥2,332.50 (+1.06%, ¥+55,688) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-05: 2,270 shares @ ¥2,336.00 (Score: 69.0)
+  📈 SELL 2023-07-06: 2,270 shares @ ¥2,350.00 (+0.60%, ¥+31,780) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-10: 2,350 shares @ ¥2,270.00 (Score: 68.0)
+  📉 SELL 2023-07-11: 2,350 shares @ ¥2,256.00 (-0.62%, ¥-32,900) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-19: 2,339 shares @ ¥2,266.50 (Score: 68.0)
+  📈 SELL 2023-07-20: 2,339 shares @ ¥2,291.50 (+1.10%, ¥+58,475) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-21: 2,342 shares @ ¥2,289.00 (Score: 68.0)
+  📈 SELL 2023-07-24: 2,342 shares @ ¥2,317.00 (+1.22%, ¥+65,576) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-25: 2,342 shares @ ¥2,316.50 (Score: 68.0)
+  📈 SELL 2023-07-26: 2,342 shares @ ¥2,318.00 (+0.06%, ¥+3,513) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-27: 2,345 shares @ ¥2,315.00 (Score: 68.0)
+  📉 SELL 2023-07-28: 2,345 shares @ ¥2,288.50 (-1.14%, ¥-62,142) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-31: 2,284 shares @ ¥2,350.00 (Score: 69.0)
+  📈 SELL 2023-08-01: 2,284 shares @ ¥2,398.00 (+2.04%, ¥+109,632) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-08-02: 2,246 shares @ ¥2,438.50 (Score: 66.0)
+  📈 SELL 2023-08-03: 2,246 shares @ ¥2,476.00 (+1.54%, ¥+84,225) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-08-04: 2,310 shares @ ¥2,407.00 (Score: 71.0)
+  📈 SELL 2023-08-07: 2,310 shares @ ¥2,431.50 (+1.02%, ¥+56,595) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-08-08: 2,280 shares @ ¥2,463.50 (Score: 70.0)
+  📉 SELL 2023-08-09: 2,280 shares @ ¥2,423.00 (-1.64%, ¥-92,340) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-08-10: 2,296 shares @ ¥2,406.50 (Score: 70.0)
+  📈 SELL 2023-08-14: 2,296 shares @ ¥2,439.50 (+1.37%, ¥+75,768) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-09-01: 2,254 shares @ ¥2,485.00 (Score: 67.0)
+  📈 SELL 2023-09-04: 2,254 shares @ ¥2,540.00 (+2.21%, ¥+123,970) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-09-05: 2,202 shares @ ¥2,600.00 (Score: 66.0)
+  📈 SELL 2023-09-06: 2,202 shares @ ¥2,607.00 (+0.27%, ¥+15,414) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-09-08: 2,198 shares @ ¥2,611.00 (Score: 66.0)
+  📉 SELL 2023-09-11: 2,198 shares @ ¥2,610.50 (-0.02%, ¥-1,099) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-09-12: 2,187 shares @ ¥2,624.00 (Score: 66.0)
+  📈 SELL 2023-09-13: 2,187 shares @ ¥2,657.00 (+1.26%, ¥+72,171) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-09-14: 2,140 shares @ ¥2,715.50 (Score: 66.0)
+  📈 SELL 2023-09-15: 2,140 shares @ ¥2,788.00 (+2.67%, ¥+155,150) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-09-21: 2,132 shares @ ¥2,799.00 (Score: 66.0)
+  📉 SELL 2023-09-22: 2,132 shares @ ¥2,749.50 (-1.77%, ¥-105,534) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-09-25: 2,104 shares @ ¥2,785.00 (Score: 67.0)
+  📉 SELL 2023-09-26: 2,104 shares @ ¥2,765.00 (-0.72%, ¥-42,080) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-09-28: 2,139 shares @ ¥2,720.00 (Score: 65.0)
+  📉 SELL 2023-09-29: 2,139 shares @ ¥2,718.00 (-0.07%, ¥-4,278) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-02: 2,068 shares @ ¥2,812.00 (Score: 71.0)
+  📈 SELL 2023-11-06: 2,068 shares @ ¥2,840.00 (+1.00%, ¥+57,904) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-07: 2,060 shares @ ¥2,850.00 (Score: 72.0)
+  📈 SELL 2023-11-08: 2,060 shares @ ¥2,861.50 (+0.40%, ¥+23,690) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-09: 2,109 shares @ ¥2,795.00 (Score: 77.0)
+  📉 SELL 2023-11-10: 2,109 shares @ ¥2,770.50 (-0.88%, ¥-51,670) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-13: 2,063 shares @ ¥2,833.00 (Score: 76.0)
+  📈 SELL 2023-11-14: 2,063 shares @ ¥2,845.00 (+0.42%, ¥+24,756) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-15: 2,037 shares @ ¥2,880.50 (Score: 76.0)
+  📉 SELL 2023-11-16: 2,037 shares @ ¥2,860.00 (-0.71%, ¥-41,758) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-17: 2,052 shares @ ¥2,840.00 (Score: 76.0)
+  📈 SELL 2023-11-20: 2,052 shares @ ¥2,892.50 (+1.85%, ¥+107,730) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-21: 2,131 shares @ ¥2,785.00 (Score: 77.0)
+  📉 SELL 2023-11-22: 2,131 shares @ ¥2,728.00 (-2.05%, ¥-121,467) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-24: 2,087 shares @ ¥2,785.00 (Score: 66.0)
+  📈 SELL 2023-11-27: 2,087 shares @ ¥2,800.00 (+0.54%, ¥+31,305) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-28: 2,110 shares @ ¥2,770.00 (Score: 70.0)
+  📉 SELL 2023-11-29: 2,110 shares @ ¥2,770.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-30: 2,080 shares @ ¥2,810.00 (Score: 71.0)
+  📈 SELL 2023-12-01: 2,080 shares @ ¥2,819.00 (+0.32%, ¥+18,720) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-04: 2,093 shares @ ¥2,802.00 (Score: 70.0)
+  📉 SELL 2023-12-05: 2,093 shares @ ¥2,770.00 (-1.14%, ¥-66,976) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-06: 2,092 shares @ ¥2,770.50 (Score: 66.0)
+  📈 SELL 2023-12-07: 2,092 shares @ ¥2,800.00 (+1.06%, ¥+61,714) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-08: 2,161 shares @ ¥2,711.00 (Score: 70.0)
+  📉 SELL 2023-12-11: 2,161 shares @ ¥2,701.00 (-0.37%, ¥-21,610) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-12: 2,140 shares @ ¥2,727.00 (Score: 67.0)
+  📉 SELL 2023-12-13: 2,140 shares @ ¥2,672.50 (-2.00%, ¥-116,630) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-14: 2,195 shares @ ¥2,605.50 (Score: 66.0)
+  📈 SELL 2023-12-15: 2,195 shares @ ¥2,617.00 (+0.44%, ¥+25,242) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-19: 2,193 shares @ ¥2,620.00 (Score: 66.0)
+  📈 SELL 2023-12-20: 2,193 shares @ ¥2,666.00 (+1.76%, ¥+100,878) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-21: 2,320 shares @ ¥2,520.00 (Score: 67.0)
+  📉 SELL 2023-12-22: 2,320 shares @ ¥2,520.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-28: 2,288 shares @ ¥2,555.00 (Score: 66.0)
+  📈 SELL 2023-12-29: 2,288 shares @ ¥2,572.00 (+0.67%, ¥+38,896) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-04: 2,259 shares @ ¥2,605.00 (Score: 66.0)
+  📈 SELL 2024-01-05: 2,259 shares @ ¥2,643.50 (+1.48%, ¥+86,972) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-09: 2,200 shares @ ¥2,715.00 (Score: 71.0)
+  📉 SELL 2024-01-10: 2,200 shares @ ¥2,684.00 (-1.14%, ¥-68,200) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-11: 2,088 shares @ ¥2,827.00 (Score: 71.0)
+  📈 SELL 2024-01-12: 2,088 shares @ ¥2,880.00 (+1.87%, ¥+110,664) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-15: 2,107 shares @ ¥2,854.00 (Score: 76.0)
+  📈 SELL 2024-01-16: 2,107 shares @ ¥2,865.00 (+0.39%, ¥+23,177) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-17: 2,096 shares @ ¥2,880.00 (Score: 71.0)
+  📉 SELL 2024-01-18: 2,096 shares @ ¥2,880.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-19: 2,023 shares @ ¥2,985.00 (Score: 72.0)
+  📉 SELL 2024-01-22: 2,023 shares @ ¥2,965.00 (-0.67%, ¥-40,460) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-23: 2,001 shares @ ¥2,997.00 (Score: 71.0)
+  📈 SELL 2024-01-24: 2,001 shares @ ¥3,000.00 (+0.10%, ¥+6,003) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-25: 2,023 shares @ ¥2,967.00 (Score: 72.0)
+  📉 SELL 2024-01-26: 2,023 shares @ ¥2,950.00 (-0.57%, ¥-34,391) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-29: 2,038 shares @ ¥2,929.00 (Score: 77.0)
+  📈 SELL 2024-01-30: 2,038 shares @ ¥2,950.00 (+0.72%, ¥+42,798) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-31: 2,045 shares @ ¥2,940.00 (Score: 76.0)
+  📈 SELL 2024-02-01: 2,045 shares @ ¥2,940.50 (+0.02%, ¥+1,022) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-02: 2,029 shares @ ¥2,963.50 (Score: 76.0)
+  📈 SELL 2024-02-05: 2,029 shares @ ¥2,995.50 (+1.08%, ¥+64,928) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-06: 2,026 shares @ ¥2,999.50 (Score: 70.0)
+  📈 SELL 2024-02-07: 2,026 shares @ ¥3,195.00 (+6.52%, ¥+396,083) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-08: 1,944 shares @ ¥3,330.00 (Score: 68.0)
+  📈 SELL 2024-02-09: 1,944 shares @ ¥3,360.00 (+0.90%, ¥+58,320) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-13: 1,940 shares @ ¥3,366.00 (Score: 67.0)
+  📈 SELL 2024-02-14: 1,940 shares @ ¥3,453.00 (+2.58%, ¥+168,780) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-15: 1,962 shares @ ¥3,415.00 (Score: 71.0)
+  📈 SELL 2024-02-16: 1,962 shares @ ¥3,440.00 (+0.73%, ¥+49,050) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-19: 1,977 shares @ ¥3,414.00 (Score: 71.0)
+  📈 SELL 2024-02-20: 1,977 shares @ ¥3,450.00 (+1.05%, ¥+71,172) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-21: 2,006 shares @ ¥3,400.00 (Score: 71.0)
+  📈 SELL 2024-02-22: 2,006 shares @ ¥3,450.00 (+1.47%, ¥+100,300) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-26: 1,950 shares @ ¥3,550.00 (Score: 68.0)
+  📈 SELL 2024-02-27: 1,950 shares @ ¥3,600.00 (+1.41%, ¥+97,500) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-28: 1,956 shares @ ¥3,588.00 (Score: 67.0)
+  📉 SELL 2024-02-29: 1,956 shares @ ¥3,560.00 (-0.78%, ¥-54,768) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-01: 1,937 shares @ ¥3,595.00 (Score: 68.0)
+  📈 SELL 2024-03-04: 1,937 shares @ ¥3,694.00 (+2.75%, ¥+191,763) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-05: 1,952 shares @ ¥3,665.00 (Score: 67.0)
+  📈 SELL 2024-03-06: 1,952 shares @ ¥3,729.00 (+1.75%, ¥+124,928) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-07: 1,916 shares @ ¥3,799.00 (Score: 67.0)
+  📉 SELL 2024-03-08: 1,916 shares @ ¥3,644.00 (-4.08%, ¥-296,980) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-11: 1,995 shares @ ¥3,500.00 (Score: 71.0)
+  📉 SELL 2024-03-12: 1,995 shares @ ¥3,441.00 (-1.69%, ¥-117,705) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-13: 1,958 shares @ ¥3,506.00 (Score: 67.0)
+  📉 SELL 2024-03-14: 1,958 shares @ ¥3,450.00 (-1.60%, ¥-109,648) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-15: 1,968 shares @ ¥3,433.00 (Score: 66.0)
+  📈 SELL 2024-03-18: 1,968 shares @ ¥3,515.00 (+2.39%, ¥+161,376) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-19: 1,935 shares @ ¥3,574.00 (Score: 70.0)
+  📈 SELL 2024-03-21: 1,935 shares @ ¥3,800.00 (+6.32%, ¥+437,310) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-22: 1,921 shares @ ¥3,829.00 (Score: 66.0)
+  📈 SELL 2024-03-25: 1,921 shares @ ¥3,850.00 (+0.55%, ¥+40,341) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-26: 1,931 shares @ ¥3,829.00 (Score: 71.0)
+  📈 SELL 2024-03-27: 1,931 shares @ ¥3,875.00 (+1.20%, ¥+88,826) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-28: 1,949 shares @ ¥3,839.00 (Score: 72.0)
+  📉 SELL 2024-03-29: 1,949 shares @ ¥3,804.00 (-0.91%, ¥-68,215) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-01: 1,951 shares @ ¥3,801.00 (Score: 76.0)
+  📉 SELL 2024-04-02: 1,951 shares @ ¥3,685.00 (-3.05%, ¥-226,316) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-03: 1,979 shares @ ¥3,633.00 (Score: 66.0)
+  📈 SELL 2024-04-04: 1,979 shares @ ¥3,670.00 (+1.02%, ¥+73,223) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-05: 2,015 shares @ ¥3,605.00 (Score: 70.0)
+  📈 SELL 2024-04-08: 2,015 shares @ ¥3,665.00 (+1.66%, ¥+120,900) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-09: 1,974 shares @ ¥3,740.00 (Score: 70.0)
+  📈 SELL 2024-04-10: 1,974 shares @ ¥3,750.00 (+0.27%, ¥+19,740) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-11: 1,989 shares @ ¥3,722.00 (Score: 70.0)
+  📈 SELL 2024-04-12: 1,989 shares @ ¥3,813.00 (+2.44%, ¥+180,999) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-15: 2,038 shares @ ¥3,721.00 (Score: 70.0)
+  📈 SELL 2024-04-16: 2,038 shares @ ¥3,742.00 (+0.56%, ¥+42,798) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-17: 2,069 shares @ ¥3,686.00 (Score: 66.0)
+  📉 SELL 2024-04-18: 2,069 shares @ ¥3,567.00 (-3.23%, ¥-246,211) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-19: 2,079 shares @ ¥3,550.00 (Score: 66.0)
+  📉 SELL 2024-04-22: 2,079 shares @ ¥3,540.00 (-0.28%, ¥-20,790) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-25: 2,067 shares @ ¥3,560.00 (Score: 67.0)
+  📉 SELL 2024-04-26: 2,067 shares @ ¥3,502.00 (-1.63%, ¥-119,886) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-30: 2,024 shares @ ¥3,577.00 (Score: 67.0)
+  📈 SELL 2024-05-01: 2,024 shares @ ¥3,600.00 (+0.64%, ¥+46,552) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-05-02: 2,035 shares @ ¥3,581.00 (Score: 67.0)
+  📈 SELL 2024-05-07: 2,035 shares @ ¥3,650.00 (+1.93%, ¥+140,415) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-05-08: 2,094 shares @ ¥3,547.00 (Score: 67.0)
+  📈 SELL 2024-05-09: 2,094 shares @ ¥3,595.00 (+1.35%, ¥+100,512) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-10: 2,148 shares @ ¥3,504.00 (Score: 65.0)
+  📉 SELL 2024-05-13: 2,148 shares @ ¥3,417.00 (-2.48%, ¥-186,876) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-28: 2,134 shares @ ¥3,440.00 (Score: 68.0)
+  📉 SELL 2024-05-29: 2,134 shares @ ¥3,435.00 (-0.15%, ¥-10,670) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-30: 2,188 shares @ ¥3,350.00 (Score: 68.0)
+  📈 SELL 2024-05-31: 2,188 shares @ ¥3,370.00 (+0.60%, ¥+43,760) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-06-03: 2,167 shares @ ¥3,402.00 (Score: 69.0)
+  📉 SELL 2024-06-04: 2,167 shares @ ¥3,300.00 (-3.00%, ¥-221,034) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-06-25: 2,236 shares @ ¥3,199.00 (Score: 65.0)
+  📈 SELL 2024-06-26: 2,236 shares @ ¥3,315.00 (+3.63%, ¥+259,376) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-06-27: 2,246 shares @ ¥3,300.00 (Score: 69.0)
+  📉 SELL 2024-06-28: 2,246 shares @ ¥3,299.00 (-0.03%, ¥-2,246) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-01: 2,229 shares @ ¥3,325.00 (Score: 68.0)
+  📉 SELL 2024-07-02: 2,229 shares @ ¥3,285.00 (-1.20%, ¥-89,160) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-03: 2,189 shares @ ¥3,345.00 (Score: 69.0)
+  📈 SELL 2024-07-04: 2,189 shares @ ¥3,351.00 (+0.18%, ¥+13,134) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-05: 2,167 shares @ ¥3,384.00 (Score: 70.0)
+  📉 SELL 2024-07-08: 2,167 shares @ ¥3,319.00 (-1.92%, ¥-140,855) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-09: 2,198 shares @ ¥3,272.00 (Score: 70.0)
+  📉 SELL 2024-07-10: 2,198 shares @ ¥3,261.00 (-0.34%, ¥-24,178) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-11: 2,157 shares @ ¥3,323.00 (Score: 70.0)
+  📉 SELL 2024-07-12: 2,157 shares @ ¥3,249.00 (-2.23%, ¥-159,618) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-16: 2,128 shares @ ¥3,294.00 (Score: 70.0)
+  📉 SELL 2024-07-17: 2,128 shares @ ¥3,264.00 (-0.91%, ¥-63,840) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-18: 2,204 shares @ ¥3,151.00 (Score: 68.0)
+  📉 SELL 2024-07-19: 2,204 shares @ ¥3,147.00 (-0.13%, ¥-8,816) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-12-24: 2,434 shares @ ¥2,850.00 (Score: 66.0)
+  📉 SELL 2024-12-25: 2,434 shares @ ¥2,830.00 (-0.70%, ¥-48,680) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-07: 2,293 shares @ ¥3,004.00 (Score: 70.0)
+  📈 SELL 2025-01-08: 2,293 shares @ ¥3,050.00 (+1.53%, ¥+105,478) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-09: 2,278 shares @ ¥3,070.00 (Score: 65.0)
+  📉 SELL 2025-01-10: 2,278 shares @ ¥2,989.00 (-2.64%, ¥-184,518) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-14: 2,322 shares @ ¥2,932.00 (Score: 70.0)
+  📉 SELL 2025-01-15: 2,322 shares @ ¥2,930.50 (-0.05%, ¥-3,483) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-02-05: 2,352 shares @ ¥2,893.00 (Score: 65.0)
+  📈 SELL 2025-02-06: 2,352 shares @ ¥2,961.00 (+2.35%, ¥+159,936) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-02-07: 2,435 shares @ ¥2,860.00 (Score: 65.0)
+  📉 SELL 2025-02-10: 2,435 shares @ ¥2,826.00 (-1.19%, ¥-82,790) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-03-06: 2,407 shares @ ¥2,860.00 (Score: 69.0)
+  📉 SELL 2025-03-07: 2,407 shares @ ¥2,749.50 (-3.86%, ¥-265,974) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-03-19: 2,310 shares @ ¥2,864.00 (Score: 69.0)
+  📉 SELL 2025-03-21: 2,310 shares @ ¥2,851.00 (-0.45%, ¥-30,030) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-03-24: 2,292 shares @ ¥2,874.00 (Score: 71.0)
+  📈 SELL 2025-03-25: 2,292 shares @ ¥2,916.00 (+1.46%, ¥+96,264) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-03-26: 2,306 shares @ ¥2,898.50 (Score: 70.0)
+  📉 SELL 2025-03-27: 2,306 shares @ ¥2,780.00 (-4.09%, ¥-273,261) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-04-30: 2,293 shares @ ¥2,795.50 (Score: 68.0)
+  📉 SELL 2025-05-01: 2,293 shares @ ¥2,727.00 (-2.45%, ¥-157,070) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-05-07: 2,265 shares @ ¥2,760.50 (Score: 69.0)
+  📉 SELL 2025-05-08: 2,265 shares @ ¥2,706.00 (-1.97%, ¥-123,442) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-05-14: 2,166 shares @ ¥2,830.00 (Score: 70.0)
+  📉 SELL 2025-05-15: 2,166 shares @ ¥2,709.00 (-4.28%, ¥-262,086) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-06-02: 2,143 shares @ ¥2,737.50 (Score: 71.0)
+  📉 SELL 2025-06-03: 2,143 shares @ ¥2,681.50 (-2.05%, ¥-120,008) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-07-25: 2,041 shares @ ¥2,816.00 (Score: 66.0)
+  📉 SELL 2025-07-28: 2,041 shares @ ¥2,809.00 (-0.25%, ¥-14,287) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-07-29: 2,062 shares @ ¥2,780.00 (Score: 65.0)
+  📉 SELL 2025-07-30: 2,062 shares @ ¥2,740.00 (-1.44%, ¥-82,480) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-07-31: 2,055 shares @ ¥2,750.00 (Score: 70.0)
+  📉 SELL 2025-08-01: 2,055 shares @ ¥2,715.00 (-1.27%, ¥-71,925) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-08-04: 2,111 shares @ ¥2,642.00 (Score: 70.0)
+  📈 SELL 2025-08-05: 2,111 shares @ ¥2,671.50 (+1.12%, ¥+62,274) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-08-07: 2,072 shares @ ¥2,723.00 (Score: 70.0)
+  📉 SELL 2025-08-08: 2,072 shares @ ¥2,699.50 (-0.86%, ¥-48,692) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-08-12: 1,996 shares @ ¥2,802.00 (Score: 65.0)
+  📈 SELL 2025-08-13: 1,996 shares @ ¥2,899.50 (+3.48%, ¥+194,610) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-08-27: 1,993 shares @ ¥2,903.00 (Score: 68.0)
+  📉 SELL 2025-08-28: 1,993 shares @ ¥2,901.00 (-0.07%, ¥-3,986) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-08: 1,896 shares @ ¥3,050.00 (Score: 69.0)
+  📉 SELL 2025-10-09: 1,896 shares @ ¥3,000.00 (-1.64%, ¥-94,800) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-10: 1,944 shares @ ¥2,926.50 (Score: 69.0)
+  📉 SELL 2025-10-14: 1,944 shares @ ¥2,848.50 (-2.67%, ¥-151,632) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-16: 1,868 shares @ ¥2,964.00 (Score: 68.0)
+  📉 SELL 2025-10-17: 1,868 shares @ ¥2,920.00 (-1.48%, ¥-82,192) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-20: 1,825 shares @ ¥2,988.50 (Score: 68.0)
+  📈 SELL 2025-10-21: 1,825 shares @ ¥3,017.00 (+0.95%, ¥+52,012) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-22: 1,791 shares @ ¥3,075.00 (Score: 74.0)
+  📈 SELL 2025-10-23: 1,791 shares @ ¥3,100.00 (+0.81%, ¥+44,775) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-24: 1,785 shares @ ¥3,110.00 (Score: 74.0)
+  📈 SELL 2025-10-27: 1,785 shares @ ¥3,170.00 (+1.93%, ¥+107,100) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-28: 1,757 shares @ ¥3,220.00 (Score: 72.0)
+  📉 SELL 2025-10-29: 1,757 shares @ ¥3,176.00 (-1.37%, ¥-77,308) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-30: 1,773 shares @ ¥3,148.00 (Score: 77.0)
+  📈 SELL 2025-10-31: 1,773 shares @ ¥3,190.00 (+1.33%, ¥+74,466) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-04: 1,795 shares @ ¥3,150.00 (Score: 75.0)
+  📉 SELL 2025-11-05: 1,795 shares @ ¥3,150.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-06: 1,818 shares @ ¥3,110.00 (Score: 77.0)
+  📉 SELL 2025-11-07: 1,818 shares @ ¥3,090.00 (-0.64%, ¥-36,360) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-10: 1,793 shares @ ¥3,133.00 (Score: 74.0)
+  📈 SELL 2025-11-11: 1,793 shares @ ¥3,148.00 (+0.48%, ¥+26,895) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-12: 1,778 shares @ ¥3,176.00 (Score: 74.0)
+  📈 SELL 2025-11-13: 1,778 shares @ ¥3,200.00 (+0.76%, ¥+42,672) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-21: 1,874 shares @ ¥3,035.00 (Score: 73.0)
+  📈 SELL 2025-11-25: 1,874 shares @ ¥3,150.00 (+3.79%, ¥+215,510) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-26: 1,887 shares @ ¥3,129.00 (Score: 70.0)
+  📈 SELL 2025-11-27: 1,887 shares @ ¥3,155.00 (+0.83%, ¥+49,062) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-28: 1,896 shares @ ¥3,140.00 (Score: 74.0)
+  📉 SELL 2025-12-01: 1,896 shares @ ¥3,132.00 (-0.25%, ¥-15,168) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-02: 1,925 shares @ ¥3,085.00 (Score: 70.0)
+  📉 SELL 2025-12-03: 1,925 shares @ ¥3,030.00 (-1.78%, ¥-105,875) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-04: 1,926 shares @ ¥3,028.00 (Score: 70.0)
+  📈 SELL 2025-12-05: 1,926 shares @ ¥3,053.00 (+0.83%, ¥+48,150) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-08: 1,928 shares @ ¥3,050.00 (Score: 74.0)
+  📈 SELL 2025-12-09: 1,928 shares @ ¥3,076.00 (+0.85%, ¥+50,128) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-15: 1,829 shares @ ¥3,243.00 (Score: 68.0)
+  📈 SELL 2025-12-16: 1,829 shares @ ¥3,380.00 (+4.22%, ¥+250,573) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-17: 1,847 shares @ ¥3,346.00 (Score: 79.0)
+  📈 SELL 2025-12-18: 1,847 shares @ ¥3,350.00 (+0.12%, ¥+7,388) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-19: 1,826 shares @ ¥3,389.00 (Score: 78.0)
+  📈 SELL 2025-12-22: 1,826 shares @ ¥3,494.00 (+3.10%, ¥+191,730) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-25: 1,889 shares @ ¥3,377.00 (Score: 68.0)
+  📉 SELL 2025-12-26: 1,889 shares @ ¥3,377.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-29: 1,884 shares @ ¥3,386.00 (Score: 68.0)
+  📉 SELL 2025-12-30: 1,884 shares @ ¥3,370.00 (-0.47%, ¥-30,144) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2026-01-05: 1,861 shares @ ¥3,411.00 (Score: 68.0)
+  📈 SELL 2026-01-06: 1,861 shares @ ¥3,488.00 (+2.26%, ¥+143,297) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2026-01-07: 1,938 shares @ ¥3,350.00 (Score: 65.0)
+  📉 SELL 2026-01-08: 1,938 shares @ ¥3,301.00 (-1.46%, ¥-94,962) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2021-05-13: 588 shares @ ¥8,500.00 (Score: 70.2)
+  📈 SELL 2021-06-22: 588 shares @ ¥9,915.00 (+16.65%, ¥+832,020) - HIGH: Trailing stop hit: ¥9,638 < ¥9,659 (Peak-3.0*ATR, was +20.4%)
+  📊 BUY  2022-07-29: 2,706 shares @ ¥2,155.00 (Score: 65.2)
+  📉 SELL 2022-08-05: 2,706 shares @ ¥2,080.00 (-3.48%, ¥-202,950) - HIGH: Score decay: 46 < 50 (Entry was 65, thesis invalidated)
+  📊 BUY  2023-03-10: 2,965 shares @ ¥1,898.00 (Score: 65.2)
+  📉 SELL 2023-03-15: 2,965 shares @ ¥1,825.00 (-3.85%, ¥-216,445) - EMERGENCY: Hard stop hit: ¥1,809 < ¥1,840 (Entry-2.0*ATR)
+  📊 BUY  2023-06-07: 2,630 shares @ ¥2,058.00 (Score: 68.8)
+  📈 SELL 2023-07-13: 2,630 shares @ ¥2,192.50 (+6.54%, ¥+353,735) - HIGH: Trailing stop hit: ¥2,198 < ¥2,205 (Peak-3.0*ATR, was +13.8%)
+  📊 BUY  2023-07-14: 2,598 shares @ ¥2,219.50 (Score: 67.5)
+  📈 SELL 2023-08-21: 2,598 shares @ ¥2,349.50 (+5.86%, ¥+337,740) - HIGH: Trailing stop hit: ¥2,349 < ¥2,351 (Peak-3.0*ATR, was +12.8%)
+  📊 BUY  2023-11-02: 2,170 shares @ ¥2,812.00 (Score: 71.5)
+  📉 SELL 2023-12-11: 2,170 shares @ ¥2,701.00 (-3.95%, ¥-240,870) - HIGH: Trailing stop hit: ¥2,680 < ¥2,683 (Peak-3.0*ATR, was +2.9%)
+  📊 BUY  2023-12-12: 2,150 shares @ ¥2,727.00 (Score: 68.0)
+  📉 SELL 2023-12-15: 2,150 shares @ ¥2,617.00 (-4.03%, ¥-236,500) - EMERGENCY: Hard stop hit: ¥2,572 < ¥2,590 (Entry-2.0*ATR)
+  📊 BUY  2023-12-19: 2,147 shares @ ¥2,620.00 (Score: 67.0)
+  📈 SELL 2024-03-13: 2,147 shares @ ¥3,506.00 (+33.82%, ¥+1,902,242) - HIGH: Trailing stop hit: ¥3,475 < ¥3,489 (Peak-3.0*ATR, was +43.9%)
+  📊 BUY  2024-03-14: 2,182 shares @ ¥3,450.00 (Score: 67.5)
+  📈 SELL 2024-04-18: 2,182 shares @ ¥3,567.00 (+3.39%, ¥+255,294) - HIGH: Trailing stop hit: ¥3,597 < ¥3,598 (Peak-3.0*ATR, was +12.2%)
+  📊 BUY  2024-04-19: 2,192 shares @ ¥3,550.00 (Score: 67.0)
+  📉 SELL 2024-05-31: 2,192 shares @ ¥3,370.00 (-5.07%, ¥-394,560) - EMERGENCY: Hard stop hit: ¥3,330 < ¥3,384 (Entry-2.0*ATR)
+  📊 BUY  2024-06-03: 2,172 shares @ ¥3,402.00 (Score: 71.0)
+  📉 SELL 2024-06-06: 2,172 shares @ ¥3,258.00 (-4.23%, ¥-312,768) - EMERGENCY: Hard stop hit: ¥3,218 < ¥3,236 (Entry-2.0*ATR)
+  📊 BUY  2024-06-11: 2,169 shares @ ¥3,262.00 (Score: 66.0)
+  📉 SELL 2024-06-18: 2,169 shares @ ¥3,068.00 (-5.95%, ¥-420,786) - EMERGENCY: Hard stop hit: ¥3,036 < ¥3,098 (Entry-2.0*ATR)
+  📊 BUY  2024-06-25: 2,080 shares @ ¥3,199.00 (Score: 67.5)
+  📉 SELL 2024-07-19: 2,080 shares @ ¥3,147.00 (-1.63%, ¥-108,160) - HIGH: Trailing stop hit: ¥3,141 < ¥3,190 (Peak-3.0*ATR, was +6.0%)
+  📊 BUY  2024-12-24: 2,297 shares @ ¥2,850.00 (Score: 70.8)
+  📈 SELL 2025-01-14: 2,297 shares @ ¥2,932.00 (+2.88%, ¥+188,354) - HIGH: Trailing stop hit: ¥2,932 < ¥2,946 (Peak-3.0*ATR, was +11.9%)
+  📊 BUY  2025-01-15: 2,298 shares @ ¥2,930.50 (Score: 66.5)
+  📉 SELL 2025-02-20: 2,298 shares @ ¥2,730.50 (-6.82%, ¥-459,600) - EMERGENCY: Hard stop hit: ¥2,756 < ¥2,774 (Entry-2.0*ATR)
+  📊 BUY  2025-03-06: 2,194 shares @ ¥2,860.00 (Score: 70.5)
+  📉 SELL 2025-03-31: 2,194 shares @ ¥2,630.50 (-8.02%, ¥-503,523) - EMERGENCY: Hard stop hit: ¥2,700 < ¥2,702 (Entry-2.0*ATR)
+  📊 BUY  2025-04-30: 2,065 shares @ ¥2,795.50 (Score: 70.5)
+  📉 SELL 2025-05-23: 2,065 shares @ ¥2,647.00 (-5.31%, ¥-306,652) - EMERGENCY: Hard stop hit: ¥2,620 < ¥2,626 (Entry-2.0*ATR)
+  📊 BUY  2025-06-02: 1,996 shares @ ¥2,737.50 (Score: 72.2)
+  📉 SELL 2025-06-16: 1,996 shares @ ¥2,580.50 (-5.74%, ¥-313,372) - EMERGENCY: Hard stop hit: ¥2,555 < ¥2,611 (Entry-2.0*ATR)
+  📊 BUY  2025-07-25: 1,829 shares @ ¥2,816.00 (Score: 67.2)
+  📉 SELL 2025-08-05: 1,829 shares @ ¥2,671.50 (-5.13%, ¥-264,290) - EMERGENCY: Hard stop hit: ¥2,675 < ¥2,678 (Entry-2.0*ATR)
+  📊 BUY  2025-08-07: 1,795 shares @ ¥2,723.00 (Score: 71.2)
+  📉 SELL 2025-08-08: 1,795 shares @ ¥2,699.50 (-0.86%, ¥-42,182) - HIGH: Score decay: 47 < 50 (Entry was 71, thesis invalidated)
+  📊 BUY  2025-10-08: 1,589 shares @ ¥3,050.00 (Score: 65.8)
+  📉 SELL 2025-10-14: 1,589 shares @ ¥2,848.50 (-6.61%, ¥-320,184) - EMERGENCY: Hard stop hit: ¥2,898 < ¥2,922 (Entry-2.0*ATR)
+  📊 BUY  2025-10-15: 1,561 shares @ ¥2,898.00 (Score: 70.5)
+  📈 SELL 2025-11-19: 1,561 shares @ ¥3,074.00 (+6.07%, ¥+274,736) - HIGH: Score decay: 42 < 50 (Entry was 70, thesis invalidated)
+  📊 BUY  2025-11-21: 1,581 shares @ ¥3,035.00 (Score: 85.0)
+  📊 BUY  2021-05-13: 588 shares @ ¥8,500.00 (Score: 70.2)
+  📉 SELL 2021-05-14: 588 shares @ ¥8,449.00 (-0.60%, ¥-29,988) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-17: 579 shares @ ¥8,580.00 (Score: 70.2)
+  📈 SELL 2021-05-18: 579 shares @ ¥8,700.00 (+1.40%, ¥+69,480) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-19: 575 shares @ ¥8,750.00 (Score: 69.8)
+  📉 SELL 2021-05-20: 575 shares @ ¥8,680.00 (-0.80%, ¥-40,250) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-21: 574 shares @ ¥8,703.00 (Score: 68.8)
+  📈 SELL 2021-05-24: 574 shares @ ¥8,784.00 (+0.93%, ¥+46,494) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-25: 568 shares @ ¥8,882.00 (Score: 68.8)
+  📉 SELL 2021-05-26: 568 shares @ ¥8,855.00 (-0.30%, ¥-15,336) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-27: 565 shares @ ¥8,901.00 (Score: 69.8)
+  📈 SELL 2021-05-28: 565 shares @ ¥9,130.00 (+2.57%, ¥+129,385) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2021-05-31: 564 shares @ ¥9,135.00 (Score: 66.2)
+  📉 SELL 2021-06-01: 564 shares @ ¥9,130.00 (-0.05%, ¥-2,820) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2022-07-29: 2,393 shares @ ¥2,155.00 (Score: 65.2)
+  📉 SELL 2022-08-01: 2,393 shares @ ¥2,152.00 (-0.14%, ¥-7,179) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-03-10: 2,713 shares @ ¥1,898.00 (Score: 65.2)
+  📉 SELL 2023-03-13: 2,713 shares @ ¥1,877.00 (-1.11%, ¥-56,973) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-06-07: 2,474 shares @ ¥2,058.00 (Score: 68.8)
+  📉 SELL 2023-06-08: 2,474 shares @ ¥2,038.50 (-0.95%, ¥-48,243) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-12: 2,442 shares @ ¥2,065.50 (Score: 69.8)
+  📈 SELL 2023-06-13: 2,442 shares @ ¥2,100.00 (+1.67%, ¥+84,249) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-20: 2,279 shares @ ¥2,250.00 (Score: 69.8)
+  📉 SELL 2023-06-21: 2,279 shares @ ¥2,222.00 (-1.24%, ¥-63,812) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-22: 2,255 shares @ ¥2,246.00 (Score: 68.8)
+  📈 SELL 2023-06-23: 2,255 shares @ ¥2,252.00 (+0.27%, ¥+13,530) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-26: 2,304 shares @ ¥2,204.00 (Score: 72.2)
+  📈 SELL 2023-06-27: 2,304 shares @ ¥2,248.00 (+2.00%, ¥+101,376) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-06-28: 2,275 shares @ ¥2,276.00 (Score: 67.0)
+  📈 SELL 2023-06-29: 2,275 shares @ ¥2,302.00 (+1.14%, ¥+59,150) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-03: 2,269 shares @ ¥2,308.00 (Score: 68.8)
+  📈 SELL 2023-07-04: 2,269 shares @ ¥2,332.50 (+1.06%, ¥+55,590) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-05: 2,266 shares @ ¥2,336.00 (Score: 72.2)
+  📈 SELL 2023-07-06: 2,266 shares @ ¥2,350.00 (+0.60%, ¥+31,724) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-07: 2,292 shares @ ¥2,323.50 (Score: 67.0)
+  📉 SELL 2023-07-10: 2,292 shares @ ¥2,270.00 (-2.30%, ¥-122,622) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-11: 2,306 shares @ ¥2,256.00 (Score: 71.0)
+  📉 SELL 2023-07-12: 2,306 shares @ ¥2,210.00 (-2.04%, ¥-106,076) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-13: 2,325 shares @ ¥2,192.50 (Score: 67.5)
+  📈 SELL 2023-07-14: 2,325 shares @ ¥2,219.50 (+1.23%, ¥+62,775) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-18: 2,330 shares @ ¥2,214.00 (Score: 67.5)
+  📈 SELL 2023-07-19: 2,330 shares @ ¥2,266.50 (+2.37%, ¥+122,325) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-20: 2,305 shares @ ¥2,291.50 (Score: 70.5)
+  📉 SELL 2023-07-21: 2,305 shares @ ¥2,289.00 (-0.11%, ¥-5,762) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-24: 2,277 shares @ ¥2,317.00 (Score: 71.0)
+  📉 SELL 2023-07-25: 2,277 shares @ ¥2,316.50 (-0.02%, ¥-1,138) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-26: 2,276 shares @ ¥2,318.00 (Score: 67.0)
+  📉 SELL 2023-07-27: 2,276 shares @ ¥2,315.00 (-0.13%, ¥-6,828) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-07-28: 2,302 shares @ ¥2,288.50 (Score: 70.5)
+  📈 SELL 2023-07-31: 2,302 shares @ ¥2,350.00 (+2.69%, ¥+141,573) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2023-08-01: 2,256 shares @ ¥2,398.00 (Score: 73.2)
+  📈 SELL 2023-08-02: 2,256 shares @ ¥2,438.50 (+1.69%, ¥+91,368) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-08-04: 2,285 shares @ ¥2,407.00 (Score: 66.8)
+  📈 SELL 2023-08-07: 2,285 shares @ ¥2,431.50 (+1.02%, ¥+55,982) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-08-08: 2,256 shares @ ¥2,463.50 (Score: 65.8)
+  📉 SELL 2023-08-09: 2,256 shares @ ¥2,423.00 (-1.64%, ¥-91,368) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-08-10: 2,271 shares @ ¥2,406.50 (Score: 66.2)
+  📈 SELL 2023-08-14: 2,271 shares @ ¥2,439.50 (+1.37%, ¥+74,943) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-02: 1,970 shares @ ¥2,812.00 (Score: 71.5)
+  📈 SELL 2023-11-06: 1,970 shares @ ¥2,840.00 (+1.00%, ¥+55,160) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-07: 1,963 shares @ ¥2,850.00 (Score: 73.2)
+  📈 SELL 2023-11-08: 1,963 shares @ ¥2,861.50 (+0.40%, ¥+22,574) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-09: 2,010 shares @ ¥2,795.00 (Score: 76.8)
+  📉 SELL 2023-11-10: 2,010 shares @ ¥2,770.50 (-0.88%, ¥-49,245) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-13: 1,966 shares @ ¥2,833.00 (Score: 75.8)
+  📈 SELL 2023-11-14: 1,966 shares @ ¥2,845.00 (+0.42%, ¥+23,592) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-15: 1,941 shares @ ¥2,880.50 (Score: 75.8)
+  📉 SELL 2023-11-16: 1,941 shares @ ¥2,860.00 (-0.71%, ¥-39,790) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-17: 1,955 shares @ ¥2,840.00 (Score: 75.8)
+  📈 SELL 2023-11-20: 1,955 shares @ ¥2,892.50 (+1.85%, ¥+102,638) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-21: 2,031 shares @ ¥2,785.00 (Score: 77.2)
+  📉 SELL 2023-11-22: 2,031 shares @ ¥2,728.00 (-2.05%, ¥-115,767) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-24: 1,989 shares @ ¥2,785.00 (Score: 67.5)
+  📈 SELL 2023-11-27: 1,989 shares @ ¥2,800.00 (+0.54%, ¥+29,835) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-28: 2,011 shares @ ¥2,770.00 (Score: 71.0)
+  📉 SELL 2023-11-29: 2,011 shares @ ¥2,770.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-11-30: 1,982 shares @ ¥2,810.00 (Score: 72.0)
+  📈 SELL 2023-12-01: 1,982 shares @ ¥2,819.00 (+0.32%, ¥+17,838) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-04: 1,994 shares @ ¥2,802.00 (Score: 71.0)
+  📉 SELL 2023-12-05: 1,994 shares @ ¥2,770.00 (-1.14%, ¥-63,808) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-06: 1,994 shares @ ¥2,770.50 (Score: 67.5)
+  📈 SELL 2023-12-07: 1,994 shares @ ¥2,800.00 (+1.06%, ¥+58,823) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-08: 2,059 shares @ ¥2,711.00 (Score: 71.0)
+  📉 SELL 2023-12-11: 2,059 shares @ ¥2,701.00 (-0.37%, ¥-20,590) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-12: 2,039 shares @ ¥2,727.00 (Score: 68.0)
+  📉 SELL 2023-12-13: 2,039 shares @ ¥2,672.50 (-2.00%, ¥-111,126) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-14: 2,092 shares @ ¥2,605.50 (Score: 67.0)
+  📈 SELL 2023-12-15: 2,092 shares @ ¥2,617.00 (+0.44%, ¥+24,058) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-19: 2,089 shares @ ¥2,620.00 (Score: 67.0)
+  📈 SELL 2023-12-20: 2,089 shares @ ¥2,666.00 (+1.76%, ¥+96,094) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-21: 2,211 shares @ ¥2,520.00 (Score: 68.0)
+  📉 SELL 2023-12-22: 2,211 shares @ ¥2,520.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-25: 2,206 shares @ ¥2,525.00 (Score: 65.0)
+  📈 SELL 2023-12-26: 2,206 shares @ ¥2,543.00 (+0.71%, ¥+39,708) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2023-12-28: 2,196 shares @ ¥2,555.00 (Score: 67.0)
+  📈 SELL 2023-12-29: 2,196 shares @ ¥2,572.00 (+0.67%, ¥+37,332) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-04: 2,168 shares @ ¥2,605.00 (Score: 67.5)
+  📈 SELL 2024-01-05: 2,168 shares @ ¥2,643.50 (+1.48%, ¥+83,468) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-09: 2,111 shares @ ¥2,715.00 (Score: 71.5)
+  📉 SELL 2024-01-10: 2,111 shares @ ¥2,684.00 (-1.14%, ¥-65,441) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-11: 2,004 shares @ ¥2,827.00 (Score: 71.5)
+  📈 SELL 2024-01-12: 2,004 shares @ ¥2,880.00 (+1.87%, ¥+106,212) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-15: 2,022 shares @ ¥2,854.00 (Score: 76.8)
+  📈 SELL 2024-01-16: 2,022 shares @ ¥2,865.00 (+0.39%, ¥+22,242) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-17: 2,012 shares @ ¥2,880.00 (Score: 72.2)
+  📉 SELL 2024-01-18: 2,012 shares @ ¥2,880.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-19: 1,941 shares @ ¥2,985.00 (Score: 73.2)
+  📉 SELL 2024-01-22: 1,941 shares @ ¥2,965.00 (-0.67%, ¥-38,820) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-23: 1,920 shares @ ¥2,997.00 (Score: 72.2)
+  📈 SELL 2024-01-24: 1,920 shares @ ¥3,000.00 (+0.10%, ¥+5,760) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-25: 1,942 shares @ ¥2,967.00 (Score: 72.2)
+  📉 SELL 2024-01-26: 1,942 shares @ ¥2,950.00 (-0.57%, ¥-33,014) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-29: 1,956 shares @ ¥2,929.00 (Score: 77.2)
+  📈 SELL 2024-01-30: 1,956 shares @ ¥2,950.00 (+0.72%, ¥+41,076) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-01-31: 1,962 shares @ ¥2,940.00 (Score: 75.8)
+  📈 SELL 2024-02-01: 1,962 shares @ ¥2,940.50 (+0.02%, ¥+981) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-02: 1,947 shares @ ¥2,963.50 (Score: 75.8)
+  📈 SELL 2024-02-05: 1,947 shares @ ¥2,995.50 (+1.08%, ¥+62,304) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-06: 1,944 shares @ ¥2,999.50 (Score: 70.5)
+  📈 SELL 2024-02-07: 1,944 shares @ ¥3,195.00 (+6.52%, ¥+380,052) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-08: 1,865 shares @ ¥3,330.00 (Score: 68.2)
+  📈 SELL 2024-02-09: 1,865 shares @ ¥3,360.00 (+0.90%, ¥+55,950) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-13: 1,862 shares @ ¥3,366.00 (Score: 67.2)
+  📈 SELL 2024-02-14: 1,862 shares @ ¥3,453.00 (+2.58%, ¥+161,994) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-15: 1,883 shares @ ¥3,415.00 (Score: 70.8)
+  📈 SELL 2024-02-16: 1,883 shares @ ¥3,440.00 (+0.73%, ¥+47,075) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-19: 1,897 shares @ ¥3,414.00 (Score: 70.8)
+  📈 SELL 2024-02-20: 1,897 shares @ ¥3,450.00 (+1.05%, ¥+68,292) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-21: 1,925 shares @ ¥3,400.00 (Score: 72.2)
+  📈 SELL 2024-02-22: 1,925 shares @ ¥3,450.00 (+1.47%, ¥+96,250) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-26: 1,871 shares @ ¥3,550.00 (Score: 68.2)
+  📈 SELL 2024-02-27: 1,871 shares @ ¥3,600.00 (+1.41%, ¥+93,550) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-02-28: 1,877 shares @ ¥3,588.00 (Score: 67.2)
+  📉 SELL 2024-02-29: 1,877 shares @ ¥3,560.00 (-0.78%, ¥-52,556) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-01: 1,859 shares @ ¥3,595.00 (Score: 69.8)
+  📈 SELL 2024-03-04: 1,859 shares @ ¥3,694.00 (+2.75%, ¥+184,041) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-05: 1,874 shares @ ¥3,665.00 (Score: 68.8)
+  📈 SELL 2024-03-06: 1,874 shares @ ¥3,729.00 (+1.75%, ¥+119,936) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-07: 1,839 shares @ ¥3,799.00 (Score: 67.2)
+  📉 SELL 2024-03-08: 1,839 shares @ ¥3,644.00 (-4.08%, ¥-285,045) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-11: 1,915 shares @ ¥3,500.00 (Score: 71.5)
+  📉 SELL 2024-03-12: 1,915 shares @ ¥3,441.00 (-1.69%, ¥-112,985) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-13: 1,879 shares @ ¥3,506.00 (Score: 68.5)
+  📉 SELL 2024-03-14: 1,879 shares @ ¥3,450.00 (-1.60%, ¥-105,224) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-15: 1,889 shares @ ¥3,433.00 (Score: 67.5)
+  📈 SELL 2024-03-18: 1,889 shares @ ¥3,515.00 (+2.39%, ¥+154,898) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-19: 1,857 shares @ ¥3,574.00 (Score: 71.0)
+  📈 SELL 2024-03-21: 1,857 shares @ ¥3,800.00 (+6.32%, ¥+419,682) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-22: 1,843 shares @ ¥3,829.00 (Score: 68.0)
+  📈 SELL 2024-03-25: 1,843 shares @ ¥3,850.00 (+0.55%, ¥+38,703) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-26: 1,853 shares @ ¥3,829.00 (Score: 72.2)
+  📈 SELL 2024-03-27: 1,853 shares @ ¥3,875.00 (+1.20%, ¥+85,238) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-03-28: 1,871 shares @ ¥3,839.00 (Score: 73.2)
+  📉 SELL 2024-03-29: 1,871 shares @ ¥3,804.00 (-0.91%, ¥-65,485) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-01: 1,872 shares @ ¥3,801.00 (Score: 75.8)
+  📉 SELL 2024-04-02: 1,872 shares @ ¥3,685.00 (-3.05%, ¥-217,152) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-03: 1,899 shares @ ¥3,633.00 (Score: 67.5)
+  📈 SELL 2024-04-04: 1,899 shares @ ¥3,670.00 (+1.02%, ¥+70,263) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-05: 1,933 shares @ ¥3,605.00 (Score: 71.0)
+  📈 SELL 2024-04-08: 1,933 shares @ ¥3,665.00 (+1.66%, ¥+115,980) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-09: 1,894 shares @ ¥3,740.00 (Score: 71.0)
+  📈 SELL 2024-04-10: 1,894 shares @ ¥3,750.00 (+0.27%, ¥+18,940) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-11: 1,909 shares @ ¥3,722.00 (Score: 71.0)
+  📈 SELL 2024-04-12: 1,909 shares @ ¥3,813.00 (+2.44%, ¥+173,719) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-15: 1,956 shares @ ¥3,721.00 (Score: 71.0)
+  📈 SELL 2024-04-16: 1,956 shares @ ¥3,742.00 (+0.56%, ¥+41,076) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-17: 1,986 shares @ ¥3,686.00 (Score: 67.5)
+  📉 SELL 2024-04-18: 1,986 shares @ ¥3,567.00 (-3.23%, ¥-236,334) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-19: 1,995 shares @ ¥3,550.00 (Score: 67.0)
+  📉 SELL 2024-04-22: 1,995 shares @ ¥3,540.00 (-0.28%, ¥-19,950) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-25: 1,984 shares @ ¥3,560.00 (Score: 68.5)
+  📉 SELL 2024-04-26: 1,984 shares @ ¥3,502.00 (-1.63%, ¥-115,072) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-04-30: 1,942 shares @ ¥3,577.00 (Score: 68.0)
+  📈 SELL 2024-05-01: 1,942 shares @ ¥3,600.00 (+0.64%, ¥+44,666) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-05-02: 1,953 shares @ ¥3,581.00 (Score: 68.5)
+  📈 SELL 2024-05-07: 1,953 shares @ ¥3,650.00 (+1.93%, ¥+134,757) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2024-05-08: 2,009 shares @ ¥3,547.00 (Score: 68.5)
+  📈 SELL 2024-05-09: 2,009 shares @ ¥3,595.00 (+1.35%, ¥+96,432) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-10: 2,062 shares @ ¥3,504.00 (Score: 67.5)
+  📉 SELL 2024-05-13: 2,062 shares @ ¥3,417.00 (-2.48%, ¥-179,394) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-20: 2,049 shares @ ¥3,438.00 (Score: 66.0)
+  📈 SELL 2024-05-21: 2,049 shares @ ¥3,467.00 (+0.84%, ¥+59,421) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-22: 2,075 shares @ ¥3,424.00 (Score: 66.5)
+  📉 SELL 2024-05-23: 2,075 shares @ ¥3,387.00 (-1.08%, ¥-76,775) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-24: 2,117 shares @ ¥3,320.00 (Score: 66.0)
+  📈 SELL 2024-05-27: 2,117 shares @ ¥3,419.00 (+2.98%, ¥+209,583) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-28: 2,104 shares @ ¥3,440.00 (Score: 70.0)
+  📉 SELL 2024-05-29: 2,104 shares @ ¥3,435.00 (-0.15%, ¥-10,520) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-05-30: 2,157 shares @ ¥3,350.00 (Score: 70.0)
+  📈 SELL 2024-05-31: 2,157 shares @ ¥3,370.00 (+0.60%, ¥+43,140) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-06-03: 2,137 shares @ ¥3,402.00 (Score: 71.0)
+  📉 SELL 2024-06-04: 2,137 shares @ ¥3,300.00 (-3.00%, ¥-217,974) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-06-11: 2,162 shares @ ¥3,262.00 (Score: 66.0)
+  📉 SELL 2024-06-12: 2,162 shares @ ¥3,200.00 (-1.90%, ¥-134,044) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-06-25: 2,162 shares @ ¥3,199.00 (Score: 67.5)
+  📈 SELL 2024-06-26: 2,162 shares @ ¥3,315.00 (+3.63%, ¥+250,792) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-06-27: 2,172 shares @ ¥3,300.00 (Score: 71.0)
+  📉 SELL 2024-06-28: 2,172 shares @ ¥3,299.00 (-0.03%, ¥-2,172) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-01: 2,155 shares @ ¥3,325.00 (Score: 70.0)
+  📉 SELL 2024-07-02: 2,155 shares @ ¥3,285.00 (-1.20%, ¥-86,200) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-03: 2,116 shares @ ¥3,345.00 (Score: 70.5)
+  📈 SELL 2024-07-04: 2,116 shares @ ¥3,351.00 (+0.18%, ¥+12,696) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-05: 2,096 shares @ ¥3,384.00 (Score: 71.2)
+  📉 SELL 2024-07-08: 2,096 shares @ ¥3,319.00 (-1.92%, ¥-136,240) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-09: 2,126 shares @ ¥3,272.00 (Score: 71.8)
+  📉 SELL 2024-07-10: 2,126 shares @ ¥3,261.00 (-0.34%, ¥-23,386) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-11: 2,086 shares @ ¥3,323.00 (Score: 71.8)
+  📉 SELL 2024-07-12: 2,086 shares @ ¥3,249.00 (-2.23%, ¥-154,364) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-16: 2,058 shares @ ¥3,294.00 (Score: 71.8)
+  📉 SELL 2024-07-17: 2,058 shares @ ¥3,264.00 (-0.91%, ¥-61,740) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-07-18: 2,132 shares @ ¥3,151.00 (Score: 72.0)
+  📉 SELL 2024-07-19: 2,132 shares @ ¥3,147.00 (-0.13%, ¥-8,528) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2024-12-24: 2,354 shares @ ¥2,850.00 (Score: 70.8)
+  📉 SELL 2024-12-25: 2,354 shares @ ¥2,830.00 (-0.70%, ¥-47,080) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-07: 2,217 shares @ ¥3,004.00 (Score: 72.2)
+  📈 SELL 2025-01-08: 2,217 shares @ ¥3,050.00 (+1.53%, ¥+101,982) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-09: 2,203 shares @ ¥3,070.00 (Score: 67.8)
+  📉 SELL 2025-01-10: 2,203 shares @ ¥2,989.00 (-2.64%, ¥-178,443) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-14: 2,246 shares @ ¥2,932.00 (Score: 71.8)
+  📉 SELL 2025-01-15: 2,246 shares @ ¥2,930.50 (-0.05%, ¥-3,369) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-16: 2,277 shares @ ¥2,890.00 (Score: 66.5)
+  📉 SELL 2025-01-17: 2,277 shares @ ¥2,819.00 (-2.46%, ¥-161,667) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-21: 2,198 shares @ ¥2,920.00 (Score: 66.5)
+  📉 SELL 2025-01-22: 2,198 shares @ ¥2,900.00 (-0.68%, ¥-43,960) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-23: 2,204 shares @ ¥2,893.00 (Score: 66.5)
+  📈 SELL 2025-01-24: 2,204 shares @ ¥2,894.00 (+0.03%, ¥+2,204) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-27: 2,189 shares @ ¥2,913.50 (Score: 66.5)
+  📉 SELL 2025-01-28: 2,189 shares @ ¥2,900.00 (-0.46%, ¥-29,552) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-29: 2,176 shares @ ¥2,917.00 (Score: 66.5)
+  📈 SELL 2025-01-30: 2,176 shares @ ¥2,927.00 (+0.34%, ¥+21,760) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-01-31: 2,170 shares @ ¥2,936.00 (Score: 66.5)
+  📉 SELL 2025-02-03: 2,170 shares @ ¥2,825.00 (-3.78%, ¥-240,870) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-02-05: 2,119 shares @ ¥2,893.00 (Score: 67.5)
+  📈 SELL 2025-02-06: 2,119 shares @ ¥2,961.00 (+2.35%, ¥+144,092) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-02-07: 2,193 shares @ ¥2,860.00 (Score: 67.5)
+  📉 SELL 2025-02-10: 2,193 shares @ ¥2,826.00 (-1.19%, ¥-74,562) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-03-06: 2,167 shares @ ¥2,860.00 (Score: 70.5)
+  📉 SELL 2025-03-07: 2,167 shares @ ¥2,749.50 (-3.86%, ¥-239,454) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-03-19: 2,081 shares @ ¥2,864.00 (Score: 71.0)
+  📉 SELL 2025-03-21: 2,081 shares @ ¥2,851.00 (-0.45%, ¥-27,053) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-03-24: 2,064 shares @ ¥2,874.00 (Score: 72.8)
+  📈 SELL 2025-03-25: 2,064 shares @ ¥2,916.00 (+1.46%, ¥+86,688) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-03-26: 2,077 shares @ ¥2,898.50 (Score: 71.2)
+  📉 SELL 2025-03-27: 2,077 shares @ ¥2,780.00 (-4.09%, ¥-246,124) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-04-30: 2,065 shares @ ¥2,795.50 (Score: 70.5)
+  📉 SELL 2025-05-01: 2,065 shares @ ¥2,727.00 (-2.45%, ¥-141,452) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-05-07: 2,040 shares @ ¥2,760.50 (Score: 71.2)
+  📉 SELL 2025-05-08: 2,040 shares @ ¥2,706.00 (-1.97%, ¥-111,180) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-05-14: 1,951 shares @ ¥2,830.00 (Score: 72.2)
+  📉 SELL 2025-05-15: 1,951 shares @ ¥2,709.00 (-4.28%, ¥-236,071) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-06-02: 1,930 shares @ ¥2,737.50 (Score: 72.2)
+  📉 SELL 2025-06-03: 1,930 shares @ ¥2,681.50 (-2.05%, ¥-108,080) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-07-25: 1,838 shares @ ¥2,816.00 (Score: 67.2)
+  📉 SELL 2025-07-28: 1,838 shares @ ¥2,809.00 (-0.25%, ¥-12,866) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-07-29: 1,857 shares @ ¥2,780.00 (Score: 67.8)
+  📉 SELL 2025-07-30: 1,857 shares @ ¥2,740.00 (-1.44%, ¥-74,280) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-07-31: 1,851 shares @ ¥2,750.00 (Score: 71.2)
+  📉 SELL 2025-08-01: 1,851 shares @ ¥2,715.00 (-1.27%, ¥-64,785) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-08-04: 1,902 shares @ ¥2,642.00 (Score: 71.2)
+  📈 SELL 2025-08-05: 1,902 shares @ ¥2,671.50 (+1.12%, ¥+56,109) - HIGH: Guidance revision: Company guiding down >5%
+  📊 BUY  2025-08-07: 1,866 shares @ ¥2,723.00 (Score: 71.2)
+  📉 SELL 2025-08-08: 1,866 shares @ ¥2,699.50 (-0.86%, ¥-43,851) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-08: 1,651 shares @ ¥3,050.00 (Score: 65.8)
+  📉 SELL 2025-10-09: 1,651 shares @ ¥3,000.00 (-1.64%, ¥-82,550) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-10: 1,693 shares @ ¥2,926.50 (Score: 66.2)
+  📉 SELL 2025-10-14: 1,693 shares @ ¥2,848.50 (-2.67%, ¥-132,054) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-15: 1,664 shares @ ¥2,898.00 (Score: 70.5)
+  📈 SELL 2025-10-16: 1,664 shares @ ¥2,964.00 (+2.28%, ¥+109,824) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-17: 1,689 shares @ ¥2,920.00 (Score: 74.0)
+  📈 SELL 2025-10-20: 1,689 shares @ ¥2,988.50 (+2.35%, ¥+115,696) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-21: 1,673 shares @ ¥3,017.00 (Score: 78.8)
+  📈 SELL 2025-10-22: 1,673 shares @ ¥3,075.00 (+1.92%, ¥+97,034) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-23: 1,659 shares @ ¥3,100.00 (Score: 76.2)
+  📈 SELL 2025-10-24: 1,659 shares @ ¥3,110.00 (+0.32%, ¥+16,590) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-27: 1,628 shares @ ¥3,170.00 (Score: 78.8)
+  📈 SELL 2025-10-28: 1,628 shares @ ¥3,220.00 (+1.58%, ¥+81,400) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-29: 1,651 shares @ ¥3,176.00 (Score: 78.8)
+  📉 SELL 2025-10-30: 1,651 shares @ ¥3,148.00 (-0.88%, ¥-46,228) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-10-31: 1,629 shares @ ¥3,190.00 (Score: 78.8)
+  📉 SELL 2025-11-04: 1,629 shares @ ¥3,150.00 (-1.25%, ¥-65,160) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-05: 1,629 shares @ ¥3,150.00 (Score: 79.8)
+  📉 SELL 2025-11-06: 1,629 shares @ ¥3,110.00 (-1.27%, ¥-65,160) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-07: 1,639 shares @ ¥3,090.00 (Score: 85.5)
+  📈 SELL 2025-11-10: 1,639 shares @ ¥3,133.00 (+1.39%, ¥+70,477) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-11: 1,632 shares @ ¥3,148.00 (Score: 85.0)
+  📈 SELL 2025-11-12: 1,632 shares @ ¥3,176.00 (+0.89%, ¥+45,696) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-13: 1,619 shares @ ¥3,200.00 (Score: 71.8)
+  📉 SELL 2025-11-14: 1,619 shares @ ¥3,155.00 (-1.41%, ¥-72,855) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-17: 1,622 shares @ ¥3,150.00 (Score: 74.8)
+  📉 SELL 2025-11-18: 1,622 shares @ ¥3,106.00 (-1.40%, ¥-71,368) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-11-21: 1,660 shares @ ¥3,035.00 (Score: 85.0)
+  📈 SELL 2025-11-25: 1,660 shares @ ¥3,150.00 (+3.79%, ¥+190,900) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-15: 1,612 shares @ ¥3,243.00 (Score: 68.0)
+  📈 SELL 2025-12-16: 1,612 shares @ ¥3,380.00 (+4.22%, ¥+220,844) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-25: 1,614 shares @ ¥3,377.00 (Score: 67.0)
+  📉 SELL 2025-12-26: 1,614 shares @ ¥3,377.00 (+0.00%, ¥+0) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2025-12-29: 1,609 shares @ ¥3,386.00 (Score: 67.0)
+  📉 SELL 2025-12-30: 1,609 shares @ ¥3,370.00 (-0.47%, ¥-25,744) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+  📊 BUY  2026-01-05: 1,590 shares @ ¥3,411.00 (Score: 67.5)
+  📈 SELL 2026-01-06: 1,590 shares @ ¥3,488.00 (+2.26%, ¥+122,430) - EMERGENCY: EMERGENCY: Earnings miss + guidance cut detected
+
+================================================================================
+详细回测结果
+================================================================================
+======================================================================
+Backtest: 7203 (Unknown)
+Strategy: SimpleScorer + ATRExiter
+Period: 2021-01-01 to 2026-01-08
+======================================================================
+
+💰 Capital:
+  Starting: ¥5,000,000
+  Ending:   ¥1,660
+  Profit:   ¥-4,998,340
+
+📊 Returns:
+  Total Return:      -99.97%
+  Annualized:        -79.73%
+  Sharpe Ratio:      1.61
+  Max Drawdown:      -38.31%
+
+📈 Trading:
+  Trades:            21
+  Win Rate:          42.9%
+  Avg Gain:          +8.66%
+  Avg Loss:          -4.81%
+  Avg Hold:          28.0 days
+  Profit Factor:     1.15
+======================================================================
+
+======================================================================
+Backtest: 7203 (Unknown)
+Strategy: SimpleScorer + LayeredExiter
+Period: 2021-01-01 to 2026-01-08
+======================================================================
+
+💰 Capital:
+  Starting: ¥5,000,000
+  Ending:   ¥6,399,334
+  Profit:   ¥1,399,334
+
+📊 Returns:
+  Total Return:      +27.99%
+  Annualized:        +5.04%
+  Sharpe Ratio:      1.61
+  Max Drawdown:      -28.49%
+
+📈 Trading:
+  Trades:            149
+  Win Rate:          53.0%
+  Avg Gain:          +1.46%
+  Avg Loss:          -1.26%
+  Avg Hold:          1.4 days
+  Profit Factor:     1.24
+======================================================================
+
+======================================================================
+Backtest: 7203 (Unknown)
+Strategy: EnhancedScorer + ATRExiter
+Period: 2021-01-01 to 2026-01-08
+======================================================================
+
+💰 Capital:
+  Starting: ¥5,000,000
+  Ending:   ¥2,943
+  Profit:   ¥-4,997,057
+
+📊 Returns:
+  Total Return:      -99.94%
+  Annualized:        -77.28%
+  Sharpe Ratio:      0.35
+  Max Drawdown:      -41.85%
+
+📈 Trading:
+  Trades:            22
+  Win Rate:          31.8%
+  Avg Gain:          +10.74%
+  Avg Loss:          -4.71%
+  Avg Hold:          24.4 days
+  Profit Factor:     0.95
+======================================================================
+
+======================================================================
+Backtest: 7203 (Unknown)
+Strategy: EnhancedScorer + LayeredExiter
+Period: 2021-01-01 to 2026-01-08
+======================================================================
+
+💰 Capital:
+  Starting: ¥5,000,000
+  Ending:   ¥5,547,538
+  Profit:   ¥547,538
+
+📊 Returns:
+  Total Return:      +10.95%
+  Annualized:        +2.09%
+  Sharpe Ratio:      0.74
+  Max Drawdown:      -34.12%
+
+📈 Trading:
+  Trades:            150
+  Win Rate:          50.0%
+  Avg Gain:          +1.50%
+  Avg Loss:          -1.33%
+  Avg Hold:          1.5 days
+  Profit Factor:     1.09
+======================================================================
+
+
+策略对比:
+--------------------------------------------------------------------------------
+ticker ticker_name    scorer_name   exiter_name  total_return_pct  sharpe_ratio  max_drawdown_pct  num_trades  win_rate_pct alpha beat_benchmark
+  7203     Unknown   SimpleScorer     ATRExiter         -99.96681      1.609337        -38.307853          21     42.857143  None           None
+  7203     Unknown   SimpleScorer LayeredExiter          27.98667      1.612597        -28.487611         149     53.020134  None           None
+  7203     Unknown EnhancedScorer     ATRExiter         -99.94114      0.346725        -41.850111          22     31.818182  None           None
+  7203     Unknown EnhancedScorer LayeredExiter          10.95075      0.743488        -34.117338         150     50.000000  None           None
+
+================================================================================
+🏆 最佳策略: 7203 × SimpleScorer + LayeredExiter
+   夏普比率: 1.61
+   总回报: +27.99%
+   最大回撤: -28.49%
+================================================================================
+
+
+✅ 结果已保存到: backtest_results\backtest_result_20260109_140645.txt
+✅ CSV已保存到: backtest_results_20260108.csv

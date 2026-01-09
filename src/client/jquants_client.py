@@ -263,3 +263,36 @@ class JQuantsV2Client:
         except requests.exceptions.HTTPError as e:
             logger.warning(f"Financial summary not available for {code}: {e}")
             return []
+    
+    def get_listed_info(
+        self, 
+        code: Optional[str] = None,
+        date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch listed issue information (all TSE stocks or specific ticker).
+        
+        Args:
+            code: Stock code (optional, omit to get all stocks).
+            date: Date in YYYY-MM-DD format (optional).
+            
+        Returns:
+            List of listed issue records with company name, sector, market code.
+        """
+        if code:
+            logger.info(f"Fetching listed info for {code}")
+        else:
+            logger.info("Fetching all listed stocks")
+        
+        params = {}
+        if code:
+            params['code'] = code
+        if date:
+            params['date'] = date
+        
+        try:
+            response = self._make_request('/v1/listed/info', params)
+            return response.get('info', [])
+        except requests.exceptions.HTTPError as e:
+            logger.warning(f"Listed info not available: {e}")
+            return []

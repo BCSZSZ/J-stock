@@ -1,0 +1,493 @@
+"""
+Backtest Engine
+Core simulation logic for testing strategies on historical data.
+"""
+import logging
+import json
+from pathlib import Path
+from typing import List, Tuple, Optional
+from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+
+from src.analysis.scorers.base_scorer import BaseScorer
+from src.analysis.exiters.base_exiter import BaseExiter, Position
+from src.backtest.models import Trade, BacktestResult
+from src.backtest.metrics import (
+    calculate_sharpe_ratio,
+    calculate_max_drawdown,
+    calculate_equity_curve,
+    calculate_annualized_return,
+    calculate_trade_statistics
+)
+from src.client.jquants_client import JQuantsV2Client
+
+logger = logging.getLogger(__name__)
+
+
+class BacktestEngine:
+    """
+    Day-by-day backtest simulation engine.
+    
+    Critical Rules:
+    - NO FUTURE PEEKING: Only use data up to current simulation date
+    - Forward-fill sparse data (trades, financials)
+    - Track peak price for trailing stops
+    """
+    
+    def __init__(
+        self,
+        starting_capital_jpy: float = 5_000_000,  # ¥5M default
+        buy_threshold: float = 65.0,               # Score >= 65 to buy
+        data_root: str = './data'
+    ):
+        """
+        Initialize backtest engine.
+        
+        Args:
+            starting_capital_jpy: Starting capital in JPY
+            buy_threshold: Minimum score to trigger buy signal
+            data_root: Root directory for data files
+        """
+        self.starting_capital = starting_capital_jpy
+        self.buy_threshold = buy_threshold
+        self.data_root = Path(data_root)
+    
+    def _load_data(self, ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+        """
+        Load all data for a ticker.
+        
+        Returns:
+            (features_df, trades_df, financials_df, metadata)
+        """
+        # Load features (daily)
+        features_path = self.data_root / 'features' / f"{ticker}_features.parquet"
+        df_features = pd.read_parquet(features_path)
+        # Ensure Date column is datetime and set as index
+        if 'Date' in df_features.columns:
+            df_features['Date'] = pd.to_datetime(df_features['Date'])
+            df_features = df_features.set_index('Date')
+        else:
+            df_features.index = pd.to_datetime(df_features.index)
+        
+        # Load trades (weekly) - keep original format for scorer
+        trades_path = self.data_root / 'raw_trades' / f"{ticker}_trades.parquet"
+        if trades_path.exists():
+            df_trades = pd.read_parquet(trades_path)
+            # Filter to TSEPrime section only (most stocks are here)
+            if 'Section' in df_trades.columns:
+                df_trades = df_trades[df_trades['Section'] == 'TSEPrime'].copy()
+            # Convert dates but keep as columns (scorer expects EnDate column)
+            df_trades['EnDate'] = pd.to_datetime(df_trades['EnDate'])
+        else:
+            df_trades = pd.DataFrame()
+        
+        # Load financials (quarterly) - keep original format for scorer
+        financials_path = self.data_root / 'raw_financials' / f"{ticker}_financials.parquet"
+        if financials_path.exists():
+            df_financials = pd.read_parquet(financials_path)
+            # Convert dates but keep as columns (scorer expects DiscDate column)
+            df_financials['DiscDate'] = pd.to_datetime(df_financials['DiscDate'])
+        else:
+            df_financials = pd.DataFrame()
+        
+        # Load metadata
+        metadata_path = self.data_root / 'metadata' / f"{ticker}_metadata.json"
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        return df_features, df_trades, df_financials, metadata
+    
+    def backtest_strategy(
+        self,
+        ticker: str,
+        scorer: BaseScorer,
+        exiter: BaseExiter,
+        start_date: str = "2021-01-01",
+        end_date: str = "2026-01-08"
+    ) -> BacktestResult:
+        """
+        Run backtest for one strategy on one ticker.
+        
+        Args:
+            ticker: Stock code
+            scorer: Scoring strategy
+            exiter: Exit strategy
+            start_date: Backtest start date
+            end_date: Backtest end date
+            
+        Returns:
+            BacktestResult with metrics and trade history
+        """
+        logger.info(f"Backtesting {ticker}: {scorer.__class__.__name__} + {exiter.__class__.__name__}")
+        
+        # Load data
+        df_features, df_trades, df_financials, metadata = self._load_data(ticker)
+        
+        # Filter date range
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        df_features = df_features[(df_features.index >= start) & (df_features.index <= end)]
+        
+        if df_features.empty:
+            logger.warning(f"No data for {ticker} in date range")
+            return self._empty_result(ticker, metadata, scorer, exiter, start_date, end_date)
+        
+        # Simulation state
+        position: Optional[Position] = None
+        trades: List[Trade] = []
+        cash = self.starting_capital
+        
+        # Pending orders (signal today, execute tomorrow)
+        pending_buy_signal = False
+        pending_buy_score = 0.0
+        pending_sell_signal = None
+        
+        # Day-by-day simulation
+        trading_days = df_features.index.tolist()
+        
+        for i, current_date in enumerate(trading_days):
+            # Get data UP TO current date (NO FUTURE PEEKING!)
+            df_features_historical = df_features[df_features.index <= current_date]
+            
+            # Filter trades/financials by their date columns (keep original format for scorer)
+            df_trades_historical = df_trades[df_trades['EnDate'] <= current_date] if not df_trades.empty else pd.DataFrame()
+            df_financials_historical = df_financials[df_financials['DiscDate'] <= current_date] if not df_financials.empty else pd.DataFrame()
+            
+            current_close = df_features.loc[current_date, 'Close']
+            current_open = df_features.loc[current_date, 'Open']
+            
+            # =====================================================================
+            # STEP 1: EXECUTE PENDING ORDERS (from yesterday's signals)
+            # =====================================================================
+            
+            if pending_buy_signal and position is None:
+                # Execute BUY at today's open price (signal was generated yesterday)
+                entry_price = current_open
+                shares = int(cash / entry_price)
+                
+                if shares > 0:
+                    position = Position(
+                        ticker=ticker,
+                        entry_price=entry_price,
+                        entry_date=current_date,
+                        entry_score=pending_buy_score,
+                        quantity=shares,
+                        peak_price_since_entry=entry_price
+                    )
+                    cash -= shares * entry_price
+                    
+                    print(f"  📊 BUY  {current_date.date()}: {shares:,} shares @ ¥{entry_price:,.2f} (Score: {pending_buy_score:.1f})")
+                    logger.info(f"BUY executed: {shares} shares @ ¥{entry_price:.2f} (Score: {pending_buy_score:.1f})")
+                
+                pending_buy_signal = False
+                pending_buy_score = 0.0
+            
+            if pending_sell_signal and position is not None:
+                # Execute SELL at today's open price (signal was generated yesterday)
+                exit_price = current_open
+                exit_value = position.quantity * exit_price
+                cash += exit_value
+                
+                # Record trade
+                entry_date = pd.to_datetime(position.entry_date)
+                holding_days = (current_date - entry_date).days
+                return_pct = ((exit_price / position.entry_price) - 1) * 100
+                return_jpy = (exit_price - position.entry_price) * position.quantity
+                
+                trade = Trade(
+                    entry_date=position.entry_date,
+                    entry_price=position.entry_price,
+                    entry_score=position.entry_score,
+                    exit_date=current_date.strftime('%Y-%m-%d'),
+                    exit_price=exit_price,
+                    exit_reason=pending_sell_signal.reason,
+                    exit_urgency=pending_sell_signal.urgency,
+                    holding_days=holding_days,
+                    shares=position.quantity,
+                    return_pct=return_pct,
+                    return_jpy=return_jpy,
+                    peak_price=position.peak_price_since_entry
+                )
+                trades.append(trade)
+                
+                profit_icon = "📈" if return_pct > 0 else "📉"
+                print(f"  {profit_icon} SELL {current_date.date()}: {position.quantity:,} shares @ ¥{exit_price:,.2f} "
+                      f"({return_pct:+.2f}%, ¥{return_jpy:+,.0f}) - {pending_sell_signal.urgency}: {pending_sell_signal.reason}")
+                logger.info(f"SELL executed: {position.quantity} shares @ ¥{exit_price:.2f} ({return_pct:+.2f}%)")
+                
+                position = None
+                pending_sell_signal = None
+            
+            # =====================================================================
+            # STEP 2: GENERATE NEW SIGNALS (for tomorrow's execution)
+            # =====================================================================
+            
+            if position is None:
+                # ENTRY LOGIC: No position, check for buy signal
+                try:
+                    score_result = scorer.evaluate(
+                        ticker,
+                        df_features_historical,
+                        df_trades_historical,
+                        df_financials_historical,
+                        metadata
+                    )
+                    
+                    if score_result.total_score >= self.buy_threshold:
+                        # Signal generated: Will execute TOMORROW at open price
+                        pending_buy_signal = True
+                        pending_buy_score = score_result.total_score
+                        logger.info(f"BUY SIGNAL generated on {current_date.date()} (Score: {score_result.total_score:.1f})")
+                
+                except Exception as e:
+                    logger.warning(f"Scorer failed on {current_date.date()}: {e}")
+                    continue
+            
+            else:
+                # EXIT LOGIC: Holding position, check for exit signal
+                # Update peak price (using today's close)
+                position.peak_price_since_entry = max(position.peak_price_since_entry, current_close)
+                
+                try:
+                    # Get current score
+                    current_score_result = scorer.evaluate(
+                        ticker,
+                        df_features_historical,
+                        df_trades_historical,
+                        df_financials_historical,
+                        metadata
+                    )
+                    
+                    # Check exit signal
+                    exit_signal = exiter.evaluate_exit(
+                        position,
+                        df_features_historical,
+                        df_trades_historical,
+                        df_financials_historical,
+                        metadata,
+                        current_score_result
+                    )
+                    
+                    if exit_signal.action != "HOLD":
+                        # Signal generated: Will execute TOMORROW at open price
+                        pending_sell_signal = exit_signal
+                        logger.info(f"SELL SIGNAL generated on {current_date.date()} ({exit_signal.urgency}: {exit_signal.reason})")
+                
+                except Exception as e:
+                    logger.warning(f"Exit evaluation failed on {current_date.date()}: {e}")
+        
+        # Build result
+        return self._build_result(
+            ticker=ticker,
+            metadata=metadata,
+            scorer=scorer,
+            exiter=exiter,
+            start_date=start_date,
+            end_date=end_date,
+            trades=trades,
+            final_cash=cash
+        )
+    
+    def _build_result(
+        self,
+        ticker: str,
+        metadata: dict,
+        scorer: BaseScorer,
+        exiter: BaseExiter,
+        start_date: str,
+        end_date: str,
+        trades: List[Trade],
+        final_cash: float
+    ) -> BacktestResult:
+        """Build BacktestResult from simulation data."""
+        
+        # Calculate metrics
+        final_capital = final_cash
+        total_return_pct = ((final_capital / self.starting_capital) - 1) * 100
+        annualized_return = calculate_annualized_return(total_return_pct, start_date, end_date)
+        
+        trade_stats = calculate_trade_statistics(trades)
+        
+        # Sharpe ratio from trade returns
+        returns = [t.return_pct for t in trades]
+        sharpe = calculate_sharpe_ratio(returns) if returns else 0.0
+        
+        # Max drawdown
+        equity_curve = calculate_equity_curve(trades, self.starting_capital)
+        max_dd = calculate_max_drawdown(equity_curve)
+        
+        return BacktestResult(
+            ticker=ticker,
+            ticker_name=metadata.get('company_name', 'Unknown'),
+            scorer_name=scorer.__class__.__name__,
+            exiter_name=exiter.__class__.__name__,
+            start_date=start_date,
+            end_date=end_date,
+            starting_capital_jpy=self.starting_capital,
+            final_capital_jpy=final_capital,
+            total_return_pct=total_return_pct,
+            annualized_return_pct=annualized_return,
+            sharpe_ratio=sharpe,
+            max_drawdown_pct=max_dd,
+            num_trades=trade_stats['num_trades'],
+            win_rate_pct=trade_stats['win_rate_pct'],
+            avg_gain_pct=trade_stats['avg_gain_pct'],
+            avg_loss_pct=trade_stats['avg_loss_pct'],
+            avg_holding_days=trade_stats['avg_holding_days'],
+            profit_factor=trade_stats['profit_factor'],
+            trades=trades
+        )
+    
+    def _empty_result(
+        self,
+        ticker: str,
+        metadata: dict,
+        scorer: BaseScorer,
+        exiter: BaseExiter,
+        start_date: str,
+        end_date: str
+    ) -> BacktestResult:
+        """Create empty result for failed backtests."""
+        return BacktestResult(
+            ticker=ticker,
+            ticker_name=metadata.get('company_name', 'Unknown'),
+            scorer_name=scorer.__class__.__name__,
+            exiter_name=exiter.__class__.__name__,
+            start_date=start_date,
+            end_date=end_date,
+            starting_capital_jpy=self.starting_capital,
+            final_capital_jpy=self.starting_capital,
+            total_return_pct=0.0,
+            annualized_return_pct=0.0,
+            sharpe_ratio=0.0,
+            max_drawdown_pct=0.0,
+            num_trades=0,
+            win_rate_pct=0.0,
+            avg_gain_pct=0.0,
+            avg_loss_pct=0.0,
+            avg_holding_days=0.0,
+            profit_factor=0.0,
+            trades=[]
+        )
+
+
+def calculate_benchmark_return(
+    client: JQuantsV2Client,
+    start_date: str,
+    end_date: str
+) -> float:
+    """
+    Calculate TOPIX buy-and-hold return for benchmark comparison.
+    
+    Args:
+        client: J-Quants API client
+        start_date: Start date
+        end_date: End date
+        
+    Returns:
+        TOPIX total return percentage
+    """
+    logger.info("Fetching TOPIX benchmark data...")
+    
+    topix_data = client.get_topix_bars(start_date, end_date)
+    
+    if not topix_data or len(topix_data) < 2:
+        logger.warning("Insufficient TOPIX data for benchmark")
+        return 0.0
+    
+    start_price = topix_data[0]['close']
+    end_price = topix_data[-1]['close']
+    
+    benchmark_return = ((end_price / start_price) - 1) * 100
+    logger.info(f"TOPIX return ({start_date} to {end_date}): {benchmark_return:+.2f}%")
+    
+    return benchmark_return
+
+
+def backtest_strategy(
+    ticker: str,
+    scorer: BaseScorer,
+    exiter: BaseExiter,
+    start_date: str = "2021-01-01",
+    end_date: str = "2026-01-08",
+    starting_capital_jpy: float = 5_000_000
+) -> BacktestResult:
+    """
+    Convenience function: Backtest single strategy on single ticker.
+    
+    Args:
+        ticker: Stock code
+        scorer: Scoring strategy
+        exiter: Exit strategy
+        start_date: Backtest start
+        end_date: Backtest end
+        starting_capital_jpy: Starting capital
+        
+    Returns:
+        BacktestResult
+    """
+    engine = BacktestEngine(starting_capital_jpy=starting_capital_jpy)
+    return engine.backtest_strategy(ticker, scorer, exiter, start_date, end_date)
+
+
+def backtest_strategies(
+    tickers: List[str],
+    strategies: List[Tuple[BaseScorer, BaseExiter]],
+    start_date: str = "2021-01-01",
+    end_date: str = "2026-01-08",
+    starting_capital_jpy: float = 5_000_000,
+    include_benchmark: bool = True,
+    api_key: Optional[str] = None
+) -> pd.DataFrame:
+    """
+    Backtest multiple strategies on multiple tickers.
+    
+    Args:
+        tickers: List of stock codes
+        strategies: List of (scorer, exiter) tuples
+        start_date: Backtest start
+        end_date: Backtest end
+        starting_capital_jpy: Starting capital
+        include_benchmark: Whether to fetch TOPIX comparison
+        api_key: J-Quants API key (required if include_benchmark=True)
+        
+    Returns:
+        DataFrame with results for all combinations
+    """
+    engine = BacktestEngine(starting_capital_jpy=starting_capital_jpy)
+    
+    # Fetch benchmark once
+    benchmark_return = None
+    if include_benchmark:
+        if not api_key:
+            logger.warning("API key required for benchmark comparison, skipping...")
+        else:
+            client = JQuantsV2Client(api_key)
+            benchmark_return = calculate_benchmark_return(client, start_date, end_date)
+    
+    # Run all combinations
+    results = []
+    total_runs = len(tickers) * len(strategies)
+    current_run = 0
+    
+    for ticker in tickers:
+        for scorer, exiter in strategies:
+            current_run += 1
+            logger.info(f"Progress: {current_run}/{total_runs}")
+            
+            result = engine.backtest_strategy(ticker, scorer, exiter, start_date, end_date)
+            
+            # Add benchmark comparison
+            if benchmark_return is not None:
+                result.benchmark_return_pct = benchmark_return
+                result.alpha = result.total_return_pct - benchmark_return
+                result.beat_benchmark = result.alpha > 0
+            
+            results.append(result)
+    
+    # Convert to DataFrame
+    df = pd.DataFrame([r.to_dict() for r in results])
+    
+    logger.info(f"Backtest complete: {len(results)} results")
+    return df

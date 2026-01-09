@@ -1,0 +1,45 @@
+{
+  "backtest_config": {
+    "tickers": ["7203"],
+    "start_date": "2021-01-01",
+    "end_date": "2026-01-08",
+    "starting_capital_jpy": 5000000,
+    "buy_threshold": 60,
+    "sell_threshold": 45,
+    "include_benchmark": false,
+    "strategies": [
+      {
+        "scorer": "SimpleScorer",
+        "exiter": "ATRExiter"
+      },
+      {
+        "scorer": "SimpleScorer",
+        "exiter": "LayeredExiter"
+      },
+      {
+        "scorer": "EnhancedScorer",
+        "exiter": "ATRExiter"
+      },
+      {
+        "scorer": "EnhancedScorer",
+        "exiter": "LayeredExiter"
+      }
+    ]
+  },
+  "output_config": {
+    "save_to_file": true,
+    "output_dir": "backtest_results",
+    "include_timestamp": true
+  },
+  "comments": {
+    "tickers": "股票代码列表，可以是单个或多个，例如: ['1321'] 或 ['8035', '8306', '1321']",
+    "start_date": "回测起始日期 (YYYY-MM-DD)",
+    "end_date": "回测结束日期 (YYYY-MM-DD)",
+    "starting_capital_jpy": "起始资金（日元）",
+    "include_benchmark": "是否包含TOPIX基准对比",
+    "strategies": "策略组合列表，scorer可选: SimpleScorer, EnhancedScorer; exiter可选: ATRExiter, LayeredExiter",
+    "save_to_file": "是否保存输出到文件",
+    "output_dir": "输出文件夹名称",
+    "include_timestamp": "文件名是否包含时间戳"
+  }
+}
