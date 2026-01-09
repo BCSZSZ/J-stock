@@ -60,7 +60,7 @@ class StockDataManager:
 
     # ==================== OHLC DATA MANAGEMENT ====================
     
-    def fetch_and_update_ohlc(self, code: str) -> pd.DataFrame:
+    def fetch_and_update_ohlc(self, code: str) -> tuple[pd.DataFrame, bool]:
         """
         Fetch and update OHLC data for a stock using incremental strategy.
         
@@ -68,13 +68,14 @@ class StockDataManager:
             code: Stock code (e.g., '6758').
             
         Returns:
-            Updated DataFrame with OHLC data.
+            Tuple of (Updated DataFrame, has_new_data flag)
         """
         file_path = self.dirs['raw_prices'] / f"{code}.parquet"
         
         if not file_path.exists():
             logger.info(f"[{code}] Cold start: Fetching 5 years of history")
-            return self._fetch_initial_data(code, file_path)
+            result_df = self._fetch_initial_data(code, file_path)
+            return result_df, True  # New data fetched
         else:
             logger.info(f"[{code}] Incremental update mode")
             return self._fetch_incremental_data(code, file_path)
@@ -108,7 +109,7 @@ class StockDataManager:
         
         return df
 
-    def _fetch_incremental_data(self, code: str, file_path: Path) -> pd.DataFrame:
+    def _fetch_incremental_data(self, code: str, file_path: Path) -> tuple[pd.DataFrame, bool]:
         """
         Fetch new data from the last available date.
         
@@ -117,13 +118,14 @@ class StockDataManager:
             file_path: Path to existing parquet file.
             
         Returns:
-            Updated DataFrame with merged data.
+            Tuple of (Updated DataFrame, has_new_data flag)
         """
         # Load existing data
         existing_df = pd.read_parquet(file_path)
         
         if existing_df.empty:
-            return self._fetch_initial_data(code, file_path)
+            result_df = self._fetch_initial_data(code, file_path)
+            return result_df, True  # New data fetched
         
         # Find last date
         existing_df['Date'] = pd.to_datetime(existing_df['Date'])
@@ -133,7 +135,7 @@ class StockDataManager:
         # Check if already up-to-date
         if last_date.date() >= today:
             logger.info(f"[{code}] Already up-to-date (last: {last_date.date()})")
-            return existing_df
+            return existing_df, False  # No new data
         
         # Fetch from last_date + 1 to today
         start_date = last_date + timedelta(days=1)
@@ -147,7 +149,7 @@ class StockDataManager:
         
         if not bars:
             logger.info(f"[{code}] No new data available")
-            return existing_df
+            return existing_df, False  # No new data
         
         # Normalize and merge
         new_df = self._normalize_ohlc_data(bars)
@@ -159,7 +161,7 @@ class StockDataManager:
         self._atomic_save(merged_df, file_path)
         logger.info(f"[{code}] Added {len(new_df)} new rows. Total: {len(merged_df)}")
         
-        return merged_df
+        return merged_df, True  # New data added
     
     def _atomic_save(self, df: pd.DataFrame, target_path: Path) -> None:
         """
@@ -228,23 +230,35 @@ class StockDataManager:
 
     # ==================== TECHNICAL INDICATORS (TRANSFORM) ====================
     
-    def compute_features(self, code: str) -> pd.DataFrame:
+    def compute_features(self, code: str, force_recompute: bool = False) -> pd.DataFrame:
         """
         Compute technical indicators and save to features layer.
         Uses the `ta` library for indicator calculations.
         
         Args:
             code: Stock code.
+            force_recompute: If True, always recompute. If False, check if needed.
             
         Returns:
             DataFrame with computed features.
         """
         # Load raw price data
         raw_path = self.dirs['raw_prices'] / f"{code}.parquet"
+        features_path = self.dirs['features'] / f"{code}_features.parquet"
         
         if not raw_path.exists():
             logger.warning(f"[{code}] No raw price data found. Run fetch_and_update_ohlc first.")
             return pd.DataFrame()
+        
+        # Check if we need to recompute
+        if not force_recompute and features_path.exists():
+            # Compare raw vs features file timestamps
+            raw_mtime = raw_path.stat().st_mtime
+            features_mtime = features_path.stat().st_mtime
+            
+            if features_mtime >= raw_mtime:
+                logger.info(f"[{code}] Features up-to-date, skip recompute")
+                return pd.read_parquet(features_path)
         
         df = pd.read_parquet(raw_path)
         
@@ -282,7 +296,6 @@ class StockDataManager:
         df['Volume_SMA_20'] = df['Volume'].rolling(window=20).mean()
         
         # Save to features layer
-        features_path = self.dirs['features'] / f"{code}_features.parquet"
         self._atomic_save(df, features_path)
         logger.info(f"[{code}] Features saved: {len(df)} rows with {len(df.columns)} columns")
         
@@ -388,20 +401,23 @@ class StockDataManager:
         result = {
             'code': code,
             'success': False,
-            'errors': []
+            'errors': [],
+            'has_new_data': False
         }
         
         try:
-            # Step 1: Fetch/Update OHLC
-            df_prices = self.fetch_and_update_ohlc(code)
+            # Step 1: Fetch/Update OHLC (增量)
+            df_prices, has_new_data = self.fetch_and_update_ohlc(code)
             result['price_rows'] = len(df_prices)
+            result['has_new_data'] = has_new_data
             
             if df_prices.empty:
                 result['errors'].append('No price data fetched')
                 return result
             
-            # Step 2: Compute Features
-            df_features = self.compute_features(code)
+            # Step 2: Compute Features (只有新数据才重算)
+            # force_recompute=False 会检查文件时间戳，只有raw_prices更新了才重算
+            df_features = self.compute_features(code, force_recompute=False)
             result['feature_cols'] = len(df_features.columns)
             
             # Step 3: Fetch Auxiliary Data (optional - don't fail on these)

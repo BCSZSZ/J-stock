@@ -105,18 +105,21 @@ class StockETLPipeline:
         result = {
             'code': code,
             'success': False,
-            'errors': []
+            'errors': [],
+            'has_new_data': False
         }
         
         try:
-            df_prices = self.manager.fetch_and_update_ohlc(code)
+            df_prices, has_new_data = self.manager.fetch_and_update_ohlc(code)
             result['price_rows'] = len(df_prices)
+            result['has_new_data'] = has_new_data
             
             if df_prices.empty:
                 result['errors'].append('No price data fetched')
                 return result
             
-            df_features = self.manager.compute_features(code)
+            # 只有新数据才重算 features
+            df_features = self.manager.compute_features(code, force_recompute=False)
             result['feature_cols'] = len(df_features.columns)
             result['success'] = True
             
