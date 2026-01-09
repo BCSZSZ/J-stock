@@ -11,6 +11,7 @@ The system is **modular** - each component can be tested and used independently.
 **Purpose:** Fetch and update stock data from J-Quants API
 
 **What it does:**
+
 - ✅ Loads tickers from `monitor_list.json`
 - ✅ Fetches **incremental** OHLCV data (only missing days)
 - ✅ Computes technical indicators (EMA, RSI, MACD, ATR)
@@ -18,12 +19,14 @@ The system is **modular** - each component can be tested and used independently.
 - ❌ Does NOT run scoring, exit strategies, or backtesting
 
 **Usage:**
+
 ```powershell
 # Fetch/update data for all stocks in monitor list
 python src/main.py
 ```
 
 **Output:**
+
 ```
 data/
 ├── features/          # {ticker}_features.parquet (OHLCV + indicators)
@@ -33,7 +36,8 @@ data/
 └── metadata/          # {ticker}_metadata.json (earnings calendar)
 ```
 
-**When to run:** 
+**When to run:**
+
 - Daily (after market close ~7:00 AM JST)
 - After adding new ticker to monitor_list.json
 - Before running scorers/backtests
@@ -45,6 +49,7 @@ data/
 **Purpose:** Evaluate stocks using scoring strategies (SimpleScorer, EnhancedScorer)
 
 **What it does:**
+
 - ✅ Calculates 0-100 score for each stock
 - ✅ Shows component breakdown (Technical, Institutional, Fundamental, Volatility)
 - ✅ Identifies risk flags (earnings approaching, high volatility, etc.)
@@ -53,12 +58,14 @@ data/
 **Usage:**
 
 ### Option 1: Test All Monitor List Stocks
+
 ```powershell
 python test_scorer.py
 # Press Enter to use default option 2
 ```
 
 **Output:**
+
 ```
 SUMMARY - All Stocks Ranked by Score
 ======================================================================
@@ -71,6 +78,7 @@ Ticker   Name                 Score    Signal           Risk Flags
 ```
 
 ### Option 2: Test Single Ticker
+
 ```powershell
 python test_scorer.py
 # Enter 1
@@ -78,6 +86,7 @@ python test_scorer.py
 ```
 
 **Output:**
+
 ```
 📊 Score Result:
   Ticker:         8035
@@ -99,6 +108,7 @@ python test_scorer.py
 ```
 
 ### Option 3: Compare Scorers
+
 ```powershell
 python test_scorer.py
 # Enter 3
@@ -106,6 +116,7 @@ python test_scorer.py
 ```
 
 **When to use:**
+
 - Daily - to identify new buy candidates
 - Before entering a position
 - To compare different scoring strategies
@@ -117,6 +128,7 @@ python test_scorer.py
 **Purpose:** Test exit strategies on current or simulated positions
 
 **What it does:**
+
 - ✅ Evaluates whether to hold or sell a position
 - ✅ Calculates profit/loss %
 - ✅ Provides urgency level (LOW/MEDIUM/HIGH/EMERGENCY)
@@ -125,6 +137,7 @@ python test_scorer.py
 **Usage:**
 
 ### Option 1: Test Sample Position
+
 ```powershell
 python test_exit.py
 # Press Enter for default
@@ -133,6 +146,7 @@ python test_exit.py
 ```
 
 **Output:**
+
 ```
 📌 Sample Position Created (30 days ago):
   Entry Date:     2025-12-10
@@ -160,6 +174,7 @@ python test_exit.py
 ```
 
 ### Option 2: Test Your Own Position
+
 ```powershell
 python test_exit.py
 # Enter 2
@@ -167,6 +182,7 @@ python test_exit.py
 ```
 
 ### Option 3: Compare ATR vs Layered
+
 ```powershell
 python test_exit.py
 # Enter 3
@@ -174,6 +190,7 @@ python test_exit.py
 ```
 
 **When to use:**
+
 - Daily - check if you should exit current holdings
 - Before market open - plan your sells
 - To compare exit strategies
@@ -185,6 +202,7 @@ python test_exit.py
 **Purpose:** Test strategy performance on historical data (2021-2026)
 
 **What it does:**
+
 - ✅ Simulates buying/selling over 5 years
 - ✅ Calculates total return %, Sharpe ratio, max drawdown
 - ✅ Shows win rate, avg gain/loss per trade
@@ -194,6 +212,7 @@ python test_exit.py
 **Usage:**
 
 ### Method 1: Use Config File (Recommended)
+
 ```powershell
 # Edit backtest_config.json to set:
 # - Tickers to test
@@ -205,6 +224,7 @@ python test_backtest.py
 ```
 
 **Config Example:**
+
 ```json
 {
   "backtest_config": {
@@ -214,13 +234,14 @@ python test_backtest.py
     "starting_capital_jpy": 5000000
   },
   "strategies": [
-    {"scorer": "SimpleScorer", "exiter": "LayeredExiter"},
-    {"scorer": "EnhancedScorer", "exiter": "LayeredExiter"}
+    { "scorer": "SimpleScorer", "exiter": "LayeredExiter" },
+    { "scorer": "EnhancedScorer", "exiter": "LayeredExiter" }
   ]
 }
 ```
 
 **Output:**
+
 ```
 ======================================================================
 Backtest: 8035 (Tokyo Electron)
@@ -249,6 +270,7 @@ Period: 2021-01-01 to 2026-01-08
 ```
 
 ### Method 2: Custom Backtest Script
+
 ```python
 from src.backtest.engine import BacktestEngine
 from src.analysis.scorers import EnhancedScorer
@@ -268,6 +290,7 @@ print(result.to_summary_string())
 ```
 
 **When to use:**
+
 - Before deploying a new strategy
 - To compare different scorer/exiter combinations
 - To validate system changes
@@ -280,6 +303,7 @@ print(result.to_summary_string())
 **Purpose:** Interactive examples of data layer operations
 
 **What it includes:**
+
 - Example 1: Single stock ETL
 - Example 2: Batch processing
 - Example 3: Read data lake layers
@@ -289,12 +313,14 @@ print(result.to_summary_string())
 - Example 7: Stock screening
 
 **Usage:**
+
 ```powershell
 # Edit examples.py to uncomment the example you want
 python examples.py
 ```
 
 **When to use:**
+
 - Learning how the system works
 - Understanding data structures
 - Building custom features
@@ -359,13 +385,13 @@ python test_backtest.py
 
 ## 📋 File Reference
 
-| File | Purpose | When to Run |
-|------|---------|-------------|
-| `src/main.py` | Fetch/update data | Daily/Weekly |
-| `test_scorer.py` | Score stocks, find opportunities | Daily |
-| `test_exit.py` | Check exit signals for holdings | Daily |
-| `test_backtest.py` | Historical performance testing | As needed |
-| `examples.py` | Learning/experimentation | As needed |
+| File               | Purpose                          | When to Run  |
+| ------------------ | -------------------------------- | ------------ |
+| `src/main.py`      | Fetch/update data                | Daily/Weekly |
+| `test_scorer.py`   | Score stocks, find opportunities | Daily        |
+| `test_exit.py`     | Check exit signals for holdings  | Daily        |
+| `test_backtest.py` | Historical performance testing   | As needed    |
+| `examples.py`      | Learning/experimentation         | As needed    |
 
 ---
 
@@ -374,29 +400,34 @@ python test_backtest.py
 ### I want to...
 
 **...get latest data for all stocks**
+
 ```powershell
 python src/main.py
 ```
 
 **...find buy opportunities**
+
 ```powershell
 python test_scorer.py
 # Press Enter (tests all stocks)
 ```
 
 **...check if I should sell**
+
 ```powershell
 python test_exit.py
 # Enter 2 (test your position)
 ```
 
 **...test a new strategy**
+
 ```powershell
 # Edit backtest_config.json
 python test_backtest.py
 ```
 
 **...add a new stock**
+
 ```powershell
 # 1. Edit data/monitor_list.json
 # 2. python src/main.py
@@ -418,16 +449,20 @@ python test_backtest.py
 ## 🔧 Troubleshooting
 
 **Error: "Features not found for {ticker}"**
+
 - Solution: Run `python src/main.py` first to fetch data
 
 **Error: "JQUANTS_API_KEY not found"**
+
 - Solution: Create `.env` file with `JQUANTS_API_KEY=your_key_here`
 
 **Backtest shows -99% return**
+
 - This is ATRExiter with 100% position sizing (design issue, not bug)
 - Use LayeredExiter instead or reduce position size
 
 **Scorer returns 0.0 score**
+
 - Check if data files exist in `data/` folders
 - Verify ticker code is correct (4 digits, no prefix)
 
@@ -436,6 +471,7 @@ python test_backtest.py
 ## 📞 Need Help?
 
 Check the detailed documentation:
+
 - [README.md](README.md) - Project overview
 - [QUICKSTART.md](QUICKSTART.md) - Getting started
 - [EXIT_STRATEGY_RESEARCH.md](EXIT_STRATEGY_RESEARCH.md) - Exit strategy details

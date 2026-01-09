@@ -95,7 +95,8 @@ j-stock-analyzer/
 
 #### Raw Data Files (Parquet)
 
-**features/{ticker}_features.parquet**
+**features/{ticker}\_features.parquet**
+
 ```python
 # Columns (from compute_features):
 Date: datetime64[ns]          # Trading date (INDEX after engine loads it)
@@ -118,7 +119,8 @@ Volume_SMA_20: float64       # 20-day volume average
 # Usage: Set Date as index in backtest engine
 ```
 
-**raw_trades/{ticker}_trades.parquet**
+**raw_trades/{ticker}\_trades.parquet**
+
 ```python
 # Columns (from API, filtered to TSEPrime):
 EnDate: datetime64[ns]       # Week ending date (COLUMN, not index)
@@ -132,7 +134,8 @@ BalanceValue: int64         # Net flow (¥)
 # Usage: Scorers filter by current_date, keep EnDate as column
 ```
 
-**raw_financials/{ticker}_financials.parquet**
+**raw_financials/{ticker}\_financials.parquet**
+
 ```python
 # Columns (from API):
 DiscDate: datetime64[ns]     # Disclosure date (COLUMN, not index)
@@ -151,7 +154,8 @@ DebtRatio: float64          # Debt/Equity ratio
 # Usage: Scorers filter by DiscDate <= current_date
 ```
 
-**metadata/{ticker}_metadata.json**
+**metadata/{ticker}\_metadata.json**
+
 ```python
 {
   "earnings_calendar": [
@@ -168,6 +172,7 @@ DebtRatio: float64          # Debt/Equity ratio
 #### DataFrame Contracts for Scorers/Exiters
 
 **When BacktestEngine calls scorer.evaluate():**
+
 ```python
 df_features: pd.DataFrame
     - Date is INDEX (pd.DatetimeIndex)
@@ -220,6 +225,7 @@ class ScoreResult:
 ```
 
 **⚠️ CRITICAL TYPE HANDLING:**
+
 ```python
 # WRONG (causes comparison errors):
 if current_score > 70:  # current_score is ScoreResult object!
@@ -275,6 +281,7 @@ class Position:
 ```
 
 **⚠️ CRITICAL: Entry Date Type**
+
 ```python
 # WRONG (causes date arithmetic errors):
 position = Position(
@@ -304,17 +311,18 @@ class BaseExiter(ABC):
 ```
 
 **⚠️ CRITICAL: ScoreResult Handling in Exiters**
+
 ```python
 def evaluate_exit(self, position, df_features, df_trades, df_financials, metadata, current_score):
     # MUST extract numeric value at start!
     from ..scorers.base_scorer import ScoreResult
-    
+
     if isinstance(current_score, ScoreResult):
         score_value = current_score.total_score
         score_breakdown = current_score.breakdown
     else:
         score_value = current_score
-    
+
     # Now use score_value for all comparisons
     if score_value < 40:  # ✅ Correct
         return self._create_signal(...)
@@ -373,14 +381,14 @@ class BacktestResult:
     start_date: str
     end_date: str
     starting_capital_jpy: float
-    
+
     # Performance Metrics
     final_capital_jpy: float
     total_return_pct: float
     annualized_return_pct: float
     sharpe_ratio: float
     max_drawdown_pct: float
-    
+
     # Trade Statistics
     num_trades: int
     win_rate_pct: float
@@ -388,12 +396,12 @@ class BacktestResult:
     avg_loss_pct: float
     avg_holding_days: float
     profit_factor: float
-    
+
     # Benchmark (optional)
     benchmark_return_pct: Optional[float] = None
     alpha: Optional[float] = None
     beat_benchmark: Optional[bool] = None
-    
+
     # Trade Details
     trades: List[Trade] = field(default_factory=list)
 ```
@@ -423,6 +431,7 @@ class BacktestEngine:
 **Root Cause:** Exiter receives ScoreResult object but treats it as float
 
 **Solution:**
+
 ```python
 # At start of evaluate_exit():
 from ..scorers.base_scorer import ScoreResult
@@ -442,6 +451,7 @@ else:
 **Root Cause:** Position.entry_date is string but code does date arithmetic
 
 **Solution:**
+
 ```python
 # When creating Position in backtest engine:
 position = Position(
@@ -460,6 +470,7 @@ position = Position(
 **Root Cause:** Code assumes Date is index but it's a column (or vice versa)
 
 **Solution:**
+
 ```python
 # Backtest engine MUST set Date as index for features:
 df_features = pd.read_parquet(path)
