@@ -6,7 +6,7 @@
     "starting_capital_jpy": 5000000,
     "buy_threshold": 60,
     "sell_threshold": 45,
-    "include_benchmark": false,
+    "include_benchmark": true,
     "strategies": [
       {
         "scorer": "SimpleScorer",

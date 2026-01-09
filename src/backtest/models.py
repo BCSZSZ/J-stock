@@ -5,6 +5,7 @@ Dataclasses for trade records and backtest results.
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import pandas as pd
 
 
 @dataclass
@@ -58,14 +59,21 @@ class BacktestResult:
     benchmark_return_pct: Optional[float] = None
     alpha: Optional[float] = None
     beat_benchmark: Optional[bool] = None
+    beta: Optional[float] = None              # Systematic risk (strategy vs TOPIX)
+    tracking_error: Optional[float] = None    # Active risk (annualized %)
+    information_ratio: Optional[float] = None # Alpha quality (alpha / tracking_error)
     
     # Trade Details
     trades: List[Trade] = field(default_factory=list)
     
+    # Internal: daily equity series for Beta/IR calculation (not serialized)
+    _daily_equity_series: Any = field(default=None, repr=False)
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary (excluding trades list for summary)."""
         d = asdict(self)
-        # Remove trades from summary (too verbose)
+        # Remove internal fields and large lists
+        d.pop('_daily_equity_series', None)
         d.pop('trades', None)
         return d
     

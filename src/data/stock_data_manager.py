@@ -305,7 +305,7 @@ class StockDataManager:
     
     def fetch_and_save_financials(self, code: str) -> Optional[pd.DataFrame]:
         """
-        Fetch latest financial summary and save to raw_financials.
+        Fetch latest financial summary and save to raw_financials (增量追加).
         
         Args:
             code: Stock code.
@@ -313,22 +313,56 @@ class StockDataManager:
         Returns:
             DataFrame with financial data or None.
         """
+        output_path = self.dirs['raw_financials'] / f"{code}_financials.parquet"
+        
+        # 获取新数据
         financials = self.client.get_financial_summary(code)
         
         if not financials:
             logger.warning(f"[{code}] No financial data available")
             return None
         
-        df = pd.DataFrame(financials)
-        output_path = self.dirs['raw_financials'] / f"{code}_financials.parquet"
-        self._atomic_save(df, output_path)
-        logger.info(f"[{code}] Saved {len(df)} financial records")
+        new_df = pd.DataFrame(financials)
         
-        return df
+        # 检查是否有历史数据
+        if output_path.exists():
+            existing_df = pd.read_parquet(output_path)
+            
+            # 确保DiscDate是datetime
+            if 'DiscDate' in existing_df.columns:
+                existing_df['DiscDate'] = pd.to_datetime(existing_df['DiscDate'])
+            if 'DiscDate' in new_df.columns:
+                new_df['DiscDate'] = pd.to_datetime(new_df['DiscDate'])
+            
+            # 合并：保留旧数据 + 追加新数据
+            merged_df = pd.concat([existing_df, new_df], ignore_index=True)
+            
+            # 去重（根据DiscDate和Quarter去重，保留最新的）
+            if 'DiscDate' in merged_df.columns and 'Quarter' in merged_df.columns:
+                merged_df = merged_df.drop_duplicates(subset=['DiscDate', 'Quarter'], keep='last')
+            
+            # 排序
+            if 'DiscDate' in merged_df.columns:
+                merged_df = merged_df.sort_values('DiscDate').reset_index(drop=True)
+            
+            # 检查是否有新增
+            if len(merged_df) > len(existing_df):
+                logger.info(f"[{code}] Added {len(merged_df) - len(existing_df)} new financial records. Total: {len(merged_df)}")
+                self._atomic_save(merged_df, output_path)
+            else:
+                logger.info(f"[{code}] Financials up-to-date, no new records ({len(existing_df)} records)")
+                return existing_df
+            
+            return merged_df
+        else:
+            # 首次保存
+            self._atomic_save(new_df, output_path)
+            logger.info(f"[{code}] Saved {len(new_df)} financial records (initial)")
+            return new_df
     
     def fetch_and_save_investor_trades(self, code: str) -> Optional[pd.DataFrame]:
         """
-        Fetch investor type trading data and save to raw_trades.
+        Fetch investor type trading data and save to raw_trades (incremental append).
         
         Args:
             code: Stock code.
@@ -336,34 +370,88 @@ class StockDataManager:
         Returns:
             DataFrame with trading data or None.
         """
-        # Fetch last 90 days to capture weekly data
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=90)
-        
-        from_str = start_date.strftime('%Y-%m-%d')
-        to_str = end_date.strftime('%Y-%m-%d')
-        
-        trades = self.client.get_investor_types(code, from_str, to_str)
-        
-        if not trades:
-            logger.warning(f"[{code}] No investor trading data available")
-            return None
-        
-        df = pd.DataFrame(trades)
         output_path = self.dirs['raw_trades'] / f"{code}_trades.parquet"
-        self._atomic_save(df, output_path)
-        logger.info(f"[{code}] Saved {len(df)} trading records")
         
-        return df
+        # Check for existing data
+        if output_path.exists():
+            existing_df = pd.read_parquet(output_path)
+            existing_df['EnDate'] = pd.to_datetime(existing_df['EnDate'])
+            
+            # Find last date
+            last_date = existing_df['EnDate'].max()
+            
+            # Only fetch after last date (+1 day to today)
+            start_date = last_date + timedelta(days=1)
+            end_date = datetime.now()
+            
+            # If already up-to-date, skip
+            if start_date.date() >= end_date.date():
+                logger.info(f"[{code}] Investor trades up-to-date (last: {last_date.date()})")
+                return existing_df
+        else:
+            # First fetch: get 90 days
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=90)
+            existing_df = pd.DataFrame()
+        
+        # Fetch new data
+        new_records = self.client.get_investor_types(
+            code,
+            start_date.strftime('%Y-%m-%d'),
+            end_date.strftime('%Y-%m-%d')
+        )
+        
+        if not new_records:
+            if existing_df.empty:
+                logger.warning(f"[{code}] No investor trading data available")
+                return None
+            else:
+                logger.info(f"[{code}] No new investor trades")
+                return existing_df
+        
+        # Convert to DataFrame
+        new_df = pd.DataFrame(new_records)
+        
+        if 'EnDate' in new_df.columns:
+            new_df['EnDate'] = pd.to_datetime(new_df['EnDate'])
+        
+        # Merge with existing
+        if not existing_df.empty:
+            merged_df = pd.concat([existing_df, new_df], ignore_index=True)
+            
+            # Deduplicate by (EnDate, Section, InvestorCode)
+            available_cols = [col for col in ['EnDate', 'Section', 'InvestorCode'] 
+                            if col in merged_df.columns]
+            if available_cols:
+                merged_df = merged_df.drop_duplicates(subset=available_cols, keep='last')
+            
+            # Sort
+            merged_df = merged_df.sort_values('EnDate').reset_index(drop=True)
+            
+            if len(merged_df) > len(existing_df):
+                logger.info(f"[{code}] Added {len(new_df)} new trade records. Total: {len(merged_df)} (was {len(existing_df)})")
+            else:
+                logger.info(f"[{code}] No new records after dedup. Total: {len(merged_df)}")
+        else:
+            merged_df = new_df.sort_values('EnDate').reset_index(drop=True)
+            logger.info(f"[{code}] Saved {len(merged_df)} trading records (initial)")
+        
+        # Save
+        self._atomic_save(merged_df, output_path)
+        
+        return merged_df
     
     def fetch_and_save_metadata(self, code: str) -> None:
         """
-        Fetch and save metadata (earnings calendar, etc.) as JSON.
+        Fetch and save metadata (earnings calendar) as JSON (智能更新).
         
         Args:
             code: Stock code.
         """
-        metadata = {}
+        output_path = self.dirs['metadata'] / f"{code}_metadata.json"
+        
+        # 获取新的元数据
+        new_metadata = {}
         
         # Earnings calendar
         today = datetime.now()
@@ -376,15 +464,30 @@ class StockDataManager:
         )
         
         if earnings:
-            metadata['earnings_calendar'] = earnings
-            logger.info(f"[{code}] Found {len(earnings)} upcoming earnings events")
+            new_metadata['earnings_calendar'] = earnings
         
-        # Save as JSON
-        if metadata:
-            output_path = self.dirs['metadata'] / f"{code}_metadata.json"
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(metadata, f, indent=2, ensure_ascii=False)
-            logger.info(f"[{code}] Metadata saved")
+        # 如果没有新数据，跳过
+        if not new_metadata:
+            logger.info(f"[{code}] No metadata to update")
+            return
+        
+        # 检查是否有历史数据
+        if output_path.exists():
+            with open(output_path, 'r', encoding='utf-8') as f:
+                existing_metadata = json.load(f)
+            
+            # 比较是否有变化
+            if existing_metadata == new_metadata:
+                logger.info(f"[{code}] Metadata unchanged, skip save")
+                return
+            else:
+                logger.info(f"[{code}] Metadata updated ({len(earnings)} events)")
+        else:
+            logger.info(f"[{code}] Saved {len(earnings)} earnings events (initial)")
+        
+        # 保存
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(new_metadata, f, indent=2, ensure_ascii=False)
 
     # ==================== COMPLETE ETL WORKFLOW ====================
     

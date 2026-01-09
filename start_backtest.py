@@ -1,6 +1,11 @@
 """
-Backtest Test Script
+统一回测启动入口
 Run comprehensive backtest based on backtest_config.json configuration.
+
+使用方法:
+    python start_backtest.py
+
+配置文件: backtest_config.json
 """
 import os
 import sys
@@ -95,7 +100,7 @@ def main():
         # Create default config if missing
         default_config = {
             "backtest_config": {
-                "tickers": ["1321"],
+                "tickers": ["7203", "6501", "8035"],
                 "start_date": "2021-01-01",
                 "end_date": "2026-01-08",
                 "starting_capital_jpy": 5000000,
@@ -222,9 +227,13 @@ def main():
                 profit_factor=row['profit_factor'],
                 benchmark_return_pct=row.get('benchmark_return_pct'),
                 alpha=row.get('alpha'),
-                beat_benchmark=row.get('beat_benchmark')
+                beat_benchmark=row.get('beat_benchmark'),
+                beta=row.get('beta'),
+                tracking_error=row.get('tracking_error'),
+                information_ratio=row.get('information_ratio')
             )
             results_list.append(result)
+        
         # Print detailed results
         print("\n" + "="*80)
         print("详细回测结果")
@@ -241,7 +250,7 @@ def main():
                           'total_return_pct', 'sharpe_ratio', 'max_drawdown_pct', 
                           'num_trades', 'win_rate_pct']
         if 'alpha' in results_df.columns:
-            comparison_cols.extend(['alpha', 'beat_benchmark'])
+            comparison_cols.extend(['alpha', 'beta', 'information_ratio', 'beat_benchmark'])
         
         print(results_df[comparison_cols].to_string(index=False))
         
@@ -253,6 +262,10 @@ def main():
         print(f"   总回报: {best.total_return_pct:+.2f}%")
         if best.alpha is not None:
             print(f"   Alpha: {best.alpha:+.2f}%")
+            if best.beta is not None:
+                print(f"   Beta: {best.beta:.2f}")
+            if best.information_ratio is not None:
+                print(f"   信息比率: {best.information_ratio:.2f}")
         print(f"   最大回撤: {best.max_drawdown_pct:.2f}%")
         print("="*80 + "\n")
         

@@ -18,9 +18,12 @@ from src.backtest.metrics import (
     calculate_max_drawdown,
     calculate_equity_curve,
     calculate_annualized_return,
-    calculate_trade_statistics
+    calculate_trade_statistics,
+    calculate_beta,
+    calculate_tracking_error_and_ir
 )
 from src.client.jquants_client import JQuantsV2Client
+from src.data.benchmark_manager import BenchmarkManager
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +145,9 @@ class BacktestEngine:
         pending_buy_signal = False
         pending_buy_score = 0.0
         pending_sell_signal = None
+        
+        # Daily equity tracking (for Beta & IR calculation)
+        daily_equity = {}
         
         # Day-by-day simulation
         trading_days = df_features.index.tolist()
@@ -275,7 +281,19 @@ class BacktestEngine:
                         logger.info(f"SELL SIGNAL generated on {current_date.date()} ({exit_signal.urgency}: {exit_signal.reason})")
                 
                 except Exception as e:
-                    logger.warning(f"Exit evaluation failed on {current_date.date()}: {e}")
+                    logger.warning(f"Exit evaluation failed on {current_date.date()}: {e}")            
+            # =====================================================================
+            # STEP 3: RECORD DAILY EQUITY (for Beta & IR calculation)
+            # =====================================================================
+            if position is not None:
+                # Holding position: value position at today's close
+                position_value = position.quantity * current_close
+                equity = cash + position_value
+            else:
+                # No position: equity = cash
+                equity = cash
+            
+            daily_equity[current_date] = equity        
         
         # Build result
         return self._build_result(
@@ -286,7 +304,8 @@ class BacktestEngine:
             start_date=start_date,
             end_date=end_date,
             trades=trades,
-            final_cash=cash
+            final_cash=cash,
+            daily_equity=daily_equity
         )
     
     def _build_result(
@@ -298,7 +317,8 @@ class BacktestEngine:
         start_date: str,
         end_date: str,
         trades: List[Trade],
-        final_cash: float
+        final_cash: float,
+        daily_equity: dict
     ) -> BacktestResult:
         """Build BacktestResult from simulation data."""
         
@@ -313,9 +333,11 @@ class BacktestEngine:
         returns = [t.return_pct for t in trades]
         sharpe = calculate_sharpe_ratio(returns) if returns else 0.0
         
-        # Max drawdown
-        equity_curve = calculate_equity_curve(trades, self.starting_capital)
-        max_dd = calculate_max_drawdown(equity_curve)
+        # Build daily equity series for Beta/IR calculation
+        equity_series = pd.Series(daily_equity)
+        
+        # Max drawdown from equity curve
+        max_dd = calculate_max_drawdown(equity_series) if not equity_series.empty else 0.0
         
         return BacktestResult(
             ticker=ticker,
@@ -336,7 +358,8 @@ class BacktestEngine:
             avg_loss_pct=trade_stats['avg_loss_pct'],
             avg_holding_days=trade_stats['avg_holding_days'],
             profit_factor=trade_stats['profit_factor'],
-            trades=trades
+            trades=trades,
+            _daily_equity_series=equity_series  # Store for later Beta/IR calculation
         )
     
     def _empty_result(
@@ -373,34 +396,34 @@ class BacktestEngine:
 
 
 def calculate_benchmark_return(
-    client: JQuantsV2Client,
     start_date: str,
-    end_date: str
+    end_date: str,
+    data_root: str = './data'
 ) -> float:
     """
-    Calculate TOPIX buy-and-hold return for benchmark comparison.
+    Calculate TOPIX buy-and-hold return from local cached data.
     
     Args:
-        client: J-Quants API client
-        start_date: Start date
-        end_date: End date
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+        data_root: Root directory for data files
         
     Returns:
         TOPIX total return percentage
     """
-    logger.info("Fetching TOPIX benchmark data...")
+    logger.info("Calculating TOPIX benchmark return from local data...")
     
-    topix_data = client.get_topix_bars(start_date, end_date)
+    # Use BenchmarkManager to load cached data
+    manager = BenchmarkManager(client=None, data_root=data_root)
+    benchmark_return = manager.calculate_benchmark_return(
+        start_date, 
+        end_date, 
+        use_cached=True
+    )
     
-    if not topix_data or len(topix_data) < 2:
-        logger.warning("Insufficient TOPIX data for benchmark")
+    if benchmark_return is None:
+        logger.warning("TOPIX data not available. Run main.py first to fetch benchmarks.")
         return 0.0
-    
-    start_price = topix_data[0]['close']
-    end_price = topix_data[-1]['close']
-    
-    benchmark_return = ((end_price / start_price) - 1) * 100
-    logger.info(f"TOPIX return ({start_date} to {end_date}): {benchmark_return:+.2f}%")
     
     return benchmark_return
 
@@ -438,7 +461,7 @@ def backtest_strategies(
     end_date: str = "2026-01-08",
     starting_capital_jpy: float = 5_000_000,
     include_benchmark: bool = True,
-    api_key: Optional[str] = None
+    data_root: str = './data'
 ) -> pd.DataFrame:
     """
     Backtest multiple strategies on multiple tickers.
@@ -449,22 +472,21 @@ def backtest_strategies(
         start_date: Backtest start
         end_date: Backtest end
         starting_capital_jpy: Starting capital
-        include_benchmark: Whether to fetch TOPIX comparison
-        api_key: J-Quants API key (required if include_benchmark=True)
+        include_benchmark: Whether to include TOPIX comparison
+        data_root: Root directory for data files
         
     Returns:
         DataFrame with results for all combinations
     """
-    engine = BacktestEngine(starting_capital_jpy=starting_capital_jpy)
+    engine = BacktestEngine(starting_capital_jpy=starting_capital_jpy, data_root=data_root)
     
-    # Fetch benchmark once
+    # Fetch benchmark once (from local cache)
     benchmark_return = None
     if include_benchmark:
-        if not api_key:
-            logger.warning("API key required for benchmark comparison, skipping...")
-        else:
-            client = JQuantsV2Client(api_key)
-            benchmark_return = calculate_benchmark_return(client, start_date, end_date)
+        benchmark_return = calculate_benchmark_return(start_date, end_date, data_root)
+        if benchmark_return == 0.0:
+            logger.warning("TOPIX comparison disabled (no cached data)")
+            benchmark_return = None
     
     # Run all combinations
     results = []
@@ -483,6 +505,23 @@ def backtest_strategies(
                 result.benchmark_return_pct = benchmark_return
                 result.alpha = result.total_return_pct - benchmark_return
                 result.beat_benchmark = result.alpha > 0
+                
+                # Calculate Beta and Information Ratio
+                if result._daily_equity_series is not None and not result._daily_equity_series.empty:
+                    result.beta = calculate_beta(
+                        result._daily_equity_series,
+                        start_date,
+                        end_date,
+                        data_root
+                    )
+                    
+                    result.tracking_error, result.information_ratio = calculate_tracking_error_and_ir(
+                        result._daily_equity_series,
+                        result.alpha,
+                        start_date,
+                        end_date,
+                        data_root
+                    )
             
             results.append(result)
     

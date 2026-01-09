@@ -38,8 +38,11 @@ def create_comparison_table(results: List[BacktestResult]) -> pd.DataFrame:
         if r.benchmark_return_pct is not None:
             row['TOPIX%'] = f"{r.benchmark_return_pct:+.2f}"
             row['Alpha%'] = f"{r.alpha:+.2f}"
-            row['Beat?'] = '✅' if r.beat_benchmark else '❌'
-        
+            row['Beat?'] = '✅' if r.beat_benchmark else '❌'            
+            if r.beta is not None:
+                row['Beta'] = f"{r.beta:.2f}"
+                row['TE%'] = f"{r.tracking_error:.1f}"
+                row['IR'] = f"{r.information_ratio:.2f}"        
         data.append(row)
     
     return pd.DataFrame(data)

@@ -14,6 +14,8 @@ from typing import List
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data.pipeline import StockETLPipeline, run_daily_update
+from src.data.benchmark_manager import update_benchmarks
+from src.client.jquants_client import JQuantsV2Client
 
 # Configure logging
 logging.basicConfig(
@@ -80,13 +82,23 @@ def main():
     logger.info(f"Processing {len(tickers)} tickers")
     logger.info("")
     
-    # Initialize pipeline
+    # Step 1: Update benchmark data (TOPIX)
+    logger.info("Updating benchmark indices (TOPIX)...")
+    client = JQuantsV2Client(api_key)
+    benchmark_result = update_benchmarks(client)
+    
+    if benchmark_result['success']:
+        logger.info(f"✅ TOPIX updated: {benchmark_result['topix_records']} records")
+    else:
+        logger.warning(f"⚠️ TOPIX update issue: {benchmark_result.get('error', 'Unknown')}")
+    
+    # Step 2: Initialize pipeline
     pipeline = StockETLPipeline(api_key)
     
-    # Run batch processing with full ETL
+    # Step 3: Run batch processing with full ETL
     summary = pipeline.run_batch(tickers, fetch_aux_data=True)
     
-    # Print summary
+    # Step 4: Print summary
     pipeline.print_summary()
     
     # Show data lake structure
