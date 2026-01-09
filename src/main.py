@@ -4,9 +4,11 @@ Demonstrates the batch ETL pipeline with Data Lake architecture.
 """
 import os
 import sys
+import json
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import List
 
 # Add project root to path for absolute imports (AWS Lambda compatible)
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -23,22 +25,38 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# TARGET TICKERS (Easy to extend - add/remove as needed)
+# MONITOR LIST LOADER
 # ============================================================
-# 严选 Top 10 (Sector Balanced & Growth Oriented)
-TARGET_TICKERS = [
-    "8035",  # Tokyo Electron (Semi Equip)
-    "8306",  # MUFG Bank (Finance)
-    "7974",  # Nintendo (Gaming)
-    "7011",  # Mitsubishi Heavy (Defense)
-    "6861",  # Keyence (Automation)
-    "8058",  # Mitsubishi Corp (Trading/Energy)
-    "6501",  # Hitachi (IT/Infrastructure)
-    "4063",  # Shin-Etsu Chemical (Semi Materials)
-    "7203",  # Toyota (Auto)
-    "4568",  # Daiichi Sankyo (Pharma)
-    "6098",  # Recruit Holdings (HR Tech)
-]
+
+def load_monitor_list(file_path: str = 'data/monitor_list.json') -> List[str]:
+    """
+    Load ticker codes from monitor_list.json.
+    
+    Args:
+        file_path: Path to monitor list JSON file.
+        
+    Returns:
+        List of ticker codes.
+    """
+    monitor_file = Path(file_path)
+    
+    if not monitor_file.exists():
+        logger.warning(f"Monitor list not found at {file_path}, using fallback tickers")
+        # Fallback to hardcoded list if JSON doesn't exist
+        return [
+            "8035", "8306", "7974", "7011", "6861", "8058",
+            "6501", "4063", "7203", "4568", "6098"
+        ]
+    
+    try:
+        with open(monitor_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            tickers = [ticker['code'] for ticker in data.get('tickers', [])]
+            logger.info(f"Loaded {len(tickers)} tickers from {file_path}")
+            return tickers
+    except Exception as e:
+        logger.error(f"Failed to load monitor list: {e}")
+        raise
 
 
 def main():
@@ -53,8 +71,8 @@ def main():
         logger.error("Please create a .env file with: JQUANTS_API_KEY=your_key_here")
         return
     
-    # Use the curated ticker list
-    tickers = TARGET_TICKERS
+    # Load tickers from monitor list JSON
+    tickers = load_monitor_list()
     
     logger.info("="*60)
     logger.info("J-Stock-Analyzer - Batch ETL Pipeline")
