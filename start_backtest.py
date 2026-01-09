@@ -210,19 +210,8 @@ def run_backtest_from_config(config: dict):
     if output_file:
         print(f"输出文件: {output_file}")
     print("="*80)
-    
-    # User confirmation if running many backtests
-    total_runs = len(tickers) * len(strategies)
-    if total_runs > 10:
-        response = input(f"\n将运行 {total_runs} 个回测，预计耗时 {total_runs // 4} 分钟。继续? (y/n): ")
-        if response.lower() != 'y':
-            print("回测已取消。")
-            if redirector:
-                sys.stdout = redirector.terminal
-                redirector.close()
-            return
-    
-    print("\n开始回测...\n")
+    print(f"\n将运行 {len(tickers) * len(strategies)} 个回测...")
+    print("开始回测...\n")
     
     # Run backtest
     try:
@@ -331,8 +320,13 @@ def run_backtest_from_config(config: dict):
             print(f"\n✅ 结果已保存到: {output_file}")
             print(f"✅ CSV已保存到: {csv_file}")
         
+        print("\n" + "="*80)
+        print("回测流程完成")
+        print("="*80)
+        
     except Exception as e:
         logger.error(f"回测失败: {e}", exc_info=True)
+        print(f"\n❌ 错误: {e}")
     
     finally:
         # Restore stdout and close file

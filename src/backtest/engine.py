@@ -607,6 +607,12 @@ def backtest_strategies(
             current_run += 1
             logger.info(f"Progress: {current_run}/{total_runs}")
             
+            # Print strategy separator
+            strategy_name = f"{scorer.strategy_name} + {exiter.strategy_name}"
+            print("\n" + "─" * 80)
+            print(f"策略 {current_run}/{total_runs}: {ticker} × {strategy_name}")
+            print("─" * 80)
+            
             result = engine.backtest_strategy(ticker, scorer, exiter, start_date, end_date)
             
             # Add benchmark comparison

@@ -1,0 +1,92 @@
+{
+  "portfolio_backtest_config": {
+    "comment": "组合投资回测配置 - 同时管理多只股票",
+    
+    "tickers": [
+      "1321",
+      "7203",
+      "6501",
+      "8035","8306","7974","7011","6861","8058","4063","6098","4568"
+    ],
+    
+    "portfolio_rules": {
+      "starting_capital_jpy": 5000000,
+      "max_positions": 5,
+      "max_position_pct": 0.30,
+      "min_position_pct": 0.05
+    },
+    
+    "lot_sizes": {
+      "1321": 1,
+      "1343": 1,
+      "default": 100
+    },
+    
+    "signal_ranking": {
+      "method": "simple_score",
+      "score_weight": 0.6,
+      "confidence_weight": 0.2,
+      "volatility_weight": 0.2
+    },
+    
+    "strategies": [
+      {
+        "comment": "Simple scorer + ATR technical exit",
+        "entry": "SimpleScorerStrategy",
+        "exit": "ATRExitStrategy"
+      },
+      {
+        "comment": "Simple scorer + Score-based exit",
+        "entry": "SimpleScorerStrategy",
+        "exit": "ScoreBasedExitStrategy"
+      },
+      {
+        "comment": "Simple scorer + Multi-layered exit",
+        "entry": "SimpleScorerStrategy",
+        "exit": "LayeredExitStrategy"
+      },
+      {
+        "comment": "Enhanced scorer + ATR technical exit",
+        "entry": "EnhancedScorerStrategy",
+        "exit": "ATRExitStrategy"
+      },
+      {
+        "comment": "Enhanced scorer + Score-based exit",
+        "entry": "EnhancedScorerStrategy",
+        "exit": "ScoreBasedExitStrategy"
+      },
+      {
+        "comment": "Enhanced scorer + Multi-layered exit",
+        "entry": "EnhancedScorerStrategy",
+        "exit": "LayeredExitStrategy"
+      },
+      {
+        "comment": "MACD crossover + ATR technical exit",
+        "entry": "MACDCrossoverStrategy",
+        "exit": "ATRExitStrategy"
+      },
+      {
+        "comment": "MACD crossover + Score-based exit",
+        "entry": "MACDCrossoverStrategy",
+        "exit": "ScoreBasedExitStrategy"
+      },
+      {
+        "comment": "MACD crossover + Multi-layered exit",
+        "entry": "MACDCrossoverStrategy",
+        "exit": "LayeredExitStrategy"
+      }
+    ],
+    
+    "start_date": "2021-01-01",
+    "end_date": "2026-01-08",
+    "include_benchmark": true
+  },
+  
+  "output_config": {
+    "save_to_file": true,
+    "output_dir": "portfolio_backtest_results",
+    "include_timestamp": true,
+    "show_daily_portfolio_status": false,
+    "show_signal_ranking": true
+  }
+}
