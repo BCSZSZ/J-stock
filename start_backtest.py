@@ -264,7 +264,11 @@ def run_backtest_from_config(config: dict):
                 avg_loss_pct=row['avg_loss_pct'],
                 avg_holding_days=row['avg_holding_days'],
                 profit_factor=row['profit_factor'],
+                buy_hold_return_pct=row.get('buy_hold_return_pct'),
+                timing_alpha=row.get('timing_alpha'),
+                beat_buy_hold=row.get('beat_buy_hold'),
                 benchmark_return_pct=row.get('benchmark_return_pct'),
+                stock_selection_alpha=row.get('stock_selection_alpha'),
                 alpha=row.get('alpha'),
                 beat_benchmark=row.get('beat_benchmark'),
                 beta=row.get('beta'),
@@ -288,8 +292,13 @@ def run_backtest_from_config(config: dict):
         comparison_cols = ['ticker', 'ticker_name', 'scorer_name', 'exiter_name', 
                           'total_return_pct', 'sharpe_ratio', 'max_drawdown_pct', 
                           'num_trades', 'win_rate_pct']
+        
+        # 添加双重基准对比列
+        if 'timing_alpha' in results_df.columns:
+            comparison_cols.extend(['buy_hold_return_pct', 'timing_alpha', 'beat_buy_hold'])
+        
         if 'alpha' in results_df.columns:
-            comparison_cols.extend(['alpha', 'beta', 'information_ratio', 'beat_benchmark'])
+            comparison_cols.extend(['stock_selection_alpha', 'alpha', 'beat_benchmark'])
         
         print(results_df[comparison_cols].to_string(index=False))
         
@@ -299,12 +308,20 @@ def run_backtest_from_config(config: dict):
         print(f"🏆 最佳策略: {best.ticker} × {best.scorer_name} + {best.exiter_name}")
         print(f"   夏普比率: {best.sharpe_ratio:.2f}")
         print(f"   总回报: {best.total_return_pct:+.2f}%")
+        
+        # 显示双重基准对比
+        if best.timing_alpha is not None:
+            print(f"   vs Buy&Hold: {best.timing_alpha:+.2f}% (择时能力)")
+        
         if best.alpha is not None:
-            print(f"   Alpha: {best.alpha:+.2f}%")
+            print(f"   vs TOPIX总Alpha: {best.alpha:+.2f}%")
+            if best.stock_selection_alpha is not None:
+                print(f"   选股Alpha: {best.stock_selection_alpha:+.2f}%")
             if best.beta is not None:
                 print(f"   Beta: {best.beta:.2f}")
             if best.information_ratio is not None:
                 print(f"   信息比率: {best.information_ratio:.2f}")
+        
         print(f"   最大回撤: {best.max_drawdown_pct:.2f}%")
         print("="*80 + "\n")
         

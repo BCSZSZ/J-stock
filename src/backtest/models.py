@@ -55,13 +55,19 @@ class BacktestResult:
     avg_holding_days: float
     profit_factor: float  # Gross profit / Gross loss
     
-    # Benchmark Comparison (TOPIX)
-    benchmark_return_pct: Optional[float] = None
-    alpha: Optional[float] = None
+    # Benchmark 1: Buy & Hold该股票 (评估择时能力)
+    buy_hold_return_pct: Optional[float] = None  # 该股票Buy&Hold回报
+    timing_alpha: Optional[float] = None         # vs Buy&Hold的Alpha (择时能力)
+    beat_buy_hold: Optional[bool] = None         # 是否跑赢Buy&Hold
+    
+    # Benchmark 2: TOPIX (评估选股能力)
+    benchmark_return_pct: Optional[float] = None # TOPIX回报
+    stock_selection_alpha: Optional[float] = None # Buy&Hold vs TOPIX (选股能力)
+    alpha: Optional[float] = None                 # 策略 vs TOPIX (总Alpha = 择时+选股)
     beat_benchmark: Optional[bool] = None
-    beta: Optional[float] = None              # Systematic risk (strategy vs TOPIX)
-    tracking_error: Optional[float] = None    # Active risk (annualized %)
-    information_ratio: Optional[float] = None # Alpha quality (alpha / tracking_error)
+    beta: Optional[float] = None                  # Systematic risk (strategy vs TOPIX)
+    tracking_error: Optional[float] = None        # Active risk (annualized %)
+    information_ratio: Optional[float] = None     # Alpha quality (alpha / tracking_error)
     
     # Trade Details
     trades: List[Trade] = field(default_factory=list)
@@ -106,14 +112,27 @@ class BacktestResult:
             f"  Profit Factor:     {self.profit_factor:.2f}",
         ]
         
-        if self.benchmark_return_pct is not None:
-            beat_icon = "✅" if self.beat_benchmark else "❌"
+        # Buy&Hold基准对比 (择时能力评估)
+        if self.buy_hold_return_pct is not None:
+            timing_icon = "✅" if self.beat_buy_hold else "❌"
             lines.extend([
                 f"",
-                f"🎯 vs TOPIX Benchmark:",
+                f"📊 vs Buy&Hold {self.ticker} (择时能力):",
+                f"  Buy&Hold Return:   {self.buy_hold_return_pct:+.2f}%",
+                f"  Timing Alpha:      {self.timing_alpha:+.2f}%",
+                f"  Beat Buy&Hold:     {timing_icon} {self.beat_buy_hold}",
+            ])
+        
+        # TOPIX基准对比 (选股能力评估)
+        if self.benchmark_return_pct is not None:
+            selection_icon = "✅" if self.stock_selection_alpha and self.stock_selection_alpha > 0 else "❌"
+            total_icon = "✅" if self.beat_benchmark else "❌"
+            lines.extend([
+                f"",
+                f"🎯 vs TOPIX (选股+择时):",
                 f"  TOPIX Return:      {self.benchmark_return_pct:+.2f}%",
-                f"  Alpha:             {self.alpha:+.2f}%",
-                f"  Beat Benchmark:    {beat_icon} {self.beat_benchmark}",
+                f"  Stock Alpha:       {self.stock_selection_alpha:+.2f}% {selection_icon}",
+                f"  Total Alpha:       {self.alpha:+.2f}% {total_icon}",
             ])
         
         lines.append(f"{'='*70}")

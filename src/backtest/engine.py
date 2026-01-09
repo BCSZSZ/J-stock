@@ -412,6 +412,32 @@ class BacktestEngine:
         # Max drawdown from equity curve
         max_dd = calculate_max_drawdown(equity_series) if not equity_series.empty else 0.0
         
+        # === NEW: Calculate Buy & Hold benchmark ===
+        buy_hold_return_pct = None
+        timing_alpha = None
+        beat_buy_hold = None
+        
+        try:
+            # Load stock price data
+            from pathlib import Path
+            features_path = Path(self.data_root) / 'features' / f'{ticker}_features.parquet'
+            if features_path.exists():
+                df_stock = pd.read_parquet(features_path)
+                if 'Date' in df_stock.columns:
+                    df_stock['Date'] = pd.to_datetime(df_stock['Date'])
+                    df_stock = df_stock[(df_stock['Date'] >= start_date) & (df_stock['Date'] <= end_date)]
+                    
+                    if len(df_stock) > 0:
+                        start_price = df_stock.iloc[0]['Close']
+                        end_price = df_stock.iloc[-1]['Close']
+                        buy_hold_return_pct = ((end_price - start_price) / start_price) * 100
+                        
+                        # Timing Alpha = 策略回报 - Buy&Hold回报
+                        timing_alpha = total_return_pct - buy_hold_return_pct
+                        beat_buy_hold = total_return_pct > buy_hold_return_pct
+        except Exception as e:
+            self.logger.warning(f"Could not calculate Buy&Hold benchmark: {e}")
+        
         # Get strategy names
         entry_name = entry_strategy.strategy_name if hasattr(entry_strategy, 'strategy_name') else entry_strategy.__class__.__name__
         exit_name = exit_strategy.strategy_name if hasattr(exit_strategy, 'strategy_name') else exit_strategy.__class__.__name__
@@ -435,6 +461,9 @@ class BacktestEngine:
             avg_loss_pct=trade_stats['avg_loss_pct'],
             avg_holding_days=trade_stats['avg_holding_days'],
             profit_factor=trade_stats['profit_factor'],
+            buy_hold_return_pct=buy_hold_return_pct,
+            timing_alpha=timing_alpha,
+            beat_buy_hold=beat_buy_hold,
             trades=trades,
             _daily_equity_series=equity_series  # Store for later Beta/IR calculation
         )
@@ -583,8 +612,14 @@ def backtest_strategies(
             # Add benchmark comparison
             if benchmark_return is not None:
                 result.benchmark_return_pct = benchmark_return
+                
+                # 总Alpha = 策略回报 - TOPIX回报 (包含择时+选股)
                 result.alpha = result.total_return_pct - benchmark_return
                 result.beat_benchmark = result.alpha > 0
+                
+                # 选股Alpha = Buy&Hold回报 - TOPIX回报 (纯选股能力)
+                if result.buy_hold_return_pct is not None:
+                    result.stock_selection_alpha = result.buy_hold_return_pct - benchmark_return
                 
                 # Calculate Beta and Information Ratio
                 if result._daily_equity_series is not None and not result._daily_equity_series.empty:
