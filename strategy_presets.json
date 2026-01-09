@@ -1,0 +1,57 @@
+{
+  "comment": "策略组合预设模板 - 复制想要的组合到 backtest_config.json",
+  "presets": {
+    "all_combinations": {
+      "description": "测试所有9种策略组合 (3 Entry × 3 Exit)",
+      "strategies": [
+        {"entry": "SimpleScorerStrategy", "exit": "ATRExitStrategy"},
+        {"entry": "SimpleScorerStrategy", "exit": "ScoreBasedExitStrategy"},
+        {"entry": "SimpleScorerStrategy", "exit": "LayeredExitStrategy"},
+        {"entry": "EnhancedScorerStrategy", "exit": "ATRExitStrategy"},
+        {"entry": "EnhancedScorerStrategy", "exit": "ScoreBasedExitStrategy"},
+        {"entry": "EnhancedScorerStrategy", "exit": "LayeredExitStrategy"},
+        {"entry": "MACDCrossoverStrategy", "exit": "ATRExitStrategy"},
+        {"entry": "MACDCrossoverStrategy", "exit": "ScoreBasedExitStrategy"},
+        {"entry": "MACDCrossoverStrategy", "exit": "LayeredExitStrategy"}
+      ]
+    },
+    "score_based": {
+      "description": "只测试基于评分的策略",
+      "strategies": [
+        {"entry": "SimpleScorerStrategy", "exit": "ScoreBasedExitStrategy"},
+        {"entry": "EnhancedScorerStrategy", "exit": "ScoreBasedExitStrategy"}
+      ]
+    },
+    "technical_only": {
+      "description": "只测试纯技术指标策略",
+      "strategies": [
+        {"entry": "MACDCrossoverStrategy", "exit": "ATRExitStrategy"}
+      ]
+    },
+    "layered_exit": {
+      "description": "测试多层退出策略",
+      "strategies": [
+        {"entry": "SimpleScorerStrategy", "exit": "LayeredExitStrategy"},
+        {"entry": "EnhancedScorerStrategy", "exit": "LayeredExitStrategy"},
+        {
+          "entry": "MACDCrossoverStrategy", 
+          "exit": "LayeredExitStrategy",
+          "exit_params": {"use_score_utils": false}
+        }
+      ]
+    },
+    "conservative": {
+      "description": "保守策略 - Enhanced + Layered",
+      "strategies": [
+        {"entry": "EnhancedScorerStrategy", "exit": "LayeredExitStrategy"}
+      ]
+    },
+    "aggressive": {
+      "description": "激进策略 - Simple + ATR",
+      "strategies": [
+        {"entry": "SimpleScorerStrategy", "exit": "ATRExitStrategy"}
+      ]
+    }
+  },
+  "usage": "复制 presets 中的 strategies 数组到 backtest_config.json"
+}

@@ -1,11 +1,4 @@
-{
-  "backtest_config": {
-    "tickers": ["7203"],
-    "start_date": "2021-01-01",
-    "end_date": "2026-01-08",
-    "starting_capital_jpy": 5000000,
-    "include_benchmark": true,
-    "strategies": [
+[
   {
     "comment": "Simple scorer + ATR technical exit",
     "entry": "SimpleScorerStrategy",
@@ -52,17 +45,3 @@
     "exit": "LayeredExitStrategy"
   }
 ]
-  },
-  "output_config": {
-    "save_to_file": true,
-    "output_dir": "backtest_results",
-    "include_timestamp": true
-  },
-  "comments": {
-    "architecture": "New unified strategy architecture - Entry + Exit signals",
-    "config_format": "{entry: 'StrategyName', exit: 'ExitName', entry_params: {}, exit_params: {}}",
-    "available_entry": "SimpleScorerStrategy, EnhancedScorerStrategy, MACDCrossoverStrategy",
-    "available_exit": "ATRExitStrategy, ScoreBasedExitStrategy, LayeredExitStrategy",
-    "parameters": "All strategies support optional parameters via entry_params and exit_params"
-  }
-}

@@ -1,4 +1,4 @@
-"""
+﻿"""
 统一回测启动入口
 Run comprehensive backtest based on backtest_config.json configuration.
 
@@ -20,8 +20,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.backtest.engine import backtest_strategies
 from src.backtest.report import print_summary_report, create_comparison_table
-from src.analysis.scorers import SimpleScorer, EnhancedScorer
-from src.analysis.exiters import ATRExiter, LayeredExiter
+
+# New strategy architecture
+from src.analysis.strategies.entry.scorer_strategy import SimpleScorerStrategy, EnhancedScorerStrategy
+from src.analysis.strategies.entry.macd_crossover import MACDCrossoverStrategy
+from src.analysis.strategies.exit.atr_exit import ATRExitStrategy
+from src.analysis.strategies.exit.score_based_exit import ScoreBasedExitStrategy
+from src.analysis.strategies.exit.layered_exit import LayeredExitStrategy
 
 # Configure logging
 logging.basicConfig(
@@ -39,7 +44,12 @@ class OutputRedirector:
         self.log = open(filepath, 'w', encoding='utf-8')
     
     def write(self, message):
-        self.terminal.write(message)
+        # 安全地写入终端，处理编码问题
+        try:
+            self.terminal.write(message)
+        except UnicodeEncodeError:
+            # 如果终端不支持UTF-8，使用ASCII替代
+            self.terminal.write(message.encode('ascii', 'replace').decode('ascii'))
         self.log.write(message)
     
     def flush(self):
@@ -58,26 +68,41 @@ def load_config(config_path: str = "backtest_config.json") -> dict:
 
 
 def parse_strategies(strategy_configs: list) -> list:
-    """解析策略配置"""
-    scorer_map = {
-        'SimpleScorer': SimpleScorer,
-        'EnhancedScorer': EnhancedScorer
+    """
+    解析策略配置
+    格式: {"entry": "SimpleScorerStrategy", "exit": "ATRExitStrategy", "entry_params": {}, "exit_params": {}}
+    """
+    # Strategy mapping
+    entry_map = {
+        'SimpleScorerStrategy': SimpleScorerStrategy,
+        'EnhancedScorerStrategy': EnhancedScorerStrategy,
+        'MACDCrossoverStrategy': MACDCrossoverStrategy
     }
     
-    exiter_map = {
-        'ATRExiter': ATRExiter,
-        'LayeredExiter': LayeredExiter
+    exit_map = {
+        'ATRExitStrategy': ATRExitStrategy,
+        'ScoreBasedExitStrategy': ScoreBasedExitStrategy,
+        'LayeredExitStrategy': LayeredExitStrategy
     }
     
     strategies = []
     for config in strategy_configs:
-        scorer_class = scorer_map.get(config['scorer'])
-        exiter_class = exiter_map.get(config['exiter'])
+        if 'entry' not in config or 'exit' not in config:
+            logger.warning(f"Invalid strategy config (missing entry/exit): {config}")
+            continue
         
-        if scorer_class and exiter_class:
-            strategies.append((scorer_class(), exiter_class()))
-        else:
-            logger.warning(f"Unknown strategy: {config['scorer']} + {config['exiter']}")
+        entry_class = entry_map.get(config['entry'])
+        exit_class = exit_map.get(config['exit'])
+        
+        if not entry_class or not exit_class:
+            logger.warning(f"Unknown strategy: {config.get('entry')} + {config.get('exit')}")
+            continue
+        
+        # Get parameters if provided
+        entry_params = config.get('entry_params', {})
+        exit_params = config.get('exit_params', {})
+        
+        strategies.append((entry_class(**entry_params), exit_class(**exit_params)))
     
     return strategies
 
@@ -97,7 +122,7 @@ def main():
         config = load_config("backtest_config.json")
     except FileNotFoundError:
         logger.error("backtest_config.json not found! Creating default config...")
-        # Create default config if missing
+        # Create default config with new strategy architecture
         default_config = {
             "backtest_config": {
                 "tickers": ["7203", "6501", "8035"],
@@ -106,10 +131,14 @@ def main():
                 "starting_capital_jpy": 5000000,
                 "include_benchmark": True,
                 "strategies": [
-                    {"scorer": "SimpleScorer", "exiter": "ATRExiter"},
-                    {"scorer": "SimpleScorer", "exiter": "LayeredExiter"},
-                    {"scorer": "EnhancedScorer", "exiter": "ATRExiter"},
-                    {"scorer": "EnhancedScorer", "exiter": "LayeredExiter"}
+                    # Entry Strategies: SimpleScorerStrategy, EnhancedScorerStrategy, MACDCrossoverStrategy
+                    # Exit Strategies: ATRExitStrategy, ScoreBasedExitStrategy, LayeredExitStrategy
+                    {"entry": "SimpleScorerStrategy", "exit": "ATRExitStrategy"},
+                    {"entry": "EnhancedScorerStrategy", "exit": "ATRExitStrategy"},
+                    {"entry": "MACDCrossoverStrategy", "exit": "ATRExitStrategy"},
+                    {"entry": "SimpleScorerStrategy", "exit": "ScoreBasedExitStrategy"},
+                    {"entry": "EnhancedScorerStrategy", "exit": "LayeredExitStrategy", 
+                     "exit_params": {"use_score_utils": True}}
                 ]
             },
             "output_config": {
@@ -125,6 +154,17 @@ def main():
         logger.error(f"Invalid JSON in backtest_config.json: {e}")
         return
     
+    # Run backtest
+    run_backtest_from_config(config)
+
+
+def run_backtest_from_config(config: dict):
+    """
+    从配置字典运行回测 (可被其他脚本调用)
+    
+    Args:
+        config: 配置字典，包含 backtest_config 和 output_config
+    """
     # Parse config
     backtest_cfg = config['backtest_config']
     output_cfg = config.get('output_config', {
@@ -161,7 +201,6 @@ def main():
     print("\n" + "="*80)
     print("回测配置")
     print("="*80)
-    print(f"配置文件: backtest_config.json")
     print(f"股票代码: {tickers} ({len(tickers)} 只)")
     print(f"策略组合: {len(strategies)} 个")
     print(f"总回测数: {len(tickers) * len(strategies)}")
@@ -284,6 +323,16 @@ def main():
             sys.stdout = redirector.terminal
             redirector.close()
             print(f"\n✅ 输出已保存到: {output_file}")
+
+
+def main():
+    """主函数 - 从 backtest_config.json 加载配置并运行"""
+    # Load environment and config
+    load_dotenv()
+    config = load_config()
+    
+    # Run backtest
+    run_backtest_from_config(config)
 
 
 if __name__ == '__main__':
