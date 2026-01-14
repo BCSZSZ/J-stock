@@ -1,6 +1,6 @@
 """
-J-Stock-Analyzer Main Entry Point
-Demonstrates the batch ETL pipeline with Data Lake architecture.
+J-Stock-Analyzer Data Fetch Manager
+数据抓取管理器 - 从JQuants API批量获取股票数据
 """
 import os
 import sys
@@ -30,12 +30,12 @@ logger = logging.getLogger(__name__)
 # MONITOR LIST LOADER
 # ============================================================
 
-def load_monitor_list(file_path: str = 'data/monitor_list.json') -> List[str]:
+def load_monitor_list(file_path: str = 'data/monitor_list.txt') -> List[str]:
     """
-    Load ticker codes from monitor_list.json.
+    Load ticker codes from monitor_list.txt (simplified format).
     
     Args:
-        file_path: Path to monitor list JSON file.
+        file_path: Path to monitor list text file.
         
     Returns:
         List of ticker codes.
@@ -44,18 +44,22 @@ def load_monitor_list(file_path: str = 'data/monitor_list.json') -> List[str]:
     
     if not monitor_file.exists():
         logger.warning(f"Monitor list not found at {file_path}, using fallback tickers")
-        # Fallback to hardcoded list if JSON doesn't exist
+        # Fallback to hardcoded list if file doesn't exist
         return [
             "8035", "8306", "7974", "7011", "6861", "8058",
-            "6501", "4063", "7203", "4568", "6098"
+            "6501", "4063", "7203", "1321", "4568", "6098"
         ]
     
     try:
+        tickers = []
         with open(monitor_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            tickers = [ticker['code'] for ticker in data.get('tickers', [])]
-            logger.info(f"Loaded {len(tickers)} tickers from {file_path}")
-            return tickers
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith('#'):
+                    tickers.append(line)
+        logger.info(f"Loaded {len(tickers)} tickers from {file_path}")
+        return tickers
     except Exception as e:
         logger.error(f"Failed to load monitor list: {e}")
         raise

@@ -1,31 +1,55 @@
 # J-Stock-Analyzer
 
-## Overview
+日本股票量化分析系统 - 基于J-Quants API的数据抓取、策略回测与信号生成平台
 
-J-Stock-Analyzer is a production-grade Python application for analyzing Japanese stocks using the J-Quants API V2. It implements:
+## ✨ 核心功能
 
-- **Incremental Data Updates**: Smart caching with Parquet files to minimize API usage
-- **Technical Analysis**: EMA, RSI, MACD, ATR indicators via `pandas_ta`
-- **Market Context**: Foreign investor flows, TOPIX correlation, earnings calendar
-- **LLM-Ready Output**: Structured prompts for Gemini/GPT trading decisions
+### 1. 📥 数据抓取
+- 从J-Quants API自动获取日本股票数据
+- 支持增量更新，减少API调用
+- Parquet格式存储，高效读写
 
-## Architecture
+### 2. 🎯 策略信号生成（新功能）
+- 基于技术指标和综合评分的入场判断
+- 支持多种出场策略（ATR/分数衰减/分层控制）
+- 实时生成交易信号
 
-### Design Pattern
+### 3. 📊 回测分析
+- **单股票回测** - 全仓交易模拟
+- **组合投资回测** - 多股票分散投资（最多5只同时持仓）
+- 双基准对比：Buy&Hold vs TOPIX
+- 完整性能指标：夏普比率、最大回撤、择时Alpha、选股Alpha
 
+## 🚀 快速开始
+
+### 统一CLI命令
+
+```bash
+# 查看所有可用命令
+python main.py --help
+
+# 1. 数据抓取
+python main.py fetch --all                    # 抓取监视列表所有股票
+python main.py fetch --tickers 7974 8035      # 抓取指定股票
+
+# 2. 生成交易信号（新功能）
+python main.py signal 7974                    # 生成今日信号
+python main.py signal 7974 --date 2026-01-08  # 指定日期
+
+# 3. 单股票回测
+python main.py backtest 7974                  # 使用默认策略
+python main.py backtest 7974 \
+  --entry EnhancedScorerStrategy \
+  --exit LayeredExitStrategy
+
+# 4. 组合投资回测
+python main.py portfolio --all                # 回测监视列表所有股票
+python main.py portfolio --tickers 7974 8035 6501
 ```
-Client Layer (API) → Data Manager (Business Logic) → Storage (Parquet)
-```
 
-### Tech Stack
+详细使用方法请参阅 [QUICKSTART.md](QUICKSTART.md)
 
-- **Language**: Python 3.10+
-- **API**: J-Quants API V2 (via `requests`)
-- **Data Processing**: `pandas`, `pandas_ta`
-- **Storage**: Local Parquet files (S3-ready design)
-- **Rate Limiting**: 60 req/min (Light Plan compliance)
-
-## Project Structure
+## 📁 项目架构（全新）
 
 ```
 j-stock-analyzer/

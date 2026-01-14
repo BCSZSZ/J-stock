@@ -1,0 +1,31 @@
+{
+  "data": {
+    "monitor_list_file": "data/monitor_list.txt",
+    "data_dir": "data"
+  },
+  
+  "backtest": {
+    "start_date": "2021-01-01",
+    "end_date": "2026-01-08",
+    "starting_capital_jpy": 5000000,
+    "output_dir": "backtest_results"
+  },
+  
+  "portfolio": {
+    "max_positions": 5,
+    "max_position_pct": 0.30,
+    "min_position_pct": 0.05,
+    "output_dir": "portfolio_backtest_results"
+  },
+  
+  "lot_sizes": {
+    "1321": 1,
+    "1343": 1,
+    "default": 100
+  },
+  
+  "default_strategies": {
+    "entry": "SimpleScorerStrategy",
+    "exit": "ATRExitStrategy"
+  }
+}
