@@ -10,12 +10,11 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 
-from src.analysis.scorers.base_scorer import BaseScorer
-from src.analysis.exiters.base_exiter import BaseExiter, Position as OldPosition
 from src.analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from src.analysis.strategies.base_exit_strategy import BaseExitStrategy
 from src.analysis.signals import TradingSignal, SignalAction, MarketData, Position
 from src.backtest.models import Trade, BacktestResult
+from src.backtest.lot_size_manager import LotSizeManager
 from src.backtest.metrics import (
     calculate_sharpe_ratio,
     calculate_max_drawdown,
@@ -183,7 +182,7 @@ class BacktestEngine:
             if pending_buy_signal and position is None and old_position is None:
                 # Execute BUY at today's open price (signal was generated yesterday)
                 entry_price = current_open
-                shares = int(cash / entry_price)
+                shares = LotSizeManager.calculate_buyable_shares(ticker, cash, entry_price)
                 
                 if shares > 0:
                     # Create new Position with entry signal

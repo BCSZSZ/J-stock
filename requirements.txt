@@ -1,6 +1,7 @@
 # Core dependencies
 requests>=2.31.0
 pandas>=2.0.0
+python-dateutil>=2.8.0
 # pandas_ta requires numba which doesn't support Python 3.14 yet
 # Using ta-lib alternative or manual indicator calculations
 # pandas_ta>=0.3.14b

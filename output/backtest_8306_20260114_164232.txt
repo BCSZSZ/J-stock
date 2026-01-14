@@ -1,0 +1,124 @@
+
+📊 单股票回测 - 多策略组合
+   股票代码: 8306
+   入场策略: SimpleScorerStrategy, EnhancedScorerStrategy
+   出场策略: ATRExitStrategy, ScoreBasedExitStrategy
+   策略组合数: 4
+   时间范围: 2021-01-01 → 2026-01-08
+   起始资金: ¥5,000,000
+============================================================
+
+[1/4] SimpleScorerStrategy × ATRExitStrategy
+  📊 BUY  2021-11-17: 7,693 shares @ ¥649.90 (SimpleScorer, Score: 66.0)
+  📉 SELL 2021-11-29: 7,693 shares @ ¥606.10 (-6.74%, ¥-336,953) - P0_HardStop
+  📊 BUY  2021-12-20: 7,425 shares @ ¥628.00 (SimpleScorer, Score: 66.0)
+  📈 SELL 2022-03-02: 7,425 shares @ ¥680.00 (+8.28%, ¥+386,100) - P1_TrailingStop
+  📊 BUY  2022-03-17: 6,732 shares @ ¥750.00 (SimpleScorer, Score: 66.0)
+  📉 SELL 2022-04-08: 6,732 shares @ ¥745.00 (-0.67%, ¥-33,660) - P1_TrailingStop
+  📊 BUY  2022-05-10: 6,611 shares @ ¥758.60 (SimpleScorer, Score: 70.0)
+  📉 SELL 2022-05-18: 6,611 shares @ ¥725.60 (-4.35%, ¥-218,163) - P0_HardStop
+  📊 BUY  2022-06-08: 6,474 shares @ ¥741.00 (SimpleScorer, Score: 68.0)
+  📉 SELL 2022-07-07: 6,474 shares @ ¥713.00 (-3.78%, ¥-181,272) - P0_HardStop
+  📊 BUY  2022-07-29: 6,217 shares @ ¥742.40 (SimpleScorer, Score: 66.0)
+  📉 SELL 2022-08-05: 6,217 shares @ ¥699.00 (-5.85%, ¥-269,818) - P0_HardStop
+  📊 BUY  2022-08-29: 6,026 shares @ ¥721.20 (SimpleScorer, Score: 66.0)
+  📉 SELL 2022-09-27: 6,026 shares @ ¥690.20 (-4.30%, ¥-186,806) - P0_HardStop
+  📊 BUY  2022-11-15: 5,857 shares @ ¥710.10 (SimpleScorer, Score: 66.0)
+  📈 SELL 2023-03-14: 5,857 shares @ ¥832.20 (+17.19%, ¥+715,140) - P1_TrailingStop
+  📊 BUY  2023-05-16: 5,356 shares @ ¥910.00 (SimpleScorer, Score: 66.0)
+  📈 SELL 2023-10-05: 5,356 shares @ ¥1,222.00 (+34.29%, ¥+1,671,072) - P1_TrailingStop
+  📊 BUY  2023-11-02: 5,015 shares @ ¥1,305.00 (SimpleScorer, Score: 66.0)
+  📉 SELL 2023-11-09: 5,015 shares @ ¥1,200.00 (-8.05%, ¥-526,575) - P0_HardStop
+  📊 BUY  2023-11-15: 4,614 shares @ ¥1,304.50 (SimpleScorer, Score: 66.0)
+  📉 SELL 2023-12-05: 4,614 shares @ ¥1,242.00 (-4.79%, ¥-288,375) - P0_HardStop
+  📊 BUY  2023-12-14: 4,602 shares @ ¥1,245.00 (SimpleScorer, Score: 70.0)
+  📉 SELL 2023-12-20: 4,602 shares @ ¥1,167.00 (-6.27%, ¥-358,956) - P0_HardStop
+  📊 BUY  2024-01-12: 4,196 shares @ ¥1,280.00 (SimpleScorer, Score: 66.0)
+  📈 SELL 2024-03-18: 4,196 shares @ ¥1,523.00 (+18.98%, ¥+1,019,628) - P1_TrailingStop
+  📊 BUY  2024-04-25: 4,086 shares @ ¥1,564.00 (SimpleScorer, Score: 68.0)
+  📈 SELL 2024-06-12: 4,086 shares @ ¥1,614.00 (+3.20%, ¥+204,300) - P3_TrendBreakdown
+  📊 BUY  2024-06-27: 3,975 shares @ ¥1,659.00 (SimpleScorer, Score: 68.0)
+  📈 SELL 2024-07-26: 3,975 shares @ ¥1,685.50 (+1.60%, ¥+105,338) - P1_TrailingStop
+  📊 BUY  2024-10-11: 4,352 shares @ ¥1,539.50 (SimpleScorer, Score: 66.0)
+  📈 SELL 2025-03-12: 4,352 shares @ ¥1,902.00 (+23.55%, ¥+1,577,600) - P1_TrailingStop
+  📊 BUY  2025-03-17: 4,098 shares @ ¥2,020.00 (SimpleScorer, Score: 66.0)
+  📈 SELL 2025-04-01: 4,098 shares @ ¥2,043.00 (+1.14%, ¥+94,254) - P1_TrailingStop
+  📊 BUY  2025-05-21: 4,203 shares @ ¥1,992.00 (SimpleScorer, Score: 68.0)
+  📈 SELL 2025-09-04: 4,203 shares @ ¥2,215.00 (+11.19%, ¥+937,269) - P1_TrailingStop
+  📊 BUY  2025-09-25: 3,928 shares @ ¥2,370.00 (SimpleScorer, Score: 68.0)
+  📉 SELL 2025-10-15: 3,928 shares @ ¥2,259.00 (-4.68%, ¥-436,008) - P0_HardStop
+  📊 BUY  2025-10-21: 3,793 shares @ ¥2,339.50 (SimpleScorer, Score: 66.0)
+  📉 SELL 2025-10-27: 3,793 shares @ ¥2,260.00 (-3.40%, ¥-301,544) - P0_HardStop
+  📊 BUY  2025-10-28: 3,772 shares @ ¥2,272.50 (SimpleScorer, Score: 67.0)
+  📈 SELL 2025-12-12: 3,772 shares @ ¥2,457.50 (+8.14%, ¥+697,820) - P3_TrendBreakdown
+  📊 BUY  2025-12-16: 3,603 shares @ ¥2,572.50 (SimpleScorer, Score: 77.0)
+  📉 SELL 2025-12-18: 3,603 shares @ ¥2,434.00 (-5.38%, ¥-499,016) - P0_HardStop
+  📊 BUY  2025-12-19: 3,617 shares @ ¥2,425.00 (SimpleScorer, Score: 67.0)
+   收益率:  88.38% | 夏普:  4.46 | 回撤: -26.00% | 交易:  22次
+
+[2/4] SimpleScorerStrategy × ScoreBasedExitStrategy
+  📊 BUY  2021-11-17: 7,693 shares @ ¥649.90 (SimpleScorer, Score: 66.0)
+  📉 SELL 2021-12-01: 7,693 shares @ ¥602.10 (-7.35%, ¥-367,725) - ScoreDecay
+  📊 BUY  2021-12-20: 7,376 shares @ ¥628.00 (SimpleScorer, Score: 66.0)
+  📈 SELL 2022-09-27: 7,376 shares @ ¥690.20 (+9.90%, ¥+458,787) - ScoreDecay
+  📊 BUY  2022-11-15: 7,169 shares @ ¥710.10 (SimpleScorer, Score: 66.0)
+  📈 SELL 2024-08-06: 7,169 shares @ ¥1,450.00 (+104.20%, ¥+5,304,343) - ScoreDecay
+  📊 BUY  2024-10-11: 6,752 shares @ ¥1,539.50 (SimpleScorer, Score: 66.0)
+  📉 SELL 2025-04-07: 6,752 shares @ ¥1,318.50 (-14.36%, ¥-1,492,192) - ScoreDecay
+  📊 BUY  2025-05-21: 4,469 shares @ ¥1,992.00 (SimpleScorer, Score: 68.0)
+   收益率: 132.76% | 夏普:  7.70 | 回撤: -42.48% | 交易:   4次
+
+[3/4] EnhancedScorerStrategy × ATRExitStrategy
+  📊 BUY  2022-05-10: 6,591 shares @ ¥758.60 (EnhancedScorer, Score: 67.75)
+  📉 SELL 2022-05-18: 6,591 shares @ ¥725.60 (-4.35%, ¥-217,503) - P0_HardStop
+  📊 BUY  2022-06-08: 6,454 shares @ ¥741.00 (EnhancedScorer, Score: 66.0)
+  📉 SELL 2022-07-07: 6,454 shares @ ¥713.00 (-3.78%, ¥-180,712) - P0_HardStop
+  📊 BUY  2022-12-05: 6,243 shares @ ¥737.00 (EnhancedScorer, Score: 65.75)
+  📈 SELL 2023-03-14: 6,243 shares @ ¥832.20 (+12.92%, ¥+594,334) - P1_TrailingStop
+  📊 BUY  2023-05-22: 5,575 shares @ ¥932.00 (EnhancedScorer, Score: 67.75)
+  📈 SELL 2023-10-05: 5,575 shares @ ¥1,222.00 (+31.12%, ¥+1,616,750) - P1_TrailingStop
+  📊 BUY  2023-11-06: 5,248 shares @ ¥1,298.00 (EnhancedScorer, Score: 65.75)
+  📉 SELL 2023-11-09: 5,248 shares @ ¥1,200.00 (-7.55%, ¥-514,304) - P0_HardStop
+  📊 BUY  2023-11-21: 4,928 shares @ ¥1,278.00 (EnhancedScorer, Score: 65.75)
+  📉 SELL 2023-12-18: 4,928 shares @ ¥1,191.50 (-6.77%, ¥-426,272) - P0_HardStop
+  📊 BUY  2024-01-15: 4,596 shares @ ¥1,277.50 (EnhancedScorer, Score: 67.75)
+  📈 SELL 2024-03-18: 4,596 shares @ ¥1,523.00 (+19.22%, ¥+1,128,318) - P1_TrailingStop
+  📊 BUY  2024-04-25: 4,476 shares @ ¥1,564.00 (EnhancedScorer, Score: 65.75)
+  📈 SELL 2024-06-12: 4,476 shares @ ¥1,614.00 (+3.20%, ¥+223,800) - P3_TrendBreakdown
+  📊 BUY  2024-06-27: 4,354 shares @ ¥1,659.00 (EnhancedScorer, Score: 65.75)
+  📈 SELL 2024-07-26: 4,354 shares @ ¥1,685.50 (+1.60%, ¥+115,381) - P1_TrailingStop
+  📊 BUY  2024-10-22: 4,577 shares @ ¥1,603.50 (EnhancedScorer, Score: 67.75)
+  📈 SELL 2025-03-12: 4,577 shares @ ¥1,902.00 (+18.62%, ¥+1,366,234) - P1_TrailingStop
+  📊 BUY  2025-05-21: 4,370 shares @ ¥1,992.00 (EnhancedScorer, Score: 65.75)
+  📈 SELL 2025-09-04: 4,370 shares @ ¥2,215.00 (+11.19%, ¥+974,510) - P1_TrailingStop
+  📊 BUY  2025-09-25: 4,084 shares @ ¥2,370.00 (EnhancedScorer, Score: 65.75)
+  📉 SELL 2025-10-15: 4,084 shares @ ¥2,259.00 (-4.68%, ¥-453,324) - P0_HardStop
+  📊 BUY  2025-10-21: 3,944 shares @ ¥2,339.50 (EnhancedScorer, Score: 65.5)
+  📉 SELL 2025-10-27: 3,944 shares @ ¥2,260.00 (-3.40%, ¥-313,548) - P0_HardStop
+  📊 BUY  2025-10-28: 3,922 shares @ ¥2,272.50 (EnhancedScorer, Score: 67.5)
+  📈 SELL 2025-12-12: 3,922 shares @ ¥2,457.50 (+8.14%, ¥+725,570) - P3_TrendBreakdown
+  📊 BUY  2025-12-16: 3,747 shares @ ¥2,572.50 (EnhancedScorer, Score: 76.25)
+  📉 SELL 2025-12-18: 3,747 shares @ ¥2,434.00 (-5.38%, ¥-518,960) - P0_HardStop
+  📊 BUY  2025-12-19: 3,760 shares @ ¥2,425.00 (EnhancedScorer, Score: 67.5)
+   收益率:  95.87% | 夏普:  6.54 | 回撤: -20.86% | 交易:  15次
+
+[4/4] EnhancedScorerStrategy × ScoreBasedExitStrategy
+  📊 BUY  2022-05-10: 6,591 shares @ ¥758.60 (EnhancedScorer, Score: 67.75)
+  📉 SELL 2022-09-27: 6,591 shares @ ¥690.20 (-9.02%, ¥-450,824) - ScoreDecay
+  📊 BUY  2022-12-05: 6,172 shares @ ¥737.00 (EnhancedScorer, Score: 65.75)
+  📈 SELL 2024-08-06: 6,172 shares @ ¥1,450.00 (+96.74%, ¥+4,400,636) - ScoreDecay
+  📊 BUY  2024-10-22: 5,581 shares @ ¥1,603.50 (EnhancedScorer, Score: 67.75)
+  📈 SELL 2025-04-04: 5,581 shares @ ¥1,695.50 (+5.74%, ¥+513,452) - ScoreDecay
+  📊 BUY  2025-05-21: 4,750 shares @ ¥1,992.00 (EnhancedScorer, Score: 65.75)
+   收益率: 147.41% | 夏普: 10.57 | 回撤: -31.85% | 交易:   3次
+
+
+================================================================================
+策略排名 (按收益率)
+================================================================================
+排名   入场策略                      出场策略                             收益率       夏普       胜率
+--------------------------------------------------------------------------------
+1    EnhancedScorerStrategy    ScoreBasedExitStrategy       147.41%   10.57    66.7%
+2    SimpleScorerStrategy      ScoreBasedExitStrategy       132.76%    7.70    50.0%
+3    EnhancedScorerStrategy    ATRExitStrategy               95.87%    6.54    53.3%
+4    SimpleScorerStrategy      ATRExitStrategy               88.38%    4.46    45.5%

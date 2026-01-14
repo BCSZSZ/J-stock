@@ -11,6 +11,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.analysis.signals import MarketData, Position, SignalAction
+from src.data.stock_data_manager import StockDataManager
 
 
 def generate_trading_signal(
@@ -37,16 +38,14 @@ def generate_trading_signal(
     Returns:
         信号字典，包含 action, confidence, reason 等信息
     """
-    # 直接从本地parquet文件加载数据
-    features_path = Path('data/features') / f"{ticker}_features.parquet"
+    # 使用StockDataManager加载数据（只读模式）
+    data_manager = StockDataManager()  # 不需要API key
+    stock_data = data_manager.load_stock_features(ticker)
     
-    if not features_path.exists():
+    if stock_data.empty:
         print(f"❌ 错误: 无法找到股票 {ticker} 的数据文件")
-        print(f"   路径: {features_path}")
         print(f"   请先运行: python main.py fetch --tickers {ticker}")
         return None
-    
-    stock_data = pd.read_parquet(features_path)
     
     # 标准化日期列并设置为字符串格式
     if 'Date' not in stock_data.columns:
@@ -78,34 +77,18 @@ def generate_trading_signal(
     current_date = pd.to_datetime(date)
     
     # 加载辅助数据（trades和financials）
-    ticker_code = ticker
-    trades_path = Path('data/raw_trades') / f"{ticker_code}_trades.parquet"
-    financials_path = Path('data/raw_financials') / f"{ticker_code}_financials.parquet"
-    metadata_path = Path('data/metadata') / f"{ticker_code}_metadata.json"
+    df_trades = data_manager.load_trades(ticker)
+    df_financials = data_manager.load_financials(ticker)
+    metadata = data_manager.load_metadata(ticker)
     
-    # 加载trades数据
-    if trades_path.exists():
-        df_trades = pd.read_parquet(trades_path)
-        if 'Section' in df_trades.columns:
-            df_trades = df_trades[df_trades['Section'] == 'TSEPrime'].copy()
+    # 过滤trades到TSEPrime
+    if not df_trades.empty and 'Section' in df_trades.columns:
+        df_trades = df_trades[df_trades['Section'] == 'TSEPrime'].copy()
         df_trades['EnDate'] = pd.to_datetime(df_trades['EnDate'])
-    else:
-        df_trades = pd.DataFrame()
     
-    # 加载financials数据
-    if financials_path.exists():
-        df_financials = pd.read_parquet(financials_path)
+    # 标准化financials日期
+    if not df_financials.empty:
         df_financials['DiscDate'] = pd.to_datetime(df_financials['DiscDate'])
-    else:
-        df_financials = pd.DataFrame()
-    
-    # 加载metadata
-    import json
-    if metadata_path.exists():
-        with open(metadata_path, 'r', encoding='utf-8') as f:
-            metadata = json.load(f)
-    else:
-        metadata = {}
     
     # 创建MarketData对象
     market_data = MarketData(

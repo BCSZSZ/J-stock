@@ -33,15 +33,15 @@ class StockDataManager:
     - metadata/: Earnings dates, sector info (JSON)
     """
     
-    def __init__(self, api_key: str, data_root: str = './data'):
+    def __init__(self, api_key: str = None, data_root: str = './data'):
         """
         Initialize the Stock Data Manager with Data Lake structure.
         
         Args:
-            api_key: J-Quants API key.
+            api_key: J-Quants API key (optional for read-only mode).
             data_root: Root directory for data lake.
         """
-        self.client = JQuantsV2Client(api_key)
+        self.client = JQuantsV2Client(api_key) if api_key else None
         self.data_root = Path(data_root)
         
         # Create Data Lake structure
@@ -56,7 +56,10 @@ class StockDataManager:
         for dir_path in self.dirs.values():
             dir_path.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"Initialized Data Lake at: {self.data_root}")
+        if api_key:
+            logger.info(f"Initialized Data Lake at: {self.data_root} (with API access)")
+        else:
+            logger.info(f"Initialized Data Lake at: {self.data_root} (read-only mode)")
 
     # ==================== OHLC DATA MANAGEMENT ====================
     
@@ -546,3 +549,71 @@ class StockDataManager:
             result['errors'].append(str(e))
         
         return result
+
+    # ==================== DATA LOADING METHODS ====================
+    
+    def load_stock_features(self, ticker: str) -> pd.DataFrame:
+        """
+        Load feature data for a stock (read-only operation).
+        
+        Args:
+            ticker: Stock code (e.g., '7974')
+            
+        Returns:
+            DataFrame with features, or empty DataFrame if not found
+        """
+        features_path = self.dirs['features'] / f"{ticker}_features.parquet"
+        
+        if not features_path.exists():
+            logger.warning(f"Features file not found for {ticker}: {features_path}")
+            return pd.DataFrame()
+        
+        try:
+            df = pd.read_parquet(features_path)
+            logger.debug(f"Loaded {len(df)} rows for {ticker}")
+            return df
+        except Exception as e:
+            logger.error(f"Failed to load features for {ticker}: {e}")
+            return pd.DataFrame()
+    
+    def load_raw_prices(self, ticker: str) -> pd.DataFrame:
+        """Load raw price data for a stock."""
+        prices_path = self.dirs['raw_prices'] / f"{ticker}.parquet"
+        
+        if not prices_path.exists():
+            logger.warning(f"Price file not found for {ticker}")
+            return pd.DataFrame()
+        
+        return pd.read_parquet(prices_path)
+    
+    def load_trades(self, ticker: str) -> pd.DataFrame:
+        """Load investor trades data for a stock."""
+        trades_path = self.dirs['raw_trades'] / f"{ticker}_trades.parquet"
+        
+        if not trades_path.exists():
+            return pd.DataFrame()
+        
+        return pd.read_parquet(trades_path)
+    
+    def load_financials(self, ticker: str) -> pd.DataFrame:
+        """Load financial data for a stock."""
+        financials_path = self.dirs['raw_financials'] / f"{ticker}_financials.parquet"
+        
+        if not financials_path.exists():
+            return pd.DataFrame()
+        
+        return pd.read_parquet(financials_path)
+    
+    def load_metadata(self, ticker: str) -> dict:
+        """Load metadata for a stock."""
+        metadata_path = self.dirs['metadata'] / f"{ticker}_metadata.json"
+        
+        if not metadata_path.exists():
+            return {}
+        
+        try:
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load metadata for {ticker}: {e}")
+            return {}

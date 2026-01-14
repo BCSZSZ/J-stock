@@ -1,6 +1,6 @@
 # J-Stock-Analyzer - 快速开始
 
-## 🚀 新的统一CLI入口
+## 🚀 新的统一 CLI 入口
 
 项目已重构为统一的命令行界面，所有功能通过 `main.py` 访问：
 
@@ -78,7 +78,7 @@ python main.py portfolio --all \
   },
   "portfolio": {
     "max_positions": 5,
-    "max_position_pct": 0.30,
+    "max_position_pct": 0.3,
     "min_position_pct": 0.05
   },
   "default_strategies": {
@@ -108,31 +108,37 @@ python main.py portfolio --all \
 ## 📚 可用策略
 
 ### 入场策略（Entry Strategies）
+
 - `SimpleScorerStrategy` - 简单综合打分（技术+机构）
 - `EnhancedScorerStrategy` - 增强打分（技术+机构+基本面+波动率）
-- `MACDCrossoverStrategy` - MACD交叉策略
+- `MACDCrossoverStrategy` - MACD 交叉策略
 
 ### 出场策略（Exit Strategies）
-- `ATRExitStrategy` - ATR技术出场（止损/追踪/趋势破坏）
+
+- `ATRExitStrategy` - ATR 技术出场（止损/追踪/趋势破坏）
 - `ScoreBasedExitStrategy` - 分数衰减出场
-- `LayeredExitStrategy` - 5层风险控制出场
+- `LayeredExitStrategy` - 5 层风险控制出场
 
 ---
 
 ## 🔧 独立工具
 
 ### 策略生成器
+
 ```bash
 cd tools
 python generate_strategies.py
 ```
-生成所有Entry×Exit组合的配置文件。
+
+生成所有 Entry×Exit 组合的配置文件。
 
 ### 分数诊断工具
+
 ```bash
 cd tools
 python check_scores.py
 ```
+
 检查股票历史得分分布。
 
 ---
@@ -168,6 +174,7 @@ j-stock-analyzer/
 ## 🎁 扩展性
 
 ### 添加新的技术指标
+
 ```python
 # src/analysis/technical_indicators.py
 def calculate_my_indicator(data):
@@ -176,6 +183,7 @@ def calculate_my_indicator(data):
 ```
 
 ### 添加新的入场策略
+
 ```python
 # src/analysis/strategies/entry/my_strategy.py
 from src.analysis.strategies.base_entry_strategy import BaseEntryStrategy
@@ -187,6 +195,7 @@ class MyCustomStrategy(BaseEntryStrategy):
 ```
 
 然后直接使用：
+
 ```bash
 python main.py backtest 7974 --entry MyCustomStrategy
 ```
@@ -196,19 +205,22 @@ python main.py backtest 7974 --entry MyCustomStrategy
 ## ⚠️ 重要变更
 
 ### ✅ 已删除
+
 - ❌ 旧的 `src/analysis/scorers/` 文件夹
 - ❌ 旧的 `src/analysis/exiters/` 文件夹
-- ❌ 临时测试脚本（test_scorer.py, test_exit.py等）
-- ❌ 复杂的JSON配置（backtest_config.json, portfolio_config.json, monitor_list.json）
+- ❌ 临时测试脚本（test_scorer.py, test_exit.py 等）
+- ❌ 复杂的 JSON 配置（backtest_config.json, portfolio_config.json, monitor_list.json）
 
 ### ✅ 新增
-- ✨ 统一的 `main.py` CLI入口
+
+- ✨ 统一的 `main.py` CLI 入口
 - ✨ 简化的配置文件（config.json）
 - ✨ 简化的监视列表（monitor_list.txt）
-- ✨ 策略信号生成功能（signal命令）
+- ✨ 策略信号生成功能（signal 命令）
 - ✨ 独立工具目录（tools/）
 
 ### ✅ 保留（向后兼容）
+
 - ✅ `start_backtest.py` - 仍可使用
 - ✅ `start_portfolio_backtest.py` - 仍可使用
 - ✅ 所有策略类保持不变
@@ -218,11 +230,13 @@ python main.py backtest 7974 --entry MyCustomStrategy
 ## 📞 帮助
 
 查看所有可用命令：
+
 ```bash
 python main.py --help
 ```
 
 查看特定命令的帮助：
+
 ```bash
 python main.py backtest --help
 python main.py portfolio --help
@@ -231,4 +245,4 @@ python main.py portfolio --help
 ---
 
 **更新日期**: 2026-01-14  
-**版本**: 2.0 - 统一CLI架构
+**版本**: 2.0 - 统一 CLI 架构
