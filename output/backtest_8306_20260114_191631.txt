@@ -1,0 +1,92 @@
+
+📊 单股票回测 - 多策略组合
+   股票代码: 8306
+   入场策略: BollingerSqueezeStrategy, IchimokuStochStrategy
+   出场策略: BollingerDynamicExit, ADXTrendExhaustionExit
+   策略组合数: 4
+   时间范围: 最近2年 (2024-01-08 → 2026-01-08)
+   起始资金: ¥5,000,000
+============================================================
+
+[1/4] BollingerSqueezeStrategy × BollingerDynamicExit
+  📊 BUY  2024-03-25: 3,100 shares @ ¥1,597.00 (BollingerSqueezeStrategy, Score: N/A)
+  📈 SELL 2024-05-14: 3,100 shares @ ¥1,600.00 (+0.19%, ¥+9,300) - N/A
+  📊 BUY  2024-07-03: 2,700 shares @ ¥1,805.00 (BollingerSqueezeStrategy, Score: N/A)
+  📈 SELL 2024-07-08: 2,700 shares @ ¥1,822.00 (+0.94%, ¥+45,900) - N/A
+  📊 BUY  2024-11-07: 2,800 shares @ ¥1,795.50 (BollingerSqueezeStrategy, Score: N/A)
+  📉 SELL 2024-11-08: 2,800 shares @ ¥1,784.00 (-0.64%, ¥-32,200) - N/A
+  📊 BUY  2024-11-13: 2,700 shares @ ¥1,805.00 (BollingerSqueezeStrategy, Score: N/A)
+  📈 SELL 2025-01-09: 2,700 shares @ ¥1,906.00 (+5.60%, ¥+272,700) - N/A
+  📊 BUY  2025-02-19: 2,600 shares @ ¥2,022.00 (BollingerSqueezeStrategy, Score: N/A)
+  📉 SELL 2025-02-20: 2,600 shares @ ¥1,991.00 (-1.53%, ¥-80,600) - N/A
+  📊 BUY  2025-07-25: 2,400 shares @ ¥2,153.50 (BollingerSqueezeStrategy, Score: N/A)
+  📉 SELL 2025-07-28: 2,400 shares @ ¥2,150.00 (-0.16%, ¥-8,400) - N/A
+  📊 BUY  2025-08-13: 2,300 shares @ ¥2,240.00 (BollingerSqueezeStrategy, Score: N/A)
+  📈 SELL 2025-08-19: 2,300 shares @ ¥2,314.00 (+3.30%, ¥+170,200) - N/A
+  📊 BUY  2025-09-22: 2,200 shares @ ¥2,366.50 (BollingerSqueezeStrategy, Score: N/A)
+  📈 SELL 2025-09-25: 2,200 shares @ ¥2,370.00 (+0.15%, ¥+7,700) - N/A
+  📊 BUY  2025-09-29: 2,200 shares @ ¥2,350.00 (BollingerSqueezeStrategy, Score: N/A)
+  📈 SELL 2025-11-17: 2,200 shares @ ¥2,423.50 (+3.13%, ¥+161,700) - N/A
+   收益率:  10.93% | 夏普:  8.91 | 回撤: -7.05% | 交易:   9次
+
+[2/4] BollingerSqueezeStrategy × ADXTrendExhaustionExit
+  📊 BUY  2024-03-25: 3,100 shares @ ¥1,597.00 (BollingerSqueezeStrategy, Score: N/A)
+   收益率:  62.43% | 夏普:  0.00 | 回撤: -32.58% | 交易:   0次
+
+[3/4] IchimokuStochStrategy × BollingerDynamicExit
+  📊 BUY  2024-02-21: 3,300 shares @ ¥1,483.50 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2024-03-05: 3,300 shares @ ¥1,571.50 (+5.93%, ¥+290,400) - N/A
+  📊 BUY  2024-03-06: 3,300 shares @ ¥1,592.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2024-03-08: 3,300 shares @ ¥1,616.50 (+1.54%, ¥+80,850) - N/A
+  📊 BUY  2024-03-11: 3,300 shares @ ¥1,624.50 (IchimokuStochStrategy, Score: N/A)
+  📉 SELL 2024-05-14: 3,300 shares @ ¥1,600.00 (-1.51%, ¥-80,850) - N/A
+  📊 BUY  2024-05-15: 3,200 shares @ ¥1,617.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2024-05-30: 3,200 shares @ ¥1,621.00 (+0.25%, ¥+12,800) - N/A
+  📊 BUY  2024-05-31: 3,200 shares @ ¥1,625.50 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2024-06-05: 3,200 shares @ ¥1,661.00 (+2.18%, ¥+113,600) - N/A
+  📊 BUY  2024-06-06: 3,200 shares @ ¥1,643.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2024-07-03: 3,200 shares @ ¥1,805.00 (+9.86%, ¥+518,400) - N/A
+  📊 BUY  2024-07-04: 3,200 shares @ ¥1,806.50 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2024-07-08: 3,200 shares @ ¥1,822.00 (+0.86%, ¥+49,600) - N/A
+  📊 BUY  2024-07-09: 3,300 shares @ ¥1,791.00 (IchimokuStochStrategy, Score: N/A)
+  📉 SELL 2024-07-26: 3,300 shares @ ¥1,685.50 (-5.89%, ¥-348,150) - N/A
+  📊 BUY  2024-10-08: 3,600 shares @ ¥1,530.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2024-10-21: 3,600 shares @ ¥1,642.00 (+7.32%, ¥+403,200) - N/A
+  📊 BUY  2024-10-22: 3,700 shares @ ¥1,603.50 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2024-11-08: 3,700 shares @ ¥1,784.00 (+11.26%, ¥+667,850) - N/A
+  📊 BUY  2024-11-11: 3,700 shares @ ¥1,784.50 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2025-01-09: 3,700 shares @ ¥1,906.00 (+6.81%, ¥+449,550) - N/A
+  📊 BUY  2025-01-10: 3,700 shares @ ¥1,910.50 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2025-01-31: 3,700 shares @ ¥1,968.50 (+3.04%, ¥+214,600) - N/A
+  📊 BUY  2025-02-03: 3,700 shares @ ¥1,946.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2025-02-20: 3,700 shares @ ¥1,991.00 (+2.31%, ¥+166,500) - N/A
+  📊 BUY  2025-02-21: 3,800 shares @ ¥1,960.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2025-03-21: 3,800 shares @ ¥2,125.00 (+8.42%, ¥+627,000) - N/A
+  📊 BUY  2025-03-26: 3,700 shares @ ¥2,181.00 (IchimokuStochStrategy, Score: N/A)
+  📉 SELL 2025-04-07: 3,700 shares @ ¥1,318.50 (-39.55%, ¥-3,191,250) - N/A
+  📊 BUY  2025-05-19: 2,500 shares @ ¥1,941.50 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2025-07-28: 2,500 shares @ ¥2,150.00 (+10.74%, ¥+521,250) - N/A
+  📊 BUY  2025-07-29: 2,600 shares @ ¥2,098.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2025-08-19: 2,600 shares @ ¥2,314.00 (+10.30%, ¥+561,600) - N/A
+  📊 BUY  2025-08-20: 2,600 shares @ ¥2,260.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2025-09-25: 2,600 shares @ ¥2,370.00 (+4.87%, ¥+286,000) - N/A
+  📊 BUY  2025-09-26: 2,600 shares @ ¥2,375.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2025-11-17: 2,600 shares @ ¥2,423.50 (+2.04%, ¥+126,100) - N/A
+  📊 BUY  2025-11-18: 2,600 shares @ ¥2,401.00 (IchimokuStochStrategy, Score: N/A)
+  📈 SELL 2026-01-08: 2,600 shares @ ¥2,591.00 (+7.91%, ¥+494,000) - N/A
+   收益率:  39.26% | 夏普:  3.65 | 回撤: -39.30% | 交易:  20次
+
+[4/4] IchimokuStochStrategy × ADXTrendExhaustionExit
+  📊 BUY  2024-02-21: 3,300 shares @ ¥1,483.50 (IchimokuStochStrategy, Score: N/A)
+   收益率:  73.95% | 夏普:  0.00 | 回撤: -32.36% | 交易:   0次
+
+
+================================================================================
+策略排名 (按收益率)
+================================================================================
+排名   入场策略                      出场策略                             收益率       夏普       胜率
+--------------------------------------------------------------------------------
+1    IchimokuStochStrategy     ADXTrendExhaustionExit        73.95%    0.00     0.0%
+2    BollingerSqueezeStrategy  ADXTrendExhaustionExit        62.43%    0.00     0.0%
+3    IchimokuStochStrategy     BollingerDynamicExit          39.26%    3.65    85.0%
+4    BollingerSqueezeStrategy  BollingerDynamicExit          10.93%    8.91    66.7%

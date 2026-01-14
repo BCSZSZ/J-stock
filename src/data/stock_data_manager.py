@@ -12,9 +12,10 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, List, Any
 import pandas as pd
 import numpy as np
-from ta.trend import EMAIndicator, MACD
-from ta.momentum import RSIIndicator
-from ta.volatility import AverageTrueRange
+from ta.trend import EMAIndicator, MACD, ADXIndicator, IchimokuIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator
+from ta.volatility import AverageTrueRange, BollingerBands
+from ta.volume import OnBalanceVolumeIndicator
 
 from src.client.jquants_client import JQuantsV2Client
 
@@ -272,7 +273,8 @@ class StockDataManager:
         # Add indicators using ta library
         logger.info(f"[{code}] Computing technical indicators...")
         
-        # Trend: EMAs
+        # ==================== TREND INDICATORS ====================
+        # EMAs
         ema_20 = EMAIndicator(close=df['Close'], window=20)
         ema_50 = EMAIndicator(close=df['Close'], window=50)
         ema_200 = EMAIndicator(close=df['Close'], window=200)
@@ -281,7 +283,25 @@ class StockDataManager:
         df['EMA_50'] = ema_50.ema_indicator()
         df['EMA_200'] = ema_200.ema_indicator()
         
-        # Momentum: RSI
+        # ADX (趋势强度)
+        adx = ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'], window=14)
+        df['ADX_14'] = adx.adx()
+        
+        # Ichimoku (一目均衡表)
+        ichimoku = IchimokuIndicator(
+            high=df['High'], 
+            low=df['Low'], 
+            window1=9,  # Tenkan-sen
+            window2=26, # Kijun-sen
+            window3=52  # Senkou Span B
+        )
+        df['Ichi_Tenkan'] = ichimoku.ichimoku_conversion_line()
+        df['Ichi_Kijun'] = ichimoku.ichimoku_base_line()
+        df['Ichi_SpanA'] = ichimoku.ichimoku_a()
+        df['Ichi_SpanB'] = ichimoku.ichimoku_b()
+        
+        # ==================== MOMENTUM INDICATORS ====================
+        # RSI
         rsi = RSIIndicator(close=df['Close'], window=14)
         df['RSI'] = rsi.rsi()
         
@@ -291,12 +311,37 @@ class StockDataManager:
         df['MACD_Signal'] = macd.macd_signal()
         df['MACD_Hist'] = macd.macd_diff()
         
-        # Volatility: ATR
+        # Stochastic (KDJ)
+        stoch = StochasticOscillator(
+            high=df['High'], 
+            low=df['Low'], 
+            close=df['Close'],
+            window=14,
+            smooth_window=3
+        )
+        df['Stoch_K'] = stoch.stoch()
+        df['Stoch_D'] = stoch.stoch_signal()
+        
+        # ==================== VOLATILITY INDICATORS ====================
+        # ATR
         atr = AverageTrueRange(high=df['High'], low=df['Low'], close=df['Close'], window=14)
         df['ATR'] = atr.average_true_range()
         
-        # Volume: SMA
+        # Bollinger Bands
+        bb = BollingerBands(close=df['Close'], window=20, window_dev=2)
+        df['BB_Upper'] = bb.bollinger_hband()
+        df['BB_Lower'] = bb.bollinger_lband()
+        df['BB_Middle'] = bb.bollinger_mavg()
+        df['BB_Width'] = bb.bollinger_wband()  # (Upper - Lower) / Middle
+        df['BB_PctB'] = bb.bollinger_pband()   # (Close - Lower) / (Upper - Lower)
+        
+        # ==================== VOLUME INDICATORS ====================
+        # Volume SMA
         df['Volume_SMA_20'] = df['Volume'].rolling(window=20).mean()
+        
+        # OBV (On-Balance Volume, 能量潮)
+        obv = OnBalanceVolumeIndicator(close=df['Close'], volume=df['Volume'])
+        df['OBV'] = obv.on_balance_volume()
         
         # Save to features layer
         self._atomic_save(df, features_path)

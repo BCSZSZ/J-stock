@@ -11,12 +11,16 @@ ENTRY_STRATEGIES = {
     'SimpleScorerStrategy': 'src.analysis.strategies.entry.scorer_strategy.SimpleScorerStrategy',
     'EnhancedScorerStrategy': 'src.analysis.strategies.entry.scorer_strategy.EnhancedScorerStrategy',
     'MACDCrossoverStrategy': 'src.analysis.strategies.entry.macd_crossover.MACDCrossoverStrategy',
+    'BollingerSqueezeStrategy': 'src.analysis.strategies.entry.bollinger_squeeze_strategy.BollingerSqueezeStrategy',
+    'IchimokuStochStrategy': 'src.analysis.strategies.entry.ichimoku_stoch_strategy.IchimokuStochStrategy',
 }
 
 EXIT_STRATEGIES = {
     'ATRExitStrategy': 'src.analysis.strategies.exit.atr_exit.ATRExitStrategy',
     'ScoreBasedExitStrategy': 'src.analysis.strategies.exit.score_based_exit.ScoreBasedExitStrategy',
     'LayeredExitStrategy': 'src.analysis.strategies.exit.layered_exit.LayeredExitStrategy',
+    'BollingerDynamicExit': 'src.analysis.strategies.exit.bollinger_dynamic_exit.BollingerDynamicExit',
+    'ADXTrendExhaustionExit': 'src.analysis.strategies.exit.adx_trend_exhaustion.ADXTrendExhaustionExit',
 }
 
 
