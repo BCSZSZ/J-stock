@@ -79,7 +79,7 @@ class ADXTrendExhaustionExit(BaseExitStrategy):
         
         current_price = latest['Close']
         entry_price = position.entry_price
-        peak_price = position.peak_price
+        peak_price = position.peak_price_since_entry
         
         # ========== P0: ADX趋势衰竭 ==========
         adx_current = latest['ADX_14']

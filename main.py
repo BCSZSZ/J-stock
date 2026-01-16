@@ -21,9 +21,17 @@ def load_config() -> dict:
 
 
 def load_monitor_list(config: dict) -> list:
-    """从monitor_list.txt加载股票代码列表"""
-    list_file = Path(config['data']['monitor_list_file'])
+    """从monitor_list.json或monitor_list.txt加载股票代码列表"""
+    # Try JSON first (new format)
+    json_file = Path("data/monitor_list.json")
+    if json_file.exists():
+        import json
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return [stock['code'] for stock in data['tickers']]
     
+    # Fallback to TXT (old format)
+    list_file = Path(config['data']['monitor_list_file'])
     if not list_file.exists():
         print(f"❌ 错误: 监视列表文件不存在 {list_file}")
         sys.exit(1)
@@ -519,16 +527,28 @@ def cmd_portfolio(args):
         
         # 如果是多策略，显示排名
         if len(results) > 1:
-            print(f"\n\n{'='*80}")
+            print(f"\n\n{'='*100}")
             print("策略排名 (按收益率)")
-            print(f"{'='*80}")
+            print(f"{'='*100}")
             sorted_results = sorted(results, key=lambda x: x['result'].total_return_pct, reverse=True)
             
-            print(f"{'排名':<4} {'入场策略':<25} {'出场策略':<25} {'收益率':>10} {'夏普':>8} {'胜率':>8}")
-            print("-" * 80)
-            for i, item in enumerate(sorted_results, 1):
-                r = item['result']
-                print(f"{i:<4} {item['entry']:<25} {item['exit']:<25} {r.total_return_pct:>9.2f}% {r.sharpe_ratio:>7.2f} {r.win_rate_pct:>7.1f}%")
+            # 检查是否有benchmark数据
+            has_benchmark = any(r['result'].benchmark_return_pct is not None for r in sorted_results)
+            
+            if has_benchmark:
+                print(f"{'排名':<4} {'入场策略':<22} {'出场策略':<22} {'收益率':>10} {'夏普':>8} {'胜率':>8} {'TOPIX%':>9} {'超额%':>9}")
+                print("-" * 100)
+                for i, item in enumerate(sorted_results, 1):
+                    r = item['result']
+                    topix_str = f"{r.benchmark_return_pct:>8.2f}%" if r.benchmark_return_pct is not None else "    N/A  "
+                    alpha_str = f"{r.alpha:>8.2f}%" if r.alpha is not None else "    N/A  "
+                    print(f"{i:<4} {item['entry']:<22} {item['exit']:<22} {r.total_return_pct:>9.2f}% {r.sharpe_ratio:>7.2f} {r.win_rate_pct:>7.1f}% {topix_str} {alpha_str}")
+            else:
+                print(f"{'排名':<4} {'入场策略':<25} {'出场策略':<25} {'收益率':>10} {'夏普':>8} {'胜率':>8}")
+                print("-" * 100)
+                for i, item in enumerate(sorted_results, 1):
+                    r = item['result']
+                    print(f"{i:<4} {item['entry']:<25} {item['exit']:<25} {r.total_return_pct:>9.2f}% {r.sharpe_ratio:>7.2f} {r.win_rate_pct:>7.1f}%")
 
 
 def cmd_portfolio_old(args):
@@ -643,6 +663,8 @@ def cmd_universe(args):
 
     print("\n" + "="*80)
     print("J-Stock Universe Selector - CLI (Batch + Resume)")
+    if args.no_fetch:
+        print("⚡ NO-FETCH模式: 跳过数据抓取，使用现有本地数据")
     print("="*80 + "\n")
     manager = StockDataManager(api_key=api_key)
     selector = UniverseSelector(manager)
@@ -735,7 +757,8 @@ def cmd_universe(args):
                 test_limit=10,
                 ticker_list=batch_codes,
                 apply_filters=False,
-                return_full=True
+                return_full=True,
+                no_fetch=args.no_fetch
             )
         except Exception as e:
             print(f"❌ 批次失败: {e}")
@@ -795,10 +818,35 @@ def cmd_universe(args):
     # ========== Finalize ==========
     if consolidated_scores_path.exists():
         all_scores = pd.read_parquet(consolidated_scores_path)
-        # Ensure TotalScore exists
-        if 'TotalScore' not in all_scores.columns:
-            print("❌ 错误: 合并分数缺少 TotalScore 列")
-            return
+        
+        # ========== GLOBAL NORMALIZATION (5 dimensions) ==========
+        print(f"\n📊 全局归一化 ({len(all_scores)} 支股票)")
+        
+        # Percentile ranking across all stocks
+        all_scores['Rank_Vol'] = all_scores['ATR_Ratio'].rank(pct=True, ascending=True)
+        all_scores['Rank_Liq'] = all_scores['MedianTurnover'].rank(pct=True, ascending=True)
+        all_scores['Rank_Trend'] = all_scores['TrendStrength'].rank(pct=True, ascending=True)
+        all_scores['Rank_Momentum'] = all_scores['Momentum_20d'].rank(pct=True, ascending=True)
+        all_scores['Rank_VolSurge'] = all_scores['Volume_Surge'].rank(pct=True, ascending=True)
+        
+        # Weighted scoring (5 dimensions)
+        WEIGHT_VOL = 0.25
+        WEIGHT_LIQ = 0.25
+        WEIGHT_TREND = 0.20
+        WEIGHT_MOMENTUM = 0.20
+        WEIGHT_VOLSURGE = 0.10
+        
+        all_scores['TotalScore'] = (
+            WEIGHT_VOL * all_scores['Rank_Vol'] +
+            WEIGHT_LIQ * all_scores['Rank_Liq'] +
+            WEIGHT_TREND * all_scores['Rank_Trend'] +
+            WEIGHT_MOMENTUM * all_scores['Rank_Momentum'] +
+            WEIGHT_VOLSURGE * all_scores['Rank_VolSurge']
+        )
+        
+        print(f"   权重分配: Vol={WEIGHT_VOL}, Liq={WEIGHT_LIQ}, Trend={WEIGHT_TREND}, Momentum={WEIGHT_MOMENTUM}, VolSurge={WEIGHT_VOLSURGE}")
+        print(f"   分数范围: {all_scores['TotalScore'].min():.3f} - {all_scores['TotalScore'].max():.3f}")
+        
         # Compute global top-N
         df_top_final = all_scores.nlargest(args.top_n, 'TotalScore').copy()
         df_top_final['Rank'] = range(1, len(df_top_final) + 1)
@@ -893,6 +941,7 @@ def main():
     universe_parser.add_argument('--batch-size', type=int, help='批次大小（默认100）')
     universe_parser.add_argument('--resume', action='store_true', help='从checkpoint断点续传')
     universe_parser.add_argument('--checkpoint', type=str, help='指定checkpoint路径（默认自动生成）')
+    universe_parser.add_argument('--no-fetch', action='store_true', help='跳过数据抓取，直接用现有features做归一化（快速重新评分）')
     
     # 解析参数
     args = parser.parse_args()

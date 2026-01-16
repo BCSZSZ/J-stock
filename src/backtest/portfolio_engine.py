@@ -15,6 +15,7 @@ from .models import BacktestResult, Trade
 from ..analysis.signals import TradingSignal, SignalAction, MarketData
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
+from ..data.benchmark_manager import BenchmarkManager
 
 logger = logging.getLogger(__name__)
 
@@ -419,7 +420,33 @@ class PortfolioBacktestEngine:
         avg_gain = sum(t.return_pct for t in winning_trades) / len(winning_trades) if winning_trades else 0
         avg_loss = sum(t.return_pct for t in losing_trades) / len(losing_trades) if losing_trades else 0
         
-        # TODO: 实现Sharpe ratio, max drawdown等
+        # 计算最大回撤
+        max_drawdown_pct = self._calculate_max_drawdown(daily_equity)
+        
+        # 计算夏普比率
+        sharpe_ratio = self._calculate_sharpe_ratio(daily_equity, years)
+        
+        # 计算盈亏比
+        profit_factor = self._calculate_profit_factor(winning_trades, losing_trades)
+        
+        # 计算TOPIX基准收益
+        benchmark_return_pct = None
+        alpha = None
+        beat_benchmark = None
+        
+        try:
+            manager = BenchmarkManager(client=None, data_root=self.data_root)
+            benchmark_return_pct = manager.calculate_benchmark_return(
+                start_date, 
+                end_date, 
+                use_cached=True
+            )
+            
+            if benchmark_return_pct is not None:
+                alpha = total_return_pct - benchmark_return_pct
+                beat_benchmark = total_return_pct > benchmark_return_pct
+        except Exception as e:
+            logger.warning(f"Failed to calculate benchmark: {e}")
         
         ticker_display = f"Portfolio[{', '.join(tickers)}]"
         
@@ -434,14 +461,17 @@ class PortfolioBacktestEngine:
             final_capital_jpy=final_value,
             total_return_pct=total_return_pct,
             annualized_return_pct=annualized_return,
-            sharpe_ratio=0.0,  # TODO
-            max_drawdown_pct=0.0,  # TODO
+            sharpe_ratio=sharpe_ratio,
+            max_drawdown_pct=max_drawdown_pct,
             num_trades=len(trades),
             win_rate_pct=win_rate,
             avg_gain_pct=avg_gain,
             avg_loss_pct=avg_loss,
             avg_holding_days=sum(t.holding_days for t in trades) / len(trades) if trades else 0,
-            profit_factor=0.0  # TODO
+            profit_factor=profit_factor,
+            benchmark_return_pct=benchmark_return_pct,
+            alpha=alpha,
+            beat_benchmark=beat_benchmark
         )
     
     def _empty_result(self, tickers, entry_strategy, exit_strategy, start_date, end_date) -> BacktestResult:
@@ -467,3 +497,100 @@ class PortfolioBacktestEngine:
             avg_holding_days=0.0,
             profit_factor=0.0
         )
+    
+    def _calculate_max_drawdown(self, daily_equity: Dict) -> float:
+        """
+        计算最大回撤百分比
+        
+        Args:
+            daily_equity: 每日资产价值字典 {date: value}
+            
+        Returns:
+            最大回撤百分比 (正数表示下跌)
+        """
+        if not daily_equity or len(daily_equity) < 2:
+            return 0.0
+        
+        # 转换为Series并排序
+        equity_series = pd.Series(daily_equity).sort_index()
+        
+        # 计算累积最高值
+        cumulative_max = equity_series.expanding().max()
+        
+        # 计算回撤（当前值相对于历史最高值的下跌）
+        drawdown = (equity_series - cumulative_max) / cumulative_max * 100
+        
+        # 最大回撤（绝对值）
+        max_drawdown = abs(drawdown.min())
+        
+        return max_drawdown
+    
+    def _calculate_sharpe_ratio(self, daily_equity: Dict, years: float) -> float:
+        """
+        计算夏普比率
+        
+        Args:
+            daily_equity: 每日资产价值字典 {date: value}
+            years: 回测年数
+            
+        Returns:
+            夏普比率（年化）
+        """
+        if not daily_equity or len(daily_equity) < 2:
+            return 0.0
+        
+        # 转换为Series并排序
+        equity_series = pd.Series(daily_equity).sort_index()
+        
+        # 计算每日收益率
+        daily_returns = equity_series.pct_change().dropna()
+        
+        if len(daily_returns) == 0:
+            return 0.0
+        
+        # 计算年化收益率（平均值）
+        avg_daily_return = daily_returns.mean()
+        
+        # 计算年化波动率（标准差）
+        daily_std = daily_returns.std()
+        
+        if daily_std == 0:
+            return 0.0
+        
+        # 假设一年252个交易日
+        trading_days_per_year = 252
+        
+        # 年化夏普比率（假设无风险利率为0）
+        sharpe_ratio = (avg_daily_return / daily_std) * (trading_days_per_year ** 0.5)
+        
+        return sharpe_ratio
+    
+    def _calculate_profit_factor(self, winning_trades: List, losing_trades: List) -> float:
+        """
+        计算盈亏比（Profit Factor）
+        
+        盈亏比 = 总盈利金额 / 总亏损金额（绝对值）
+        
+        Args:
+            winning_trades: 盈利交易列表
+            losing_trades: 亏损交易列表
+            
+        Returns:
+            盈亏比（>1表示盈利大于亏损）
+        """
+        if not winning_trades and not losing_trades:
+            return 0.0
+        
+        # 计算总盈利
+        total_profit = sum(t.return_jpy for t in winning_trades)
+        
+        # 计算总亏损（绝对值）
+        total_loss = abs(sum(t.return_jpy for t in losing_trades))
+        
+        if total_loss == 0:
+            # 没有亏损交易
+            return float('inf') if total_profit > 0 else 0.0
+        
+        profit_factor = total_profit / total_loss
+        
+        return profit_factor

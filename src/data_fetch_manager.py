@@ -32,16 +32,29 @@ logger = logging.getLogger(__name__)
 
 def load_monitor_list(file_path: str = 'data/monitor_list.txt') -> List[str]:
     """
-    Load ticker codes from monitor_list.txt (simplified format).
+    Load ticker codes from monitor_list.json or monitor_list.txt.
     
     Args:
-        file_path: Path to monitor list text file.
+        file_path: Path to monitor list file (deprecated, now uses JSON first).
         
     Returns:
         List of ticker codes.
     """
-    monitor_file = Path(file_path)
+    # Try JSON first (new format)
+    json_file = Path("data/monitor_list.json")
+    if json_file.exists():
+        try:
+            import json
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                tickers = [stock['code'] for stock in data['tickers']]
+                logger.info(f"Loaded {len(tickers)} stocks from {json_file}")
+                return tickers
+        except Exception as e:
+            logger.warning(f"Failed to load JSON monitor list: {e}, trying TXT format")
     
+    # Fallback to TXT (old format)
+    monitor_file = Path(file_path)
     if not monitor_file.exists():
         logger.warning(f"Monitor list not found at {file_path}, using fallback tickers")
         # Fallback to hardcoded list if file doesn't exist

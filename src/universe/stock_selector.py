@@ -76,7 +76,8 @@ class UniverseSelector:
         test_limit: int = 10,
         ticker_list: Optional[List[str]] = None,
         apply_filters: bool = True,
-        return_full: bool = False
+        return_full: bool = False,
+        no_fetch: bool = False
     ) -> pd.DataFrame:
         """
         Execute the full selection pipeline.
@@ -86,9 +87,10 @@ class UniverseSelector:
             test_mode: If True, only process first N stocks for testing.
             test_limit: Number of stocks to process in test mode.
             ticker_list: Optional list of ticker codes (bypasses API fetch).
+            no_fetch: If True, skip data fetching and use local data only.
             
         Returns:
-            DataFrame with top N selected stocks and their scores.
+            DataFrame with raw metrics (normalization done globally in main.py).
             If return_full=True, returns a tuple (df_top, df_scored).
         """
         logger.info("="*60)
@@ -99,7 +101,8 @@ class UniverseSelector:
         df_universe = self.fetch_universe_data(
             test_mode=test_mode, 
             test_limit=test_limit,
-            ticker_list=ticker_list
+            ticker_list=ticker_list,
+            no_fetch=no_fetch
         )
         
         if df_universe.empty:
@@ -116,29 +119,18 @@ class UniverseSelector:
             df_filtered = df_universe.copy()
             logger.info(f"Filters disabled. Using all {len(df_filtered)} stocks for scoring")
         
-        if len(df_filtered) < top_n:
-            logger.warning(
-                f"Only {len(df_filtered)} stocks passed filters (requested {top_n}). "
-                f"Proceeding with available stocks."
-            )
-            top_n = max(1, len(df_filtered))
-        
-        # Step 3: Normalize features
-        df_normalized = self.normalize_features(df_filtered)
-        
-        # Step 4: Calculate weighted scores
-        df_scored = self.calculate_scores(df_normalized)
-        
-        # Step 5: Select top N
-        df_top = self.select_top_n(df_scored, top_n)
+        # Note: Normalization and scoring moved to main.py for global ranking
+        # This function now returns raw metrics only
+        df_scored = df_filtered.copy()
         
         logger.info("="*60)
-        logger.info(f"Selection Complete: {len(df_top)} stocks selected")
+        logger.info(f"Feature extraction complete: {len(df_scored)} stocks processed")
         logger.info("="*60)
         
+        # Return all scored data for global normalization in main.py
         if return_full:
-            return df_top, df_scored
-        return df_top
+            return pd.DataFrame(), df_scored  # Empty df_top, full df_scored
+        return df_scored
     
     # ==================== DATA FETCHING ====================
     
@@ -146,7 +138,8 @@ class UniverseSelector:
         self, 
         test_mode: bool = False,
         test_limit: int = 10,
-        ticker_list: Optional[List[str]] = None
+        ticker_list: Optional[List[str]] = None,
+        no_fetch: bool = False
     ) -> pd.DataFrame:
         """
         Fetch all listed stocks and their required features.
@@ -155,6 +148,7 @@ class UniverseSelector:
             test_mode: If True, only process first N stocks.
             test_limit: Number of stocks in test mode.
             ticker_list: Optional list of ticker codes to process (bypasses API fetch).
+            no_fetch: If True, skip API calls and use local data only.
             
         Returns:
             DataFrame with columns: Code, CompanyName, Close, MedianTurnover,
@@ -202,7 +196,7 @@ class UniverseSelector:
             logger.info(f"[{idx+1}/{total}] Processing {code} - {name}")
             
             try:
-                features = self._extract_stock_features(code, name)
+                features = self._extract_stock_features(code, name, no_fetch=no_fetch)
                 if features:
                     results.append(features)
             except Exception as e:
@@ -253,26 +247,34 @@ class UniverseSelector:
         
         return df_filtered
     
-    def _extract_stock_features(self, code: str, name: str) -> Optional[Dict]:
+    def _extract_stock_features(self, code: str, name: str, no_fetch: bool = False) -> Optional[Dict]:
         """
         Extract required features for a single stock.
         
         Args:
             code: Stock code (4 digits).
             name: Company name.
+            no_fetch: If True, skip API fetch and only use local data.
             
         Returns:
             Dict with extracted features, or None if insufficient data.
         """
-        # Fetch/update OHLC data
-        df_prices, updated = self.data_manager.fetch_and_update_ohlc(code)
-        
-        if df_prices.empty or len(df_prices) < self.MIN_HISTORY_DAYS:
-            logger.warning(f"[{code}] Insufficient price data ({len(df_prices)} days)")
-            return None
-        
-        # Compute features (ATR, EMA, etc.)
-        df_features = self.data_manager.compute_features(code)
+        # Fetch/update OHLC data (skip if no_fetch mode)
+        if no_fetch:
+            # Load existing features only
+            df_features = self.data_manager.load_stock_features(code)
+            if df_features.empty or len(df_features) < self.MIN_HISTORY_DAYS:
+                logger.warning(f"[{code}] No local data available (use without --no-fetch first)")
+                return None
+        else:
+            df_prices, updated = self.data_manager.fetch_and_update_ohlc(code)
+            
+            if df_prices.empty or len(df_prices) < self.MIN_HISTORY_DAYS:
+                logger.warning(f"[{code}] Insufficient price data ({len(df_prices)} days)")
+                return None
+            
+            # Compute features (ATR, EMA, etc.)
+            df_features = self.data_manager.compute_features(code)
         
         if df_features.empty:
             logger.warning(f"[{code}] Failed to compute features")
@@ -297,8 +299,23 @@ class UniverseSelector:
         ema_200 = latest.get('EMA_200', np.nan)
         trend_strength = (close - ema_200) / ema_200 if (ema_200 > 0 and not np.isnan(ema_200)) else np.nan
         
+        # 4. Momentum_20d (20-day return)
+        if len(df_features) >= 21:
+            price_20d_ago = df_features.iloc[-21]['Close']
+            momentum_20d = (close - price_20d_ago) / price_20d_ago if price_20d_ago > 0 else np.nan
+        else:
+            momentum_20d = np.nan
+        
+        # 5. Volume_Surge (recent 20d vs baseline 100d volume ratio)
+        if len(df_features) >= 120:
+            vol_recent = df_features.tail(20)['Volume'].mean()
+            vol_baseline = df_features.iloc[-120:-20]['Volume'].mean()
+            volume_surge = vol_recent / vol_baseline if vol_baseline > 0 else np.nan
+        else:
+            volume_surge = np.nan
+        
         # Validate all required fields
-        if any(np.isnan([close, median_turnover, atr_ratio, trend_strength])):
+        if any(np.isnan([close, median_turnover, atr_ratio, trend_strength, momentum_20d, volume_surge])):
             logger.warning(f"[{code}] Missing required metrics")
             return None
         
@@ -311,6 +328,8 @@ class UniverseSelector:
             'ATR_Ratio': atr_ratio,
             'EMA_200': ema_200,
             'TrendStrength': trend_strength,
+            'Momentum_20d': momentum_20d,
+            'Volume_Surge': volume_surge,
             'DataDate': latest.get('Date')
         }
     
@@ -470,7 +489,7 @@ class UniverseSelector:
             # Convert to monitor_list.json format
             tickers_list = []
             for _, row in df_top.iterrows():
-                tickers_list.append({
+                ticker_data = {
                     'code': row['Code'],
                     'name': row['CompanyName'],
                     'rank': int(row['Rank']),
@@ -483,20 +502,32 @@ class UniverseSelector:
                     'trend_strength': float(row['TrendStrength']),
                     'close_price': float(row['Close']),
                     'selected_date': datetime.now().strftime('%Y-%m-%d')
-                })
+                }
+                
+                # Add new metrics if available
+                if 'Rank_Momentum' in row:
+                    ticker_data['rank_momentum'] = float(row['Rank_Momentum'])
+                    ticker_data['momentum_20d'] = float(row['Momentum_20d'])
+                if 'Rank_VolSurge' in row:
+                    ticker_data['rank_volsurge'] = float(row['Rank_VolSurge'])
+                    ticker_data['volume_surge'] = float(row['Volume_Surge'])
+                    
+                tickers_list.append(ticker_data)
             
             output = {
-                'version': '1.0',
+                'version': '2.0',
                 'selection_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'description': 'Top 50 stocks selected by Universe Selector',
+                'description': 'Top 50 stocks selected by Universe Selector (5-dimension scoring)',
                 'selection_criteria': {
                     'min_price': self.MIN_PRICE,
                     'min_liquidity': self.MIN_LIQUIDITY,
                     'atr_ratio_range': [self.MIN_ATR_RATIO, self.MAX_ATR_RATIO],
                     'weights': {
-                        'volatility': self.WEIGHT_VOLATILITY,
-                        'liquidity': self.WEIGHT_LIQUIDITY,
-                        'trend': self.WEIGHT_TREND
+                        'volatility': 0.25,
+                        'liquidity': 0.25,
+                        'trend': 0.20,
+                        'momentum': 0.20,
+                        'volume_surge': 0.10
                     }
                 },
                 'tickers': tickers_list
@@ -511,12 +542,18 @@ class UniverseSelector:
         if format in ['csv', 'both']:
             csv_path = base_path / f'top50_selection_{timestamp}.csv'
             
-            # Select key columns
+            # Select key columns (include new metrics if available)
             output_columns = [
                 'Rank', 'Code', 'CompanyName', 'TotalScore',
                 'Rank_Vol', 'Rank_Liq', 'Rank_Trend',
                 'Close', 'ATR_Ratio', 'MedianTurnover', 'TrendStrength'
             ]
+            
+            # Add new columns if they exist
+            if 'Rank_Momentum' in df_top.columns:
+                output_columns.extend(['Rank_Momentum', 'Momentum_20d'])
+            if 'Rank_VolSurge' in df_top.columns:
+                output_columns.extend(['Rank_VolSurge', 'Volume_Surge'])
             
             df_top[output_columns].to_csv(csv_path, index=False, encoding='utf-8-sig')
             logger.info(f"CSV results saved: {csv_path}")

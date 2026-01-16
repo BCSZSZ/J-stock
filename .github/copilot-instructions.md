@@ -4,11 +4,12 @@
 
 **J-Stock-Analyzer** is a production-grade Japanese stock trading system with:
 
-- **Entry Logic:** Scoring strategies (SimpleScorer, EnhancedScorer)
-- **Exit Logic:** Exit strategies (ATRExiter, LayeredExiter)
-- **Backtesting:** Strategy performance evaluation framework
-- **ML Pipeline:** Deep learning for strategy optimization (future)
-- **Automation:** Daily cron job (local → AWS migration planned)
+- **Entry Logic:** SimpleScorerStrategy (scoring on technical, institutional, fundamental, volatility factors)
+- **Exit Logic:** 4 validated exit strategies (ATRExitStrategy, LayeredExitStrategy, BollingerDynamicExit, ADXTrendExhaustionExit)
+- **Backtesting:** Portfolio-level multi-stock backtest engine with TOPIX benchmark comparison
+- **Universe Selection:** 61-stock monitor list (1658 stocks evaluated, top 50 selected + 12 originals)
+- **Automation:** Daily data update pipeline (local → AWS migration planned Q3 2026)
+- **Deployment Status:** Phase 3 COMPLETED (Portfolio backtesting fully validated), Phase 5 IN PROGRESS (Production pipeline)
 
 ---
 
@@ -19,25 +20,61 @@
 ```
 j-stock-analyzer/
 ├── src/
-│   ├── client/          # J-Quants API V2 wrapper
-│   ├── data/            # Data pipeline (incremental updates)
+│   ├── client/              # J-Quants API V2 wrapper
+│   ├── data/
+│   │   ├── stock_data_manager.py      # Data pipeline with incremental updates
+│   │   ├── benchmark_manager.py       # TOPIX benchmark data management
+│   │   └── universe_selector.py       # 5-dimension percentile ranking (1658 stocks)
 │   ├── analysis/
-│   │   ├── scorers/     # Entry strategies (BaseScorer, SimpleScorer, EnhancedScorer)
-│   │   ├── exiters/     # Exit strategies (BaseExiter, ATRExiter, LayeredExiter)
+│   │   ├── scorers/         # Entry strategies (SimpleScorerStrategy only)
+│   │   ├── exiters/         # Exit strategies (4 validated: ATR, Layered, BollingerDynamic, ADXTrendExhaustion)
 │   │   └── technical_indicators.py
+│   ├── backtest/
+│   │   ├── portfolio_engine.py        # Multi-stock portfolio backtester with TOPIX benchmark
+│   │   └── single_engine.py
 │   ├── config/
 │   └── utils/
-├── data/                # Parquet data lake (features, trades, financials, metadata)
+├── data/
+│   ├── features/            # Daily OHLCV + 14 technical indicators (1,222 rows/stock)
+│   ├── raw_trades/          # Weekly institutional flows (Parquet)
+│   ├── raw_financials/      # Quarterly fundamentals (Parquet)
+│   ├── benchmarks/          # TOPIX daily OHLC (1,209 records, 2021-02-04 to 2026-01-15)
+│   ├── universe/            # Universe selection results (JSON checkpoints)
+│   ├── metadata/            # Earnings calendar, company info (JSON)
+│   └── monitor_list.json    # 61-stock tracking list
 ├── tests/
-└── [test scripts]       # test_scorer.py, test_exit.py
+├── output/                  # Portfolio backtest results
+└── main.py                  # CLI entry point for portfolio backtesting
 ```
 
-### Data Lake (Parquet Files)
+### Data Lake Specifications
 
-- **features/** - Daily OHLCV + technical indicators (~1,222 rows/stock)
-- **raw_trades/** - Weekly institutional flows (~48 rows/stock)
-- **raw_financials/** - Quarterly fundamentals (~20 rows/stock)
-- **metadata/** - Earnings calendar, company info (JSON)
+**Monitor List:** 61 stocks
+- 12 originals: 8035, 8306, 7974, 7011, 6861, 8058, 6501, 4063, 7203, 4568, 6098, others
+- 49 from universe top 50 selection (global percentile ranking across 1658 JPX stocks)
+
+**Universe Scoring (1658 stocks):** 5-dimension percentile ranking
+- Vol_Percentile (25%): Volatility over past 60 days
+- Liq_Percentile (25%): 30-day average trading volume × price
+- Trend_Percentile (20%): 6-month price trend (EMA_20 vs EMA_200)
+- Momentum_20d (20%): Momentum over past 20 days
+- Volume_Surge (10%): Recent volume spike detection
+
+**Feature Data:** Daily OHLCV + 14 technical indicators (~1,222 rows/stock)
+- Price: Open, High, Low, Close
+- Volume: Volume, Volume_SMA_20
+- Trends: EMA_20, EMA_50, EMA_200
+- Oscillators: RSI (14), MACD, MACD_Signal, MACD_Hist
+- Volatility: ATR (14)
+
+**TOPIX Benchmark:** 1,209 records from 2021-02-04 to 2026-01-15 (updated daily)
+- Columns: Date, Open, High, Low, Close
+- Latest: 2026-01-15, Close=3668.98
+
+**Raw Trades (Institutional Flows):** ~48 rows/stock weekly
+- EnDate: Week ending date
+- Investor types: Foreign, Domestic, Trust Bank, Retail, etc.
+- Flows: PurchaseValue, SalesValue, BalanceValue (¥)
 
 ---
 
@@ -780,14 +817,43 @@ print(signal.action, signal.reason)
 
 ---
 
-## Version History
+## Version History & Status
 
 - **v0.1.0** - Initial scorer integration
 - **v0.2.0** - Modular scorer refactor (BaseScorer + strategies)
 - **v0.3.0** - Exit strategy framework (BaseExiter + ATR/Layered)
-- **v0.4.0** - Daily pipeline (planned)
-- **v0.5.0** - Backtest framework (planned)
-- **v1.0.0** - ML pipeline (planned)
+- **v0.4.0** - Portfolio backtesting with TOPIX benchmark (COMPLETED)
+- **v0.5.0** - 4 exit strategies validated (COMPLETED Jan 16, 2026)
+- **v0.6.0** - Daily production pipeline (IN PROGRESS)
+- **v1.0.0** - AWS deployment (planned Q3 2026)
+- **v2.0.0** - ML pipeline (planned Q4 2026+)
+
+---
+
+## Latest Performance Validation (Jan 16, 2026)
+
+### 2-Year Backtest Results (2024-01-01 to 2026-01-08)
+
+| Exit Strategy | Return | Sharpe | Win Rate | Max Drawdown | TOPIX Outperformance | Status |
+|---|---|---|---|---|---|---|
+| **LayeredExitStrategy** | **147.83%** | **1.28** | 48.4% | 28.32% | **+101.36%** | ⭐ RECOMMENDED |
+| ADXTrendExhaustionExit | 136.67% | 1.61 | 49.0% | 23.04% | +90.19% | Strong Alternative |
+| BollingerDynamicExit | 124.46% | 1.55 | 66.3% | 19.18% | +77.99% | Good for Short-term |
+| ATRExitStrategy | 119.16% | 1.46 | 37.2% | 25.16% | +72.68% | Baseline |
+
+**Key Finding:** LayeredExitStrategy best choice for production deployment based on:
+- Highest 2-year return (147.83%)
+- Strongest TOPIX outperformance (+101.36% alpha)
+- 964 trades over 2 years (sufficient sample size)
+- Consistent performance across market conditions
+
+**Production Strategy Recommendation:**
+- Deploy: **LayeredExitStrategy** (Entry: SimpleScorerStrategy)
+- Monitor: Quarterly evaluation with rolling 1-year backtest
+- Switch: Only if consecutive quarter underperformance >10% vs TOPIX
+- Capital: ¥5,000,000 (validated in backtest)
+- Max Positions: 5 concurrent (validated in backtest)
+- Position Sizing: Lot-based on price (validated in backtest)
 
 ---
 
@@ -819,11 +885,15 @@ print(signal.action, signal.reason)
 
 This is a **real trading system** for Japanese equities. Code quality matters:
 
-- ❌ No untested strategies
+- ❌ No untested strategies (all 4 exit strategies validated 2-year backtest)
 - ❌ No magic numbers (use constants with explanations)
 - ❌ No "TODO" without GitHub issue
-- ✅ Test on real data (we have 11 tickers: 8035, 8306, 7974, 7011, 6861, 8058, 6501, 4063, 7203, 4568, 6098)
+- ✅ Test on real data (61 monitored stocks from 1658 universe)
 - ✅ Consider earnings calendar (Japanese gaps are 2-3x US)
 - ✅ Respect institutional flows (they lead the market)
+- ✅ Use TOPIX benchmark for performance comparison (all strategies show +70%+ alpha)
+- ✅ Validate with long-term backtest (1-2 year minimum)
+
+**Current Priority:** Set up daily automation (Windows Task Scheduler at 7:00 AM JST for `python main.py fetch --all`)
 
 **Final Rule:** When in doubt, ask user. Don't guess about strategy logic or risk parameters.
