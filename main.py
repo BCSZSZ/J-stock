@@ -624,8 +624,9 @@ def cmd_portfolio_old(args):
 
 
 def cmd_universe(args):
-    """股票宇宙选股（正式版命令）"""
+    """股票宇宙选股（正式版命令，支持分批与断点续传）"""
     import os
+    import json
     from dotenv import load_dotenv
     from src.data.stock_data_manager import StockDataManager
     from src.universe.stock_selector import UniverseSelector
@@ -633,21 +634,20 @@ def cmd_universe(args):
     from pathlib import Path
     from datetime import datetime
 
-    # 加载环境变量
+    # ========== 环境与组件 ==========
     load_dotenv()
     api_key = os.getenv('JQUANTS_API_KEY')
     if not api_key:
         print("❌ 错误: 未找到 JQUANTS_API_KEY")
         return
 
-    # 初始化组件
     print("\n" + "="*80)
-    print("J-Stock Universe Selector - CLI")
+    print("J-Stock Universe Selector - CLI (Batch + Resume)")
     print("="*80 + "\n")
     manager = StockDataManager(api_key=api_key)
     selector = UniverseSelector(manager)
 
-    # 加载CSV宇宙（不做过滤，保留ETF等）
+    # ========== 加载CSV宇宙（不做过滤，保留ETF等） ==========
     csv_path = Path(args.csv_file) if args.csv_file else Path('data/jpx_final_list.csv')
     if not csv_path.exists():
         print(f"❌ 错误: 未找到CSV文件 {csv_path}")
@@ -656,38 +656,170 @@ def cmd_universe(args):
     if 'Code' not in df.columns:
         print("❌ 错误: CSV缺少Code列")
         return
-    ticker_list = df['Code'].astype(str).str.strip().tolist()
+    full_codes = df['Code'].astype(str).str.strip().tolist()
     if args.limit:
-        ticker_list = ticker_list[:args.limit]
+        full_codes = full_codes[:args.limit]
         print(f"🧪 限制模式: 仅处理前 {args.limit} 支股票")
 
-    print(f"🚀 开始选股 (Top {args.top_n})，股票数: {len(ticker_list)}")
-    df_top, df_scored = selector.run_selection(
-        top_n=args.top_n,
-        test_mode=bool(args.limit),
-        test_limit=args.limit or 10,
-        ticker_list=ticker_list,
-        return_full=True
-    )
+    # ========== Checkpoint IO ==========
+    checkpoints_dir = Path('data/universe/checkpoints')
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
-    if df_top.empty:
-        print("❌ 错误: 选股结果为空")
-        return
+    run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+    checkpoint_path = Path(args.checkpoint) if args.checkpoint else checkpoints_dir / f'universe_run_{run_id}.json'
 
-    # 输出摘要
-    selector.print_summary(df_top, n=10)
+    def load_checkpoint(path: Path) -> dict:
+        if path.exists():
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}
 
-    # 保存结果
-    json_path, csv_path = selector.save_selection_results(df_top, format='both')
-    txt_path = selector.save_scores_txt(df_scored, df_top, top_n=args.top_n)
+    def save_checkpoint(state: dict) -> None:
+        state['updated_at'] = datetime.now().isoformat()
+        with open(checkpoint_path, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
 
-    print(f"\n✅ 选股完成")
-    if json_path:
-        print(f"📄 JSON: {json_path}")
-    if csv_path:
-        print(f"📊 CSV:  {csv_path}")
-    if txt_path:
-        print(f"🧾 TXT:  {txt_path}")
+    # Initialize or resume
+    processed_codes = set()
+    failed_codes = set()
+    last_index = 0
+    batch_size = args.batch_size or 100
+
+    consolidated_scores_path = Path('data/universe') / f'scores_all_{run_id}.parquet'
+
+    if args.resume:
+        state = load_checkpoint(checkpoint_path)
+        if state:
+            print(f"🔁 断点续传: {checkpoint_path}")
+            run_id = state.get('run_id', run_id)
+            processed_codes = set(state.get('processed_codes', []))
+            failed_codes = set(state.get('failed_codes', []))
+            last_index = int(state.get('last_index', 0))
+            consolidated_scores_path = Path(state.get('scores_path', consolidated_scores_path))
+        else:
+            print("⚠️ 未找到有效的checkpoint，按新任务启动")
+
+    # Persist initial state
+    save_checkpoint({
+        'run_id': run_id,
+        'csv_file': str(csv_path),
+        'top_n': args.top_n,
+        'batch_size': batch_size,
+        'processed_codes': list(processed_codes),
+        'failed_codes': list(failed_codes),
+        'last_index': last_index,
+        'scores_path': str(consolidated_scores_path),
+        'created_at': datetime.now().isoformat()
+    })
+
+    print(f"🚀 开始选股 (Top {args.top_n})，股票数: {len(full_codes)}，批大小: {batch_size}")
+
+    # ========== Batch Loop ==========
+    total = len(full_codes)
+    start_idx = last_index
+    while start_idx < total:
+        end_idx = min(start_idx + batch_size, total)
+        batch_codes = full_codes[start_idx:end_idx]
+
+        # Skip codes already processed
+        batch_codes = [c for c in batch_codes if c not in processed_codes]
+        if not batch_codes:
+            start_idx = end_idx
+            continue
+
+        print(f"\n[Batch {start_idx}-{end_idx}] 处理 {len(batch_codes)} 支股票")
+        try:
+            df_top, df_scored = selector.run_selection(
+                top_n=args.top_n,
+                test_mode=False,
+                test_limit=10,
+                ticker_list=batch_codes,
+                apply_filters=False,
+                return_full=True
+            )
+        except Exception as e:
+            print(f"❌ 批次失败: {e}")
+            # 标记整批失败的codes为失败（保留继续能力）
+            for c in batch_codes:
+                failed_codes.add(c)
+            # 更新checkpoint并继续下批
+            save_checkpoint({
+                'run_id': run_id,
+                'csv_file': str(csv_path),
+                'top_n': args.top_n,
+                'batch_size': batch_size,
+                'processed_codes': list(processed_codes),
+                'failed_codes': list(failed_codes),
+                'last_index': end_idx,
+                'scores_path': str(consolidated_scores_path),
+                'created_at': datetime.now().isoformat()
+            })
+            start_idx = end_idx
+            continue
+
+        # Append consolidated scores
+        try:
+            if consolidated_scores_path.exists():
+                # Append by concatenation
+                existing = pd.read_parquet(consolidated_scores_path)
+                combined = pd.concat([existing, df_scored], ignore_index=True)
+                # Deduplicate by Code + DataDate
+                subset_cols = [c for c in ['Code', 'DataDate'] if c in combined.columns]
+                if subset_cols:
+                    combined = combined.drop_duplicates(subset=subset_cols, keep='last')
+                combined.to_parquet(consolidated_scores_path, index=False)
+            else:
+                df_scored.to_parquet(consolidated_scores_path, index=False)
+        except Exception as e:
+            print(f"⚠️ 无法追加合并分数: {e}")
+
+        # Update processed set
+        for c in batch_codes:
+            processed_codes.add(c)
+
+        # Update checkpoint
+        save_checkpoint({
+            'run_id': run_id,
+            'csv_file': str(csv_path),
+            'top_n': args.top_n,
+            'batch_size': batch_size,
+            'processed_codes': list(processed_codes),
+            'failed_codes': list(failed_codes),
+            'last_index': end_idx,
+            'scores_path': str(consolidated_scores_path),
+            'created_at': datetime.now().isoformat()
+        })
+
+        start_idx = end_idx
+
+    # ========== Finalize ==========
+    if consolidated_scores_path.exists():
+        all_scores = pd.read_parquet(consolidated_scores_path)
+        # Ensure TotalScore exists
+        if 'TotalScore' not in all_scores.columns:
+            print("❌ 错误: 合并分数缺少 TotalScore 列")
+            return
+        # Compute global top-N
+        df_top_final = all_scores.nlargest(args.top_n, 'TotalScore').copy()
+        df_top_final['Rank'] = range(1, len(df_top_final) + 1)
+
+        # Summary print
+        selector.print_summary(df_top_final, n=min(10, len(df_top_final)))
+
+        # Save outputs
+        json_path, csv_path = selector.save_selection_results(df_top_final, format='both')
+        txt_path = selector.save_scores_txt(all_scores, df_top_final, top_n=args.top_n)
+
+        print(f"\n✅ 全量选股完成")
+        if json_path:
+            print(f"📄 JSON: {json_path}")
+        if csv_path:
+            print(f"📊 CSV:  {csv_path}")
+        if txt_path:
+            print(f"🧾 TXT:  {txt_path}")
+
+    else:
+        print("⚠️ 未生成合并分数文件，无法输出最终结果")
 
 def main():
     """主入口函数"""
@@ -758,6 +890,9 @@ def main():
     universe_parser.add_argument('--csv-file', type=str, help='CSV文件路径 (默认: data/jpx_final_list.csv)')
     universe_parser.add_argument('--top-n', type=int, default=50, help='选出Top N股票 (默认: 50)')
     universe_parser.add_argument('--limit', type=int, help='仅处理前N支股票（调试用）')
+    universe_parser.add_argument('--batch-size', type=int, help='批次大小（默认100）')
+    universe_parser.add_argument('--resume', action='store_true', help='从checkpoint断点续传')
+    universe_parser.add_argument('--checkpoint', type=str, help='指定checkpoint路径（默认自动生成）')
     
     # 解析参数
     args = parser.parse_args()

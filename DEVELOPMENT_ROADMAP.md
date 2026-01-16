@@ -79,14 +79,17 @@
 ## 📌 Current Focus (Jan 2026)
 
 **Priority 1:** Complete Phase 2 (Stock universe selector)
+
 - Finalize top-N selection with sector diversity
 - Implement dynamic universe refresh
 
 **Priority 2:** Start Phase 3 (Portfolio backtest)
+
 - Build portfolio engine with strategy ensemble support
 - Add position sizing and rebalancing logic
 
 **Priority 3:** Begin Phase 5 (Daily pipeline)
+
 - Design incremental data update workflow
 - Implement signal generation report
 
@@ -111,4 +114,4 @@
 
 ---
 
-*Last updated: 2026-01-16*
+_Last updated: 2026-01-16_
