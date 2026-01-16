@@ -1,0 +1,90 @@
+{
+  "version": "1.0",
+  "selection_date": "2026-01-15 15:40:41",
+  "description": "Top 50 stocks selected by Universe Selector",
+  "selection_criteria": {
+    "min_price": 100,
+    "min_liquidity": 500000000,
+    "atr_ratio_range": [
+      0.015,
+      0.05
+    ],
+    "weights": {
+      "volatility": 0.4,
+      "liquidity": 0.3,
+      "trend": 0.3
+    }
+  },
+  "tickers": [
+    {
+      "code": "8035",
+      "name": "Stock_8035",
+      "rank": 1,
+      "total_score": 0.9300000000000002,
+      "rank_vol": 0.9,
+      "rank_liq": 0.9,
+      "rank_trend": 1.0,
+      "atr_ratio": 0.03273187003387538,
+      "median_turnover": 87338699500.0,
+      "trend_strength": 0.4869104770258039,
+      "close_price": 42310.0,
+      "selected_date": "2026-01-15"
+    },
+    {
+      "code": "7011",
+      "name": "Stock_7011",
+      "rank": 2,
+      "total_score": 0.8,
+      "rank_vol": 0.8,
+      "rank_liq": 0.8,
+      "rank_trend": 0.8,
+      "atr_ratio": 0.029731613952027256,
+      "median_turnover": 80039567750.0,
+      "trend_strength": 0.2750909619911424,
+      "close_price": 4710.0,
+      "selected_date": "2026-01-15"
+    },
+    {
+      "code": "8306",
+      "name": "Stock_8306",
+      "rank": 3,
+      "total_score": 0.69,
+      "rank_vol": 0.3,
+      "rank_liq": 1.0,
+      "rank_trend": 0.9,
+      "atr_ratio": 0.021210518693342083,
+      "median_turnover": 116683318975.0,
+      "trend_strength": 0.3004351471947243,
+      "close_price": 2879.5,
+      "selected_date": "2026-01-15"
+    },
+    {
+      "code": "7974",
+      "name": "Stock_7974",
+      "rank": 4,
+      "total_score": 0.64,
+      "rank_vol": 1.0,
+      "rank_liq": 0.7,
+      "rank_trend": 0.1,
+      "atr_ratio": 0.0328105271763304,
+      "median_turnover": 69089308750.0,
+      "trend_strength": -0.14401091885588058,
+      "close_price": 10220.0,
+      "selected_date": "2026-01-15"
+    },
+    {
+      "code": "7203",
+      "name": "Stock_7203",
+      "rank": 5,
+      "total_score": 0.55,
+      "rank_vol": 0.4,
+      "rank_liq": 0.6,
+      "rank_trend": 0.7,
+      "atr_ratio": 0.022958625787934707,
+      "median_turnover": 67224367050.0,
+      "trend_strength": 0.218491852599899,
+      "close_price": 3622.0,
+      "selected_date": "2026-01-15"
+    }
+  ]
+}

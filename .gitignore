@@ -50,6 +50,21 @@ htmlcov/
 # Logs
 *.log
 
+# Backtest outputs (should NOT be in git)
+backtest_results/
+output/
+portfolio_backtest_results/
+backtest_debug.txt
+backtest_results_*.csv
+trade_analysis_*.md
+
+# Config files (may contain API keys)
+config.json
+
+# Temporary analysis files
+*_analysis_*.md
+*_debug*.txt
+
 # OS
 .DS_Store
 Thumbs.db
