@@ -30,10 +30,9 @@ env/
 .env
 .env.local
 
-# Data files
-data/*.parquet
-data/*.csv
-data/*.json
+# Data files (do not version control)
+data/
+
 
 # IDE
 .vscode/
