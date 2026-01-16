@@ -623,6 +623,72 @@ def cmd_portfolio_old(args):
         print(f"   超额收益: {result.total_return_pct - result.benchmark_return_pct:.2f}%")
 
 
+def cmd_universe(args):
+    """股票宇宙选股（正式版命令）"""
+    import os
+    from dotenv import load_dotenv
+    from src.data.stock_data_manager import StockDataManager
+    from src.universe.stock_selector import UniverseSelector
+    import pandas as pd
+    from pathlib import Path
+    from datetime import datetime
+
+    # 加载环境变量
+    load_dotenv()
+    api_key = os.getenv('JQUANTS_API_KEY')
+    if not api_key:
+        print("❌ 错误: 未找到 JQUANTS_API_KEY")
+        return
+
+    # 初始化组件
+    print("\n" + "="*80)
+    print("J-Stock Universe Selector - CLI")
+    print("="*80 + "\n")
+    manager = StockDataManager(api_key=api_key)
+    selector = UniverseSelector(manager)
+
+    # 加载CSV宇宙（不做过滤，保留ETF等）
+    csv_path = Path(args.csv_file) if args.csv_file else Path('data/jpx_final_list.csv')
+    if not csv_path.exists():
+        print(f"❌ 错误: 未找到CSV文件 {csv_path}")
+        return
+    df = pd.read_csv(csv_path, encoding='utf-8')
+    if 'Code' not in df.columns:
+        print("❌ 错误: CSV缺少Code列")
+        return
+    ticker_list = df['Code'].astype(str).str.strip().tolist()
+    if args.limit:
+        ticker_list = ticker_list[:args.limit]
+        print(f"🧪 限制模式: 仅处理前 {args.limit} 支股票")
+
+    print(f"🚀 开始选股 (Top {args.top_n})，股票数: {len(ticker_list)}")
+    df_top, df_scored = selector.run_selection(
+        top_n=args.top_n,
+        test_mode=bool(args.limit),
+        test_limit=args.limit or 10,
+        ticker_list=ticker_list,
+        return_full=True
+    )
+
+    if df_top.empty:
+        print("❌ 错误: 选股结果为空")
+        return
+
+    # 输出摘要
+    selector.print_summary(df_top, n=10)
+
+    # 保存结果
+    json_path, csv_path = selector.save_selection_results(df_top, format='both')
+    txt_path = selector.save_scores_txt(df_scored, df_top, top_n=args.top_n)
+
+    print(f"\n✅ 选股完成")
+    if json_path:
+        print(f"📄 JSON: {json_path}")
+    if csv_path:
+        print(f"📊 CSV:  {csv_path}")
+    if txt_path:
+        print(f"🧾 TXT:  {txt_path}")
+
 def main():
     """主入口函数"""
     parser = argparse.ArgumentParser(
@@ -686,6 +752,12 @@ def main():
     portfolio_parser.add_argument('--start', help='开始日期 (默认: 2021-01-01)')
     portfolio_parser.add_argument('--end', help='结束日期 (默认: 2026-01-08)')
     portfolio_parser.add_argument('--capital', type=int, help='起始资金 (默认: 5000000)')
+
+    # ========== 宇宙选股命令（正式版） ==========
+    universe_parser = subparsers.add_parser('universe', help='宇宙选股（从CSV加载）')
+    universe_parser.add_argument('--csv-file', type=str, help='CSV文件路径 (默认: data/jpx_final_list.csv)')
+    universe_parser.add_argument('--top-n', type=int, default=50, help='选出Top N股票 (默认: 50)')
+    universe_parser.add_argument('--limit', type=int, help='仅处理前N支股票（调试用）')
     
     # 解析参数
     args = parser.parse_args()
@@ -699,6 +771,8 @@ def main():
         cmd_backtest(args)
     elif args.command == 'portfolio':
         cmd_portfolio(args)
+    elif args.command == 'universe':
+        cmd_universe(args)
     else:
         parser.print_help()
 

@@ -68,6 +68,20 @@ def load_universe_from_file(file_path: str) -> list:
                     tickers.append(line)
         return tickers
     
+    # CSV format
+    elif path.suffix == '.csv':
+        try:
+            import pandas as pd
+            df = pd.read_csv(path, encoding='utf-8')
+            if 'Code' not in df.columns:
+                logger.error("CSV missing required 'Code' column")
+                return []
+            codes = df['Code'].astype(str).str.strip().tolist()
+            return codes
+        except Exception as e:
+            logger.error(f"Failed to read CSV universe: {e}")
+            return []
+    
     else:
         logger.error(f"Unsupported file format: {path.suffix}")
         return []
@@ -81,7 +95,7 @@ def main():
     parser.add_argument(
         '--universe-file', 
         type=str,
-        help='Path to file containing universe ticker codes (TXT or JSON)'
+        help='Path to file containing universe ticker codes (TXT, JSON, or CSV)'
     )
     parser.add_argument(
         '--top-n', 
@@ -100,7 +114,6 @@ def main():
     # Load environment
     load_dotenv()
     api_key = os.getenv('JQUANTS_API_KEY')
-    
     if not api_key:
         logger.error("JQUANTS_API_KEY not found in .env file")
         return
@@ -140,9 +153,13 @@ def main():
     # Run selection
     logger.info(f"\n🚀 Starting universe selection (Top {args.top_n})...\n")
     
-    df_top = selector.run_selection(
+    df_top, df_scored = selector.run_selection(
         top_n=args.top_n,
-        ticker_list=ticker_list
+        test_mode=args.test,
+        test_limit=10,
+        ticker_list=ticker_list,
+        apply_filters=False,
+        return_full=True
     )
     
     if df_top.empty:
@@ -155,10 +172,15 @@ def main():
     # Save results
     logger.info("Saving selection results...")
     json_path, csv_path = selector.save_selection_results(df_top, format='both')
+    txt_path = selector.save_scores_txt(df_scored, df_top, top_n=args.top_n)
     
     print(f"\n✅ Selection completed successfully!")
-    print(f"📄 JSON: {json_path}")
-    print(f"📊 CSV:  {csv_path}\n")
+    if json_path:
+        print(f"📄 JSON: {json_path}")
+    if csv_path:
+        print(f"📊 CSV:  {csv_path}")
+    if txt_path:
+        print(f"🧾 TXT:  {txt_path}\n")
     
     # Optional: Save as new monitor_list
     save_as_monitor = input("\n❓ Save top results as new monitor_list.json? (y/n): ")

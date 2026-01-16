@@ -74,7 +74,9 @@ class UniverseSelector:
         top_n: int = 50,
         test_mode: bool = False,
         test_limit: int = 10,
-        ticker_list: Optional[List[str]] = None
+        ticker_list: Optional[List[str]] = None,
+        apply_filters: bool = True,
+        return_full: bool = False
     ) -> pd.DataFrame:
         """
         Execute the full selection pipeline.
@@ -87,6 +89,7 @@ class UniverseSelector:
             
         Returns:
             DataFrame with top N selected stocks and their scores.
+            If return_full=True, returns a tuple (df_top, df_scored).
         """
         logger.info("="*60)
         logger.info("J-Stock Universe Selection - Starting Pipeline")
@@ -105,13 +108,20 @@ class UniverseSelector:
         
         logger.info(f"Universe size: {len(df_universe)} stocks")
         
-        # Step 2: Apply hard filters
-        df_filtered = self.apply_hard_filters(df_universe)
-        logger.info(f"After hard filters: {len(df_filtered)} stocks remain")
+        # Step 2: Apply hard filters (optional)
+        if apply_filters:
+            df_filtered = self.apply_hard_filters(df_universe)
+            logger.info(f"After hard filters: {len(df_filtered)} stocks remain")
+        else:
+            df_filtered = df_universe.copy()
+            logger.info(f"Filters disabled. Using all {len(df_filtered)} stocks for scoring")
         
         if len(df_filtered) < top_n:
-            logger.warning(f"Only {len(df_filtered)} stocks passed filters (requested {top_n})")
-            return df_filtered.sort_values('MedianTurnover', ascending=False)
+            logger.warning(
+                f"Only {len(df_filtered)} stocks passed filters (requested {top_n}). "
+                f"Proceeding with available stocks."
+            )
+            top_n = max(1, len(df_filtered))
         
         # Step 3: Normalize features
         df_normalized = self.normalize_features(df_filtered)
@@ -126,6 +136,8 @@ class UniverseSelector:
         logger.info(f"Selection Complete: {len(df_top)} stocks selected")
         logger.info("="*60)
         
+        if return_full:
+            return df_top, df_scored
         return df_top
     
     # ==================== DATA FETCHING ====================
@@ -510,6 +522,56 @@ class UniverseSelector:
             logger.info(f"CSV results saved: {csv_path}")
         
         return json_path, csv_path
+
+    def save_scores_txt(
+        self,
+        df_scored: pd.DataFrame,
+        df_top: pd.DataFrame,
+        top_n: int = 50
+    ) -> Path:
+        """
+        Save a comprehensive TXT summary with all stock scores and TOP N.
+
+        Args:
+            df_scored: Scored DataFrame for all processed stocks.
+            df_top: Top N selection DataFrame.
+            top_n: Number of top stocks to include in summary.
+
+        Returns:
+            Path to the saved TXT file.
+        """
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        txt_path = Path('data/universe') / f'universe_summary_{timestamp}.txt'
+
+        # Ensure sort by TotalScore desc for full list
+        df_all_sorted = df_scored.sort_values('TotalScore', ascending=False).copy()
+
+        lines = []
+        lines.append("="*80)
+        lines.append("J-Stock Universe Selection - Full Score Summary")
+        lines.append("="*80)
+        lines.append("")
+        lines.append(f"Processed stocks: {len(df_scored)}")
+        lines.append(f"Selected top {top_n} stocks")
+        lines.append("")
+        lines.append("All stocks (sorted by TotalScore):")
+        lines.append("Rank,Code,CompanyName,TotalScore,Rank_Vol,Rank_Liq,Rank_Trend,Close,ATR_Ratio,MedianTurnover,TrendStrength")
+        for i, row in enumerate(df_all_sorted.itertuples(index=False), 1):
+            lines.append(
+                f"{i},{row.Code},{row.CompanyName},{row.TotalScore:.4f},{getattr(row,'Rank_Vol',float('nan')):.4f},{getattr(row,'Rank_Liq',float('nan')):.4f},{getattr(row,'Rank_Trend',float('nan')):.4f},{row.Close:.2f},{row.ATR_Ratio:.6f},{row.MedianTurnover:.0f},{row.TrendStrength:.6f}"
+            )
+
+        lines.append("")
+        lines.append("-"*80)
+        lines.append(f"TOP {min(top_n, len(df_top))}:")
+        lines.append("Rank,Code,CompanyName,TotalScore")
+        for row in df_top.sort_values('Rank').itertuples(index=False):
+            lines.append(f"{int(row.Rank)},{row.Code},{row.CompanyName},{row.TotalScore:.4f}")
+
+        txt_path.parent.mkdir(parents=True, exist_ok=True)
+        txt_path.write_text("\n".join(lines), encoding='utf-8')
+        logger.info(f"TXT summary saved: {txt_path}")
+        return txt_path
     
     def print_summary(self, df_top: pd.DataFrame, n: int = 10) -> None:
         """
