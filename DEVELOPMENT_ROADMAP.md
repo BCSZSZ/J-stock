@@ -81,6 +81,7 @@
 ### 🎯 Immediate Priority: Production Deployment
 
 **Phase 3 Completion Status:**
+
 - ✅ Portfolio backtest engine fully functional
 - ✅ All 4 exit strategies validated (2-year backtest completed Jan 16)
 - ✅ TOPIX benchmark integration operational
@@ -95,6 +96,7 @@
 | ATRExitStrategy | 119.16% | 1.46 | 37.2% | +72.68% |
 
 **Recommended Action:**
+
 - **Deploy LayeredExitStrategy** as primary strategy (highest return + strong outperformance)
 - **Evaluate quarterly** with rolling 1-year backtest
 - **Switch only if** consecutive quarter underperformance >10% vs TOPIX
@@ -102,6 +104,7 @@
 ### 📋 Next Phase: Production Pipeline Setup
 
 **Priority 1 - Implement Daily Automation (Week 1-2):**
+
 - [ ] **5.1** Set up Windows Task Scheduler for daily 7:00 AM `python main.py fetch --all`
 - [ ] **5.2** Implement data quality checks (missing values, outliers)
 - [ ] **5.3** Create daily scoring report (top 10 BUY signals from 61-stock universe)
@@ -109,11 +112,13 @@
 - [ ] **5.5** Generate daily performance summary (vs TOPIX benchmark)
 
 **Priority 2 - Strategy Rotation Framework (Week 3-4):**
+
 - [ ] **4.4** Build quarterly backtest automation
 - [ ] **4.5** Implement performance comparison dashboard
 - [ ] **4.6** Create decision logic for strategy switching
 
 **Priority 3 - Position Management Integration (Week 5+):**
+
 - [ ] Create position tracking database (CSV/JSON format initially)
 - [ ] Implement entry signal execution guidance
 - [ ] Build portfolio P&L tracking
@@ -140,9 +145,11 @@
 ## 📝 Key Decision Log
 
 ### Decision 1: Strategy Selection for Production (Jan 16, 2026)
+
 **Question:** Should we choose strategies based on 1-month performance or 2-year performance?
 
 **Analysis:**
+
 - 2-year backtests show LayeredExitStrategy consistent winner (147.83% return, 1.28 Sharpe)
 - Short-term tests show BollingerDynamic best for Jan (37.18%), but LayeredExit 2nd (33.74%)
 - LayeredExit ranks #1 in 2-year horizon across all metrics
@@ -150,11 +157,13 @@
 **Decision:** Use **long-term stability** (1-2 year) for strategy selection, with quarterly **tactical reviews**
 
 **Implementation:**
+
 - Deploy LayeredExitStrategy as primary (2-year proven)
 - Quarterly backtest all 4 strategies (3-month rolling window)
 - Only switch if consecutive quarter underperformance vs TOPIX >10%
 
 ### Decision 2: Monitor List Composition (Jan 16, 2026)
+
 **Current State:** 61 stocks (12 original + 49 from top 50 universe selection)
 
 **Validation:** All strategies show positive alpha vs TOPIX across 61-stock portfolio

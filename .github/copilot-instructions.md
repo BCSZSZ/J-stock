@@ -50,10 +50,12 @@ j-stock-analyzer/
 ### Data Lake Specifications
 
 **Monitor List:** 61 stocks
+
 - 12 originals: 8035, 8306, 7974, 7011, 6861, 8058, 6501, 4063, 7203, 4568, 6098, others
 - 49 from universe top 50 selection (global percentile ranking across 1658 JPX stocks)
 
 **Universe Scoring (1658 stocks):** 5-dimension percentile ranking
+
 - Vol_Percentile (25%): Volatility over past 60 days
 - Liq_Percentile (25%): 30-day average trading volume × price
 - Trend_Percentile (20%): 6-month price trend (EMA_20 vs EMA_200)
@@ -61,6 +63,7 @@ j-stock-analyzer/
 - Volume_Surge (10%): Recent volume spike detection
 
 **Feature Data:** Daily OHLCV + 14 technical indicators (~1,222 rows/stock)
+
 - Price: Open, High, Low, Close
 - Volume: Volume, Volume_SMA_20
 - Trends: EMA_20, EMA_50, EMA_200
@@ -68,10 +71,12 @@ j-stock-analyzer/
 - Volatility: ATR (14)
 
 **TOPIX Benchmark:** 1,209 records from 2021-02-04 to 2026-01-15 (updated daily)
+
 - Columns: Date, Open, High, Low, Close
 - Latest: 2026-01-15, Close=3668.98
 
 **Raw Trades (Institutional Flows):** ~48 rows/stock weekly
+
 - EnDate: Week ending date
 - Investor types: Foreign, Domestic, Trust Bank, Retail, etc.
 - Flows: PurchaseValue, SalesValue, BalanceValue (¥)
@@ -834,20 +839,22 @@ print(signal.action, signal.reason)
 
 ### 2-Year Backtest Results (2024-01-01 to 2026-01-08)
 
-| Exit Strategy | Return | Sharpe | Win Rate | Max Drawdown | TOPIX Outperformance | Status |
-|---|---|---|---|---|---|---|
-| **LayeredExitStrategy** | **147.83%** | **1.28** | 48.4% | 28.32% | **+101.36%** | ⭐ RECOMMENDED |
-| ADXTrendExhaustionExit | 136.67% | 1.61 | 49.0% | 23.04% | +90.19% | Strong Alternative |
-| BollingerDynamicExit | 124.46% | 1.55 | 66.3% | 19.18% | +77.99% | Good for Short-term |
-| ATRExitStrategy | 119.16% | 1.46 | 37.2% | 25.16% | +72.68% | Baseline |
+| Exit Strategy           | Return      | Sharpe   | Win Rate | Max Drawdown | TOPIX Outperformance | Status              |
+| ----------------------- | ----------- | -------- | -------- | ------------ | -------------------- | ------------------- |
+| **LayeredExitStrategy** | **147.83%** | **1.28** | 48.4%    | 28.32%       | **+101.36%**         | ⭐ RECOMMENDED      |
+| ADXTrendExhaustionExit  | 136.67%     | 1.61     | 49.0%    | 23.04%       | +90.19%              | Strong Alternative  |
+| BollingerDynamicExit    | 124.46%     | 1.55     | 66.3%    | 19.18%       | +77.99%              | Good for Short-term |
+| ATRExitStrategy         | 119.16%     | 1.46     | 37.2%    | 25.16%       | +72.68%              | Baseline            |
 
 **Key Finding:** LayeredExitStrategy best choice for production deployment based on:
+
 - Highest 2-year return (147.83%)
 - Strongest TOPIX outperformance (+101.36% alpha)
 - 964 trades over 2 years (sufficient sample size)
 - Consistent performance across market conditions
 
 **Production Strategy Recommendation:**
+
 - Deploy: **LayeredExitStrategy** (Entry: SimpleScorerStrategy)
 - Monitor: Quarterly evaluation with rolling 1-year backtest
 - Switch: Only if consecutive quarter underperformance >10% vs TOPIX
