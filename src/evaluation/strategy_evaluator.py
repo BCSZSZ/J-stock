@@ -20,8 +20,8 @@ class AnnualStrategyResult:
     entry_strategy: str                # "SimpleScorerStrategy"
     exit_strategy: str                 # "LayeredExitStrategy"
     return_pct: float                  # 策略收益率
-    topix_return_pct: float            # TOPIX收益率
-    alpha: float                       # 超额收益率
+    topix_return_pct: Optional[float]  # TOPIX收益率（可能为None）
+    alpha: Optional[float]             # 超额收益率（无TOPIX数据时为None）
     sharpe_ratio: float
     max_drawdown_pct: float
     num_trades: int
@@ -39,8 +39,11 @@ class MarketRegime:
     EXTREME_BULL = "极端牛市 (TOPIX > 75%)"
     
     @staticmethod
-    def classify(topix_return: float) -> str:
+    def classify(topix_return: Optional[float]) -> str:
         """根据TOPIX收益率分类市场环境"""
+        if topix_return is None:
+            return "未知市场环境 (TOPIX数据缺失)"
+        
         if topix_return < 0:
             return MarketRegime.BEAR_MARKET
         elif topix_return < 25:
@@ -121,10 +124,15 @@ class StrategyEvaluator:
             
             # 获取TOPIX收益率
             topix_return = self._get_topix_return(start_date, end_date)
-            market_regime = MarketRegime.classify(topix_return)
             
-            print(f"📊 TOPIX收益率: {topix_return:.2f}%")
-            print(f"🏷️  市场环境: {market_regime}\n")
+            # 检查TOPIX数据是否可用
+            if topix_return is None:
+                print(f"⚠️  TOPIX数据不可用，将计算可用的指标，超额收益等指标标记为N/A\n")
+                market_regime = "未知市场环境 (TOPIX数据缺失)"
+            else:
+                market_regime = MarketRegime.classify(topix_return)
+                print(f"📊 TOPIX收益率: {topix_return:.2f}%")
+                print(f"🏷️  市场环境: {market_regime}\n")
             
             # 测试所有策略组合
             for entry in entry_strategies:
@@ -145,7 +153,9 @@ class StrategyEvaluator:
                         )
                         
                         self.results.append(result)
-                        print(f"✓ Return: {result.return_pct:>6.2f}%, Alpha: {result.alpha:>6.2f}%")
+                        # 格式化输出：如果没有TOPIX数据，alpha为N/A
+                        alpha_str = f"{result.alpha:>6.2f}%" if result.alpha is not None else "   N/A "
+                        print(f"✓ Return: {result.return_pct:>6.2f}%, Alpha: {alpha_str}")
                         
                     except Exception as e:
                         print(f"✗ Error: {str(e)}")
@@ -185,13 +195,18 @@ class StrategyEvaluator:
             max_positions=5
         )
         
-        result = engine.run_backtest(
+        result = engine.backtest_portfolio_strategy(
             tickers=tickers,
             entry_strategy=entry,
             exit_strategy=exit_inst,
             start_date=start_date,
             end_date=end_date
         )
+        
+        # 计算alpha：如果没有TOPIX数据，则设为None
+        alpha = None
+        if topix_return is not None:
+            alpha = result.total_return_pct - topix_return
         
         # 提取结果并构造数据对象
         return AnnualStrategyResult(
@@ -202,7 +217,7 @@ class StrategyEvaluator:
             exit_strategy=exit_strategy,
             return_pct=result.total_return_pct,
             topix_return_pct=topix_return,
-            alpha=result.total_return_pct - topix_return,
+            alpha=alpha,
             sharpe_ratio=result.sharpe_ratio,
             max_drawdown_pct=result.max_drawdown_pct,
             num_trades=result.num_trades,
@@ -211,24 +226,26 @@ class StrategyEvaluator:
             avg_loss_pct=result.avg_loss_pct
         )
     
-    def _get_topix_return(self, start_date: str, end_date: str) -> float:
+    def _get_topix_return(self, start_date: str, end_date: str) -> Optional[float]:
         """
         计算TOPIX在指定时间段的收益率
         调用现有的benchmark_manager（不修改）
+        如果无法获取数据，返回 None
         """
         from src.data.benchmark_manager import BenchmarkManager
         
         manager = BenchmarkManager(client=None, data_root=self.data_root)
         
         try:
-            return manager.calculate_benchmark_return(
+            result = manager.calculate_benchmark_return(
                 start_date=start_date,
                 end_date=end_date,
                 use_cached=True
             )
+            return result  # 返回实际结果（可能是None）
         except Exception as e:
             print(f"⚠️ 无法获取TOPIX数据: {e}")
-            return 0.0
+            return None
     
     def _load_monitor_list(self) -> List[str]:
         """加载监视列表"""
@@ -392,42 +409,82 @@ class StrategyEvaluator:
             f.write("| 时段 | 日期范围 | TOPIX收益率 | 市场环境 |\n")
             f.write("|------|---------|------------|----------|\n")
             for _, row in period_summary.iterrows():
+                topix_str = f"{row['topix_return_pct']:.2f}%" if pd.notna(row['topix_return_pct']) else "N/A (数据缺失)"
                 f.write(f"| {row['period']} | {row['start_date']} ~ {row['end_date']} | "
-                       f"{row['topix_return_pct']:.2f}% | {row['market_regime']} |\n")
+                       f"{topix_str} | {row['market_regime']} |\n")
             f.write("\n")
             
             # 3. 按市场环境分类的最优策略
             f.write("## 3. 按市场环境分类的最优策略\n\n")
-            top_strategies = self.get_top_strategies_by_regime(top_n=3)
+            df['market_regime'] = df['topix_return_pct'].apply(MarketRegime.classify)
             
-            for regime, strategies_df in top_strategies.items():
+            for regime in sorted(df['market_regime'].unique()):
+                regime_df = df[df['market_regime'] == regime].copy()
+                
+                # 按 alpha 排序（有TOPIX数据时）或按 return_pct 排序（无TOPIX数据时）
+                has_alpha = regime_df['alpha'].notna().any() and regime_df['topix_return_pct'].notna().any()
+                if has_alpha and regime_df['alpha'].sum() != 0:
+                    regime_df = regime_df.sort_values('alpha', ascending=False)
+                else:
+                    regime_df = regime_df.sort_values('return_pct', ascending=False)
+                
                 f.write(f"### {regime}\n\n")
-                sample_count = len(df[df['topix_return_pct'].apply(
-                    MarketRegime.classify) == regime])
-                periods = df[df['topix_return_pct'].apply(
-                    MarketRegime.classify) == regime]['period'].unique()
+                sample_count = len(regime_df)
+                periods = regime_df['period'].unique()
                 f.write(f"样本数: {sample_count} (时段: {', '.join(periods)})\n\n")
                 
-                f.write("| 排名 | 入场策略 | 出场策略 | 收益率 | 超额收益 | 夏普比率 | 胜率 |\n")
-                f.write("|------|---------|---------|--------|---------|---------|------|\n")
-                
-                for idx, row in strategies_df.iterrows():
-                    rank = strategies_df.index.get_loc(idx) + 1
-                    f.write(f"| {rank} | {row['entry_strategy']} | {row['exit_strategy']} | "
-                           f"{row['return_pct']:.2f}% | {row['alpha']:.2f}% | "
-                           f"{row['sharpe_ratio']:.2f} | {row['win_rate_pct']:.1f}% |\n")
+                # 表头：根据是否有TOPIX数据动态调整
+                if regime_df['topix_return_pct'].notna().any() and regime_df['topix_return_pct'].sum() != 0:
+                    f.write("| 排名 | 时段 | 入场策略 | 出场策略 | 收益率 | 超额收益 | 夏普比率 | 胜率 |\n")
+                    f.write("|------|------|---------|---------|--------|---------|---------|------|\n")
+                    for idx, (_, row) in enumerate(regime_df.iterrows(), 1):
+                        alpha_str = f"{row['alpha']:.2f}%" if pd.notna(row['alpha']) else "N/A"
+                        f.write(f"| {idx} | {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | "
+                               f"{row['return_pct']:.2f}% | {alpha_str} | "
+                               f"{row['sharpe_ratio']:.2f} | {row['win_rate_pct']:.1f}% |\n")
+                else:
+                    f.write("| 排名 | 时段 | 入场策略 | 出场策略 | 收益率 | 夏普比率 | 胜率 |\n")
+                    f.write("|------|------|---------|---------|--------|---------|------|\n")
+                    for idx, (_, row) in enumerate(regime_df.iterrows(), 1):
+                        f.write(f"| {idx} | {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | "
+                               f"{row['return_pct']:.2f}% | "
+                               f"{row['sharpe_ratio']:.2f} | {row['win_rate_pct']:.1f}% |\n")
                 f.write("\n")
+            
+            # 3.5 策略单位列表
+            f.write("## 3.5 策略单位性能汇总\n\n")
+            f.write("所有策略组合在各时段、各市场环境下的表现对比（按时段和入场策略分组）：\n\n")
+            
+            # 按策略组合分组，显示所有时段数据
+            strategies = sorted(df.groupby(['entry_strategy', 'exit_strategy']).size().index.tolist())
+            
+            f.write("| 时段 | 入场策略 | 出场策略 | 收益率 | 超额收益 | 市场环境 |\n")
+            f.write("|------|---------|---------|--------|---------|----------|\n")
+            
+            for entry_strat, exit_strat in strategies:
+                combo_df = df[(df['entry_strategy'] == entry_strat) & 
+                             (df['exit_strategy'] == exit_strat)].sort_values('period')
+                for _, row in combo_df.iterrows():
+                    alpha_str = f"{row['alpha']:.2f}%" if pd.notna(row['alpha']) else "N/A"
+                    f.write(f"| {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | "
+                           f"{row['return_pct']:.2f}% | {alpha_str} | {row['market_regime']} |\n")
+            f.write("\n")
             
             # 4. 全天候策略推荐
             f.write("## 4. 全天候策略推荐\n\n")
             
             # 统计每个策略组合在各市场环境中的排名
-            df['market_regime'] = df['topix_return_pct'].apply(MarketRegime.classify)
             strategy_performance = {}
             
             for regime in df['market_regime'].unique():
-                regime_df = df[df['market_regime'] == regime]
-                regime_df['rank'] = regime_df['alpha'].rank(ascending=False)
+                regime_df = df[df['market_regime'] == regime].copy()
+                
+                # 按 alpha 排序（有TOPIX数据时）或按 return_pct 排序（无TOPIX数据时）
+                has_alpha = regime_df['alpha'].notna().any() and regime_df['topix_return_pct'].notna().any()
+                if has_alpha and regime_df['alpha'].sum() != 0:
+                    regime_df['rank'] = regime_df['alpha'].rank(ascending=False)
+                else:
+                    regime_df['rank'] = regime_df['return_pct'].rank(ascending=False)
                 
                 for _, row in regime_df.iterrows():
                     key = (row['entry_strategy'], row['exit_strategy'])
@@ -449,7 +506,12 @@ class StrategyEvaluator:
                 combo_df = df[(df['entry_strategy'] == entry) & 
                              (df['exit_strategy'] == exit)]
                 f.write(f"- 平均收益率: {combo_df['return_pct'].mean():.2f}%\n")
-                f.write(f"- 平均超额收益: {combo_df['alpha'].mean():.2f}%\n")
+                
+                # 检查是否有TOPIX数据
+                has_topix_data = combo_df['topix_return_pct'].notna().any() and combo_df['topix_return_pct'].sum() != 0
+                if has_topix_data:
+                    f.write(f"- 平均超额收益: {combo_df['alpha'].mean():.2f}%\n")
+                
                 f.write(f"- 平均夏普比率: {combo_df['sharpe_ratio'].mean():.2f}\n")
                 f.write(f"- 平均胜率: {combo_df['win_rate_pct'].mean():.1f}%\n\n")
 

@@ -10,9 +10,9 @@
 成功实现完整的策略综合评价系统，支持：
 
 1. **灵活的时间段指定** - 年度/季度/月度/自定义
-2. **市场环境分类** - 基于TOPIX收益率的5层分类
-3. **大规模批量回测** - 最多125次回测（5年 × 25策略）
-4. **智能报告生成** - Markdown综合报告 + CSV原始数据
+2. **市场环境分类** - 基于 TOPIX 收益率的 5 层分类
+3. **大规模批量回测** - 最多 125 次回测（5 年 × 25 策略）
+4. **智能报告生成** - Markdown 综合报告 + CSV 原始数据
 5. **独立模块设计** - 零侵入现有代码库
 
 ---
@@ -53,7 +53,7 @@ df = evaluator.run_evaluation(periods)
 evaluator.save_results()
 ```
 
-### 市场环境分类（5层）
+### 市场环境分类（5 层）
 
 ```
 熊市 (TOPIX < 0%)
@@ -79,7 +79,7 @@ evaluator.save_results()
 
 ---
 
-## CLI命令
+## CLI 命令
 
 ### 基本用法
 
@@ -144,6 +144,7 @@ python main.py evaluate \
 评估完成后，在 `strategy_evaluation/` 目录生成：
 
 #### 1. {prefix}_raw_{timestamp}.csv
+
 **原始回测结果**
 
 包含所有回测的详细数据，用于后续自定义分析：
@@ -156,6 +157,7 @@ win_rate_pct,avg_gain_pct,avg_loss_pct
 ```
 
 #### 2. {prefix}_by_regime_{timestamp}.csv
+
 **按市场环境分组的统计结果**
 
 聚合相同策略组合在相同环境中的表现：
@@ -167,11 +169,13 @@ sharpe_ratio_mean,sample_count
 ```
 
 #### 3. {prefix}_report_{timestamp}.md
-**Markdown综合报告**
+
+**Markdown 综合报告**
 
 人类可读的评价报告，包含：
+
 - 总体概览（评估统计）
-- 时段TOPIX表现
+- 时段 TOPIX 表现
 - 按市场环境分类的最优策略（Top 3）
 - 全天候策略推荐（平均排名最靠前）
 
@@ -184,17 +188,17 @@ sharpe_ratio_mean,sample_count
 ```python
 class StrategyEvaluator:
     """策略综合评价器"""
-    
-    def run_evaluation(self, periods, entry_strategies=None, 
+
+    def run_evaluation(self, periods, entry_strategies=None,
                        exit_strategies=None) -> pd.DataFrame:
         """运行批量评估"""
-    
+
     def analyze_by_market_regime(self) -> pd.DataFrame:
         """按市场环境分组分析"""
-    
+
     def get_top_strategies_by_regime(self, top_n=3) -> Dict[str, pd.DataFrame]:
         """获取每种环境的最优策略"""
-    
+
     def save_results(self, prefix="evaluation"):
         """保存CSV和Markdown报告"""
 ```
@@ -225,14 +229,14 @@ class AnnualStrategyResult:
 ```python
 class MarketRegime:
     """市场环境分类"""
-    
+
     # 5种环境常量
     BEAR_MARKET = "熊市 (TOPIX < 0%)"
     MILD_BULL = "温和牛市 (TOPIX 0-25%)"
     STRONG_BULL = "强劲牛市 (TOPIX 25-50%)"
     SUPER_BULL = "超级牛市 (TOPIX 50-75%)"
     EXTREME_BULL = "极端牛市 (TOPIX > 75%)"
-    
+
     @staticmethod
     def classify(topix_return: float) -> str:
         """根据TOPIX收益率分类"""
@@ -257,9 +261,9 @@ def create_quarterly_periods(years: List[int]) -> List[Tuple[str, str, str]]:
 
 ### ✅ 代码完整性
 
-- [x] `src/evaluation/strategy_evaluator.py` - 核心实现 (~500行)
+- [x] `src/evaluation/strategy_evaluator.py` - 核心实现 (~500 行)
 - [x] `src/evaluation/__init__.py` - 模块导出
-- [x] `main.py` - CLI命令集成
+- [x] `main.py` - CLI 命令集成
 - [x] `test_strategy_evaluation.py` - 测试脚本
 
 ### ✅ 功能完整性
@@ -270,15 +274,15 @@ def create_quarterly_periods(years: List[int]) -> List[Tuple[str, str, str]]:
 - [x] 自定义时间段支持
 - [x] 灵活的月份指定（月度模式）
 - [x] 市场环境自动分类
-- [x] CSV原始数据导出
-- [x] CSV聚合数据导出
-- [x] Markdown综合报告生成
+- [x] CSV 原始数据导出
+- [x] CSV 聚合数据导出
+- [x] Markdown 综合报告生成
 - [x] 全天候策略推荐
 
 ### ✅ 架构设计
 
-- [x] 零侵入现有代码（不修改portfolio_engine、benchmark_manager等）
-- [x] 纯编排设计（仅调用现有API）
+- [x] 零侵入现有代码（不修改 portfolio_engine、benchmark_manager 等）
+- [x] 纯编排设计（仅调用现有 API）
 - [x] 完全独立模块（独立输出目录）
 - [x] 灵活的参数系统（支持子集评估）
 - [x] 完整的错误处理
@@ -286,7 +290,7 @@ def create_quarterly_periods(years: List[int]) -> List[Tuple[str, str, str]]:
 ### ✅ 测试验证
 
 - [x] 模块导入验证
-- [x] CLI帮助文本生成
+- [x] CLI 帮助文本生成
 - [x] 命令行参数解析
 - [x] 时间段生成逻辑（已验证）
 - [x] 市场环境分类逻辑（已验证）
@@ -297,19 +301,21 @@ def create_quarterly_periods(years: List[int]) -> List[Tuple[str, str, str]]:
 
 ### 时间估算
 
-| 场景 | 时间段数 | 策略组合 | 回测数 | 耗时 |
-|------|---------|---------|--------|------|
-| 快速测试 | 2个月 | 25 | 50 | ~10-15分钟 |
-| 季度分析 | 8季度 | 25 | 200 | ~30-45分钟 |
-| 月度分析 | 60个月 | 25 | 1,500 | ~4-6小时 |
-| 年度完整 | 5年 | 25 | 125 | ~2-4小时 |
+| 场景     | 时间段数 | 策略组合 | 回测数 | 耗时        |
+| -------- | -------- | -------- | ------ | ----------- |
+| 快速测试 | 2 个月   | 25       | 50     | ~10-15 分钟 |
+| 季度分析 | 8 季度   | 25       | 200    | ~30-45 分钟 |
+| 月度分析 | 60 个月  | 25       | 1,500  | ~4-6 小时   |
+| 年度完整 | 5 年     | 25       | 125    | ~2-4 小时   |
 
 ### 单次回测耗时
-- 5年历史数据 × 61支股票：5-10秒
-- 3年历史数据 × 61支股票：3-5秒
-- 1个月数据 × 61支股票：0.5-1秒
+
+- 5 年历史数据 × 61 支股票：5-10 秒
+- 3 年历史数据 × 61 支股票：3-5 秒
+- 1 个月数据 × 61 支股票：0.5-1 秒
 
 ### 系统资源需求
+
 - **内存**: ≥8GB（推荐）
 - **磁盘**: ≥2GB（数据存储）
 - **CPU**: 多核建议（并行度）
@@ -318,12 +324,12 @@ def create_quarterly_periods(years: List[int]) -> List[Tuple[str, str, str]]:
 
 ## 文档清单
 
-| 文档 | 用途 |
-|------|------|
-| [STRATEGY_EVALUATION_GUIDE.md](STRATEGY_EVALUATION_GUIDE.md) | 完整使用指南（详细版） |
-| [STRATEGY_EVALUATION_QUICKREF.md](STRATEGY_EVALUATION_QUICKREF.md) | 快速参考卡 |
-| `src/evaluation/strategy_evaluator.py` | 源代码（含详细注释） |
-| `test_strategy_evaluation.py` | 测试脚本 |
+| 文档                                                               | 用途                   |
+| ------------------------------------------------------------------ | ---------------------- |
+| [STRATEGY_EVALUATION_GUIDE.md](STRATEGY_EVALUATION_GUIDE.md)       | 完整使用指南（详细版） |
+| [STRATEGY_EVALUATION_QUICKREF.md](STRATEGY_EVALUATION_QUICKREF.md) | 快速参考卡             |
+| `src/evaluation/strategy_evaluator.py`                             | 源代码（含详细注释）   |
+| `test_strategy_evaluation.py`                                      | 测试脚本               |
 
 ---
 
@@ -335,21 +341,21 @@ def create_quarterly_periods(years: List[int]) -> List[Tuple[str, str, str]]:
 1. 快速测试
    python test_strategy_evaluation.py
    ↓ (15分钟)
-   
+
 2. 查看输出
    cat strategy_evaluation_test/test_evaluation_report_*.md
    ↓
-   
+
 3. 理解逻辑
    - 市场环境分类如何工作
    - 如何解读Top策略
    - 全天候策略如何产生
    ↓
-   
+
 4. 完整评估
    python test_strategy_evaluation.py --full
    ↓ (2-4小时)
-   
+
 5. 分析结果
    - 打开CSV进行自定义分析
    - 阅读Markdown综合报告
@@ -380,11 +386,13 @@ python main.py evaluate \
 ### 1. 为什么按市场环境分类？
 
 **原因**: 策略表现高度依赖市场环境
+
 - 熊市：防御型策略优秀
 - 强劲牛市：趋势型策略优秀
 - 没有"最优"策略，只有"最匹配"策略
 
 **益处**:
+
 - 帮助择时选策略
 - 识别"全天候策略"（降低风险）
 - 理解策略的真实优劣
@@ -392,11 +400,13 @@ python main.py evaluate \
 ### 2. 为什么支持灵活时间段？
 
 **原因**: 不同用户需求不同
-- 快速测试：1-2个月 (~15分钟)
-- 季度分析：4个季度 (~45分钟)
-- 完整评估：5年 (~2-4小时)
+
+- 快速测试：1-2 个月 (~15 分钟)
+- 季度分析：4 个季度 (~45 分钟)
+- 完整评估：5 年 (~2-4 小时)
 
 **益处**:
+
 - 支持增量开发
 - 降低第一次运行的时间成本
 - 允许渐进式学习和验证
@@ -404,11 +414,13 @@ python main.py evaluate \
 ### 3. 为什么不修改现有代码？
 
 **原因**: 保护核心系统的稳定性
-- 现有系统经过验证（Phase 3完成）
-- 最小化引入新bug的风险
+
+- 现有系统经过验证（Phase 3 完成）
+- 最小化引入新 bug 的风险
 - 允许独立演进
 
 **益处**:
+
 - 零侵入设计
 - 易于维护和回滚
 - 鼓励模块化开发
@@ -416,11 +428,13 @@ python main.py evaluate \
 ### 4. 为什么输出三种格式？
 
 **原因**: 满足不同用户需求
-- CSV原始数据：数据科学家（自定义分析）
-- CSV聚合数据：分析师（市场环境洞察）
-- Markdown报告：决策者（可执行结论）
+
+- CSV 原始数据：数据科学家（自定义分析）
+- CSV 聚合数据：分析师（市场环境洞察）
+- Markdown 报告：决策者（可执行结论）
 
 **益处**:
+
 - 支持深度分析
 - 支持自动化决策
 - 支持人类理解
@@ -441,7 +455,7 @@ python main.py evaluate \
 - [ ] 并行化回测加速
 - [ ] 实盘数据集成（反向测试）
 - [ ] 参数优化模块
-- [ ] Web可视化界面
+- [ ] Web 可视化界面
 - [ ] 自动策略推荐引擎
 - [ ] 风险管理模块
 
@@ -451,18 +465,18 @@ python main.py evaluate \
 
 ### 核心成就
 
-✅ **完整的策略评价框架** - 支持125次并发回测  
+✅ **完整的策略评价框架** - 支持 125 次并发回测  
 ✅ **灵活的时间段系统** - 年/季/月/自定义  
-✅ **智能市场分类** - 5层TOPIX基准分类  
+✅ **智能市场分类** - 5 层 TOPIX 基准分类  
 ✅ **双向输出** - CSV+Markdown  
 ✅ **零侵入架构** - 纯编排设计  
 ✅ **完整文档** - 使用指南+快速参考  
-✅ **验证就绪** - 可立即开始评估  
+✅ **验证就绪** - 可立即开始评估
 
 ### 后续行动
 
-1. **今日**: 运行快速测试 (15分钟)
-2. **本周**: 完整评估5年数据 (2-4小时)
+1. **今日**: 运行快速测试 (15 分钟)
+2. **本周**: 完整评估 5 年数据 (2-4 小时)
 3. **本月**: 部署最优策略到生产
 4. **持续**: 季度/半年重新评估
 
