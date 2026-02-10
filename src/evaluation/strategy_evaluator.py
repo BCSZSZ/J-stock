@@ -68,15 +68,22 @@ class StrategyEvaluator:
     特点：
     - 不修改任何现有代码，只调用portfolio_engine
     - 支持灵活的时间段指定（整年/季度/月度/自定义）
+    - 支持verbose模式和缓存优化
     """
     
     def __init__(self, 
                  data_root: str = "data",
-                 output_dir: str = "strategy_evaluation"):
+                 output_dir: str = "strategy_evaluation",
+                 verbose: bool = False):
         self.data_root = data_root
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         self.results: List[AnnualStrategyResult] = []
+        self.verbose = verbose  # 详细输出模式
+        
+        # 缓存层（单次运行内有效）
+        self._monitor_list_cache = None  # Monitor list 缓存
+        self._topix_cache: Dict[Tuple[str, str], Optional[float]] = {}  # TOPIX 缓存
         
     def run_evaluation(self,
                       periods: List[Tuple[str, str, str]],
@@ -106,6 +113,7 @@ class StrategyEvaluator:
         total_backtests = len(periods) * len(entry_strategies) * len(exit_strategies)
         completed = 0
         
+        # 总是显示的基本信息
         print(f"\n{'='*80}")
         print(f"🎯 策略综合评价")
         print(f"{'='*80}")
@@ -113,34 +121,51 @@ class StrategyEvaluator:
         print(f"   入场策略: {len(entry_strategies)}个")
         print(f"   出场策略: {len(exit_strategies)}个")
         print(f"   总回测次数: {total_backtests}")
+        if self.verbose:
+            print(f"   详细输出: 开启")
+        else:
+            print(f"   输出模式: 简洁（使用 --verbose 查看详细进度）")
         print(f"{'='*80}\n")
         
         # 遍历所有时间段
         for period_label, start_date, end_date in periods:
-            print(f"\n{'='*80}")
-            print(f"📅 评估时段: {period_label}")
-            print(f"   日期范围: {start_date} to {end_date}")
-            print(f"{'='*80}")
+            if self.verbose:
+                print(f"\n{'='*80}")
+                print(f"📅 评估时段: {period_label}")
+                print(f"   日期范围: {start_date} to {end_date}")
+                print(f"{'='*80}")
             
-            # 获取TOPIX收益率
-            topix_return = self._get_topix_return(start_date, end_date)
+            # 获取TOPIX收益率（使用缓存）
+            cache_key = (start_date, end_date)
+            if cache_key not in self._topix_cache:
+                self._topix_cache[cache_key] = self._get_topix_return(start_date, end_date)
+            topix_return = self._topix_cache[cache_key]
             
             # 检查TOPIX数据是否可用
             if topix_return is None:
-                print(f"⚠️  TOPIX数据不可用，将计算可用的指标，超额收益等指标标记为N/A\n")
+                if self.verbose:
+                    print(f"⚠️  TOPIX数据不可用，将计算可用的指标，超额收益等指标标记为N/A\n")
                 market_regime = "未知市场环境 (TOPIX数据缺失)"
             else:
                 market_regime = MarketRegime.classify(topix_return)
-                print(f"📊 TOPIX收益率: {topix_return:.2f}%")
-                print(f"🏷️  市场环境: {market_regime}\n")
+                if self.verbose:
+                    print(f"📊 TOPIX收益率: {topix_return:.2f}%")
+                    print(f"🏷️  市场环境: {market_regime}\n")
             
             # 测试所有策略组合
+            period_completed = 0
             for entry in entry_strategies:
                 for exit in exit_strategies:
                     completed += 1
+                    period_completed += 1
                     progress = (completed / total_backtests) * 100
                     
-                    print(f"[{completed}/{total_backtests} {progress:.1f}%] {entry} × {exit}... ", end="", flush=True)
+                    if self.verbose:
+                        print(f"[{completed}/{total_backtests} {progress:.1f}%] {entry} × {exit}... ", end="", flush=True)
+                    else:
+                        # 简洁模式：每25个回测显示一个进度标记
+                        if completed % 25 == 0 or completed == total_backtests:
+                            print(f"[{completed}/{total_backtests}]", end=" ", flush=True)
                     
                     try:
                         result = self._run_single_backtest(
@@ -153,12 +178,15 @@ class StrategyEvaluator:
                         )
                         
                         self.results.append(result)
-                        # 格式化输出：如果没有TOPIX数据，alpha为N/A
-                        alpha_str = f"{result.alpha:>6.2f}%" if result.alpha is not None else "   N/A "
-                        print(f"✓ Return: {result.return_pct:>6.2f}%, Alpha: {alpha_str}")
+                        
+                        if self.verbose:
+                            # 格式化输出：如果没有TOPIX数据，alpha为N/A
+                            alpha_str = f"{result.alpha:>6.2f}%" if result.alpha is not None else "   N/A "
+                            print(f"✓ Return: {result.return_pct:>6.2f}%, Alpha: {alpha_str}")
                         
                     except Exception as e:
-                        print(f"✗ Error: {str(e)}")
+                        if self.verbose:
+                            print(f"✗ Error: {str(e)}")
                         continue
         
         print(f"\n{'='*80}")
@@ -248,13 +276,19 @@ class StrategyEvaluator:
             return None
     
     def _load_monitor_list(self) -> List[str]:
-        """加载监视列表"""
+        """加载监视列表（单次运行内缓存）"""
+        # 返回缓存（如果存在）
+        if self._monitor_list_cache is not None:
+            return self._monitor_list_cache
+        
+        # 首次加载并缓存
         json_file = Path(self.data_root) / "monitor_list.json"
         
         if json_file.exists():
             with open(json_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                return [stock['code'] for stock in data['tickers']]
+                self._monitor_list_cache = [stock['code'] for stock in data['tickers']]
+                return self._monitor_list_cache
         
         # Fallback to txt file
         txt_file = Path(self.data_root) / "monitor_list.txt"
@@ -265,7 +299,8 @@ class StrategyEvaluator:
                     line = line.strip()
                     if line and not line.startswith('#'):
                         tickers.append(line)
-            return tickers
+            self._monitor_list_cache = tickers
+            return self._monitor_list_cache
         
         raise FileNotFoundError("监视列表文件不存在")
     

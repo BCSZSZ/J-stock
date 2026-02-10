@@ -13,6 +13,8 @@ from .signal_ranker import SignalRanker
 from .lot_size_manager import LotSizeManager
 from .models import BacktestResult, Trade
 from ..analysis.signals import TradingSignal, SignalAction, MarketData
+from ..data.market_data_builder import MarketDataBuilder
+from ..signal_generator import generate_signal_v2
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
 from ..data.benchmark_manager import BenchmarkManager
@@ -256,14 +258,22 @@ class PortfolioBacktestEngine:
                 
                 # 生成入场信号（对所有未持仓的股票）
                 if not portfolio.has_position(ticker):
-                    entry_signal = entry_strategy.generate_entry_signal(market_data)
+                    entry_signal = generate_signal_v2(
+                        market_data=market_data,
+                        entry_strategy=entry_strategy
+                    )
                     if entry_signal.action == SignalAction.BUY:
                         pending_buy_signals[ticker] = entry_signal
                 
                 # 生成出场信号（仅对已持仓的股票）
                 if portfolio.has_position(ticker):
                     position = portfolio.positions[ticker]
-                    exit_signal = exit_strategy.generate_exit_signal(position, market_data)
+                    exit_signal = generate_signal_v2(
+                        market_data=market_data,
+                        entry_strategy=entry_strategy,
+                        exit_strategy=exit_strategy,
+                        position=position
+                    )
                     if exit_signal.action == SignalAction.SELL:
                         pending_sell_signals[ticker] = exit_signal
             
@@ -372,7 +382,7 @@ class PortfolioBacktestEngine:
         data: Dict, 
         current_date: pd.Timestamp
     ) -> Optional[MarketData]:
-        """构建MarketData对象"""
+        """使用 MarketDataBuilder 构建 MarketData 对象"""
         df = data['features']
         
         if current_date not in df.index:
@@ -380,13 +390,13 @@ class PortfolioBacktestEngine:
         
         df_historical = df[df.index <= current_date]
         
-        return MarketData(
+        return MarketDataBuilder.build_from_dataframes(
             ticker=ticker,
+            current_date=current_date,
             df_features=df_historical,
             df_trades=data['trades'],
             df_financials=data['financials'],
-            metadata=data['metadata'],
-            current_date=current_date
+            metadata=data['metadata']
         )
     
     def _build_portfolio_result(

@@ -10,8 +10,9 @@ import pandas as pd
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.analysis.signals import MarketData, Position, SignalAction
+from src.analysis.signals import MarketData, Position, SignalAction, TradingSignal
 from src.data.stock_data_manager import StockDataManager
+from src.data.market_data_builder import MarketDataBuilder
 
 
 def generate_trading_signal(
@@ -73,31 +74,15 @@ def generate_trading_signal(
     if len(historical_data) < 20:
         print(f"⚠️ 警告: 历史数据不足 ({len(historical_data)} 天)")
     
-    # 创建MarketData对象（使用正确的构造函数）
+    # 使用 MarketDataBuilder 统一构建 MarketData（消除代码重复）
     current_date = pd.to_datetime(date)
-    
-    # 加载辅助数据（trades和financials）
-    df_trades = data_manager.load_trades(ticker)
-    df_financials = data_manager.load_financials(ticker)
-    metadata = data_manager.load_metadata(ticker)
-    
-    # 过滤trades到TSEPrime
-    if not df_trades.empty and 'Section' in df_trades.columns:
-        df_trades = df_trades[df_trades['Section'] == 'TSEPrime'].copy()
-        df_trades['EnDate'] = pd.to_datetime(df_trades['EnDate'])
-    
-    # 标准化financials日期
-    if not df_financials.empty:
-        df_financials['DiscDate'] = pd.to_datetime(df_financials['DiscDate'])
-    
-    # 创建MarketData对象
-    market_data = MarketData(
+    market_data = MarketDataBuilder.build_from_dataframes(
         ticker=ticker,
         current_date=current_date,
         df_features=historical_data.reset_index(drop=True),
-        df_trades=df_trades,
-        df_financials=df_financials,
-        metadata=metadata
+        df_trades=data_manager.load_trades(ticker),
+        df_financials=data_manager.load_financials(ticker),
+        metadata=data_manager.load_metadata(ticker)
     )
     
     # 动态导入策略
@@ -152,6 +137,104 @@ def generate_trading_signal(
                 'score': entry_signal.metadata.get('score', None),
                 'price': market_data.latest_price
             }
+
+
+def generate_signal_v2(
+    market_data: MarketData,
+    entry_strategy,
+    exit_strategy=None,
+    position: Position = None,
+    entry_params: dict = None,
+    exit_params: dict = None
+) -> TradingSignal:
+    """
+    统一信号生成接口 - 用于 backtest/portfolio/production
+    
+    Args:
+        market_data: 市场数据对象（已标准化）
+        entry_strategy: 入场策略实例
+        exit_strategy: 出场策略实例（可选）
+        position: 当前持仓（可选）
+        entry_params: 入场策略参数（用于动态创建策略）
+        exit_params: 出场策略参数（用于动态创建策略）
+        
+    Returns:
+        TradingSignal 对象，包含:
+        - action: BUY / SELL_X% / HOLD
+        - confidence: 0-1
+        - reasons: 信号原因列表
+        - metadata: 额外信息（分数、触发条件等）
+        - strategy_name: 策略名称
+    """
+    entry_params = entry_params or {}
+    exit_params = exit_params or {}
+    
+    # 如果策略是类而不是实例，先实例化
+    if isinstance(entry_strategy, type):
+        entry_strategy = entry_strategy(**entry_params)
+    
+    if exit_strategy is not None and isinstance(exit_strategy, type):
+        exit_strategy = exit_strategy(**exit_params)
+    
+    # 退出信号逻辑（如果有持仓）
+    if position is not None and exit_strategy is not None:
+        try:
+            exit_signal = exit_strategy.generate_exit_signal(position, market_data)
+            return exit_signal
+        except Exception as e:
+            # 如果没有 generate_exit_signal 方法，尝试 should_exit（向后兼容）
+            if hasattr(exit_strategy, 'should_exit'):
+                should_exit_result = exit_strategy.should_exit(market_data, position)
+                if should_exit_result.should_exit:
+                    return TradingSignal(
+                        action=SignalAction.SELL,
+                        confidence=should_exit_result.confidence,
+                        reasons=[should_exit_result.reason],
+                        metadata={'exit_type': should_exit_result.exit_type},
+                        strategy_name=exit_strategy.__class__.__name__
+                    )
+                else:
+                    return TradingSignal(
+                        action=SignalAction.HOLD,
+                        confidence=1.0,
+                        reasons=["No exit signal"],
+                        metadata={},
+                        strategy_name=exit_strategy.__class__.__name__
+                    )
+            raise
+    
+    # 入场信号逻辑（无持仓）
+    try:
+        entry_signal = entry_strategy.generate_entry_signal(market_data)
+        return entry_signal
+    except AttributeError:
+        # 向后兼容：旧的 Scorer 接口
+        if hasattr(entry_strategy, 'evaluate'):
+            score_result = entry_strategy.evaluate(
+                ticker=market_data.ticker,
+                df_features=market_data.df_features,
+                df_trades=market_data.df_trades,
+                df_financials=market_data.df_financials,
+                metadata=market_data.metadata
+            )
+            
+            if score_result.total_score >= 65:  # 默认阈值
+                return TradingSignal(
+                    action=SignalAction.BUY,
+                    confidence=score_result.total_score / 100,
+                    reasons=score_result.breakdown.get('reason', ['Score threshold met']),
+                    metadata={'score': score_result.total_score, 'breakdown': score_result.breakdown},
+                    strategy_name=entry_strategy.__class__.__name__
+                )
+            else:
+                return TradingSignal(
+                    action=SignalAction.HOLD,
+                    confidence=score_result.total_score / 100,
+                    reasons=["Score below threshold"],
+                    metadata={'score': score_result.total_score},
+                    strategy_name=entry_strategy.__class__.__name__
+                )
+        raise
 
 
 def _load_entry_strategy(strategy_name: str):

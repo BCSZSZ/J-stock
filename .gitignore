@@ -30,9 +30,21 @@ env/
 .env
 .env.local
 
-# Data files (do not version control)
-data/
+# Data (ignore large parquet files but keep configuration)
+# Large data files (should NOT be versioned)
+data/features/
+data/benchmarks/
+data/raw_trades/
+data/raw_financials/
+data/raw_prices/
+data/universe/
+data/metadata/
+*.parquet
 
+# Keep these data files (configuration, not data)
+!data/monitor_list*.json
+!data/jpx_final_list.csv
+!data/production_monitor_list.json
 
 # IDE
 .vscode/
@@ -57,6 +69,17 @@ backtest_debug.txt
 backtest_results_*.csv
 trade_analysis_*.md
 strategy_evaluation/
+
+# Test outputs
+test_*.txt
+test_*.json
+test_*.csv
+
+# Production state snapshots (regenerated daily)
+production_state.json
+
+# Trade history and analysis outputs
+trade_history.json
 
 # Config files (may contain API keys)
 config.json

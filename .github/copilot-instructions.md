@@ -737,6 +737,14 @@ Position(
 5. **Consider ATR** - Price-based decisions must account for volatility
 6. **Track peak price** - Required for trailing stops
 
+### 🔄 Unified Signal Interface (v2) & MarketDataBuilder
+
+- All non-CLI paths (backtest/portfolio/production/evaluators) must call `generate_signal_v2`; keep CLI v1 only in `src/signal_generator.py` for CLI ergonomics.
+- When calling `generate_signal_v2`, always pass `entry_strategy` even on exit paths (along with `exit_strategy` and `position`) to satisfy the unified signature and preserve scoring metadata.
+- Do not add new direct calls to `generate_entry_signal` or `generate_exit_signal`; route through `generate_signal_v2` for consistency and backward compatibility handling.
+- Use `MarketDataBuilder` as the single entry to standardize features/trades/financials; do not manually build `MarketData` in new code.
+- Avoid DataFrame truthiness in builder calls—check for `None` explicitly instead of `df_trades or ...` to prevent ambiguous truth-value errors.
+
 ### 🎯 When Implementing New Strategies
 
 ```python
@@ -775,22 +783,38 @@ __all__ = [..., 'MomentumScorer']
 - Win rate = Winning trades / Total trades
 - Expectancy = (AvgWin × WinRate) - (AvgLoss × LossRate)
 
+### ✅ Testing Strategy (CRITICAL RULE)
+
+**NEVER create test.py files for testing.** Always use actual CLI commands:
+
+- Single-stock backtest: `python main.py backtest <ticker> --entry SimpleScorerStrategy --exit ATRExitStrategy --years 2`
+- Portfolio backtest: `python main.py portfolio --all --entry SimpleScorerStrategy --exit ATRExitStrategy --years 1`
+- Data fetch: `python main.py fetch --all`
+- Strategy evaluation: `python main.py evaluate`
+
+**Why:**
+
+- Test files duplicate CLI logic and become stale
+- CLI commands are the actual production paths
+- Verification happens against real code paths, not mocks
+- Reduces maintenance burden
+
 ---
 
 ## Quick Reference
 
-### Run Tests
+### Run Tests via CLI
 
 ```bash
 # Activate venv
 .\venv\Scripts\Activate.ps1  # Windows
 source venv/bin/activate      # Linux/Mac
 
-# Test scorers
-python test_scorer.py
+# Single-stock backtest (validate entry/exit strategies)
+python main.py backtest 8035 --entry SimpleScorerStrategy --exit ATRExitStrategy --years 2
 
-# Test exiters
-python test_exit.py
+# Portfolio backtest (validate portfolio engine)
+python main.py portfolio --all --entry SimpleScorerStrategy --exit ATRExitStrategy --years 1
 ```
 
 ### Add New Stock Data

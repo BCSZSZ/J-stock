@@ -1,0 +1,384 @@
+# Phase 1 精确代码改动方案
+
+## 📋 改动汇总
+
+### 文件 1: config.json - 扩展 production 节点
+
+**当前内容**:
+```json
+"production": {
+  "initial_capital": 3000000,
+  "entry_strategy": "SimpleScorerStrategy",
+  "exit_strategy": "ATRExitStrategy",
+  "monitor_list_file": "data/production_monitor_list.json",
+  "state_file": "production_state.json",
+  "max_positions": 5,
+  "max_position_pct": 0.30
+}
+```
+
+**改为**:
+```json
+"production": {
+  "monitor_list_file": "data/production_monitor_list.json",
+  "state_file": "production_state.json",
+  "signal_file_pattern": "signals_{date}.json",
+  "report_file_pattern": "trade_report_{date}.md",
+  "history_file": "trade_history.json",
+  "max_positions_per_group": 5,
+  "max_position_pct": 0.30,
+  "buy_threshold": 65,
+  "strategy_groups": [
+    {
+      "id": "default",
+      "name": "Default Strategy Group",
+      "initial_capital": 3000000,
+      "entry_strategy": "SimpleScorerStrategy",
+      "exit_strategy": "LayeredExitStrategy"
+    }
+  ]
+}
+```
+
+**改动说明**:
+- 删除: `initial_capital`（移到每个策略组内）
+- 删除: `entry_strategy`, `exit_strategy`（移到每个策略组内）
+- 删除: `max_positions`（改名为 max_positions_per_group）
+- 新增: `signal_file_pattern`
+- 新增: `report_file_pattern`
+- 新增: `history_file`
+- 新增: `buy_threshold`
+- 新增: `strategy_groups[]` 数组
+
+---
+
+### 文件 2: data/production_monitor_list.json - 新建
+
+**路径**: `data/production_monitor_list.json`  
+**类型**: 新建文件
+
+**内容**:
+```json
+{
+  "version": "1.0",
+  "last_updated": "2026-01-21",
+  "description": "Production trading monitor list",
+  "tickers": [
+    "8035",
+    "8306",
+    "7974",
+    "7011",
+    "6861",
+    "8058",
+    "6501",
+    "4063",
+    "7203",
+    "4568",
+    "6098",
+    "1321"
+  ]
+}
+```
+
+**说明**: 初始化为核心12只股票，用户可自行修改
+
+---
+
+### 文件 3: production_state.json - 首次运行时自动生成
+
+**路径**: `production_state.json`  
+**类型**: 首次运行时生成（`trade prepare` 命令）
+
+**初始内容模板** (当文件不存在时自动创建):
+```json
+{
+  "last_updated": "2026-01-21T00:00:00",
+  "strategy_groups": [
+    {
+      "id": "default",
+      "name": "Default Strategy Group",
+      "initial_capital": 3000000,
+      "cash": 3000000,
+      "positions": []
+    }
+  ]
+}
+```
+
+**说明**: 
+- 首次运行时从 config.json 的 strategy_groups 自动初始化
+- 每个策略组从 initial_capital 开始
+- positions 数组初始为空
+
+**后续更新格式** (运行 `trade record` 后):
+```json
+{
+  "last_updated": "2026-01-21T20:30:00",
+  "strategy_groups": [
+    {
+      "id": "default",
+      "name": "Default Strategy Group",
+      "initial_capital": 3000000,
+      "cash": 2500000,
+      "positions": [
+        {
+          "ticker": "8035",
+          "entry_price": 31500,
+          "entry_date": "2026-01-21",
+          "entry_score": 75.2,
+          "quantity": 100,
+          "peak_price": 37200
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### 文件 4: signals_YYYY-MM-DD.json - 运行时生成
+
+**路径**: `signals_{date}.json`（如 signals_2026-01-21.json）  
+**类型**: 运行 `trade prepare` 时生成，无脑覆盖
+
+**内容结构**:
+```json
+{
+  "date": "2026-01-21",
+  "generated_at": "2026-01-21T20:30:00",
+  "strategy_groups": [
+    {
+      "group_id": "default",
+      "group_name": "Default Strategy Group",
+      "entry_strategy": "SimpleScorerStrategy",
+      "exit_strategy": "LayeredExitStrategy",
+      "cash_available": 2500000,
+      "buy_signals": [
+        {
+          "ticker": "4568",
+          "score": 78.5,
+          "signal_strength": "STRONG_BUY",
+          "current_price": 5230,
+          "suggested_quantity": 100,
+          "estimated_cost": 523000,
+          "reason": "技术面强势，机构持续买入，ROE改善",
+          "breakdown": {
+            "technical": 85.0,
+            "institutional": 75.0,
+            "fundamental": 80.0,
+            "volatility": 72.0
+          }
+        }
+      ],
+      "sell_signals": [
+        {
+          "ticker": "6501",
+          "action": "SELL_50%",
+          "urgency": "MEDIUM",
+          "current_quantity": 100,
+          "suggested_quantity": 50,
+          "current_price": 12800,
+          "entry_price": 13200,
+          "reason": "技术面走弱，跌破EMA20",
+          "profit_loss_pct": -3.0,
+          "holding_days": 8
+        }
+      ]
+    }
+  ]
+}
+```
+
+**关键字段说明**:
+- `buy_signals[]`: 数组，每个对象代表一个买入建议
+  - `suggested_quantity`: 建议买入数量（根据现金和资金管理规则计算）
+  - `estimated_cost`: 预估成本（price × quantity）
+  - `breakdown`: 分数详情（用于报告展示）
+- `sell_signals[]`: 数组，每个对象代表一个卖出建议
+  - `current_quantity`: 当前持仓数量
+  - `suggested_quantity`: 建议卖出数量
+
+---
+
+### 文件 5: trade_history.json - 首次为空
+
+**路径**: `trade_history.json`  
+**类型**: 首次运行创建，后续追加
+
+**初始内容**:
+```json
+{
+  "trades": []
+}
+```
+
+**运行 `trade record` 后的内容**:
+```json
+{
+  "trades": [
+    {
+      "date": "2026-01-21",
+      "strategy_group_id": "default",
+      "action": "BUY",
+      "ticker": "8035",
+      "price": 31500,
+      "quantity": 100,
+      "total": 3150000,
+      "notes": ""
+    },
+    {
+      "date": "2026-01-21",
+      "strategy_group_id": "default",
+      "action": "SELL",
+      "ticker": "6501",
+      "price": 12800,
+      "quantity": 50,
+      "total": 640000,
+      "entry_price": 13200,
+      "profit": -20000,
+      "profit_pct": -3.0,
+      "holding_days": 8,
+      "notes": ""
+    }
+  ]
+}
+```
+
+**关键字段说明**:
+- `strategy_group_id`: 关键字段，用于区分是哪个策略组的交易
+- `entry_price`: 仅卖出时有，用于计算盈亏
+- `profit`, `profit_pct`, `holding_days`: 仅卖出时有
+
+---
+
+### 文件 6: trade_report_YYYY-MM-DD.md - 运行时生成
+
+**路径**: `trade_report_{date}.md`（如 trade_report_2026-01-21.md）  
+**类型**: 运行 `trade prepare` 时生成，Markdown 格式
+
+**内容结构**:
+```markdown
+# 交易策略报告
+**日期**: 2026-01-21  
+**生成时间**: 2026-01-21 20:30:00
+
+---
+
+## 策略组: Default Strategy Group
+**策略**: SimpleScorerStrategy → LayeredExitStrategy  
+**可用现金**: ¥2,500,000
+
+### 📊 当前持仓（2只）
+
+| 股票 | 数量 | 入场价 | 当前价 | 盈亏% | 持有天数 | 入场日期 |
+|------|------|--------|--------|-------|---------|----------|
+| 8035 | 100 | ¥31,500 | ¥37,200 | +18.1% | 47 | 2025-12-05 |
+| 7974 | 200 | ¥5,820 | ¥6,100 | +4.8% | 13 | 2026-01-08 |
+
+**总市值**: ¥4,940,000  
+**浮动盈亏**: +¥680,000 (+16.0%)
+
+---
+
+### 📈 买入信号（2个）
+
+**💰 现金余额**: ¥2,500,000
+
+1. **4568 第一三共 - 78.5分 (STRONG_BUY)**
+   - 当前价: ¥5,230
+   - 建议数量: 100股
+   - 预估成本: ¥523,000
+   - ✅ 现金充足（剩余 ¥1,977,000）
+   - 理由: 技术面强势，机构持续买入，ROE改善
+   - 分数详情: 技术85.0 + 机构75.0 + 基本面80.0 + 波动性72.0
+
+2. **7011 三菱重工 - 71.2分 (BUY)**
+   - 当前价: ¥2,180
+   - 建议数量: 200股
+   - 预估成本: ¥436,000
+   - ✅ 现金充足（剩余 ¥1,541,000）
+   - 理由: EMA金叉，防卫订单增长
+   - 分数详情: 技术75.0 + 机构68.0 + 基本面72.0 + 波动性65.0
+
+---
+
+### 🔴 卖出建议（1个）
+
+1. **6501 日立 - SELL_50% (MEDIUM)**
+   - 当前价: ¥12,800
+   - 当前持有: 100股
+   - 建议卖出: 50股
+   - 预估收入: ¥640,000
+   - 入场价: ¥13,200
+   - 盈亏: -50股 × (¥12,800 - ¥13,200) = -¥20,000 (-3.0%)
+   - 持有天数: 8天
+   - 理由: 技术面走弱，跌破EMA20
+
+---
+
+✅ 信号已保存: signals_2026-01-21.json
+✅ 报告已保存: trade_report_2026-01-21.md
+```
+
+---
+
+## 🔐 数据完整性检查
+
+**需要确保的逻辑**:
+
+1. **策略组唯一性**
+   - config.json 中每个策略组的 id 必须唯一
+   - production_state.json 中的策略组 id 必须与 config.json 一致
+
+2. **现金计算**
+   - 初始现金 = initial_capital
+   - 每次买入：cash -= price × quantity
+   - 每次卖出：cash += price × quantity
+   - 卖出时计算盈亏：profit = (sell_price - entry_price) × quantity
+
+3. **FIFO 处理**
+   - 部分卖出时，保持原 entry_price（不改）
+   - 完全卖出时删除持仓记录
+
+4. **多策略组独立性**
+   - 同一股票可在不同策略组持有
+   - 交易历史中 strategy_group_id 用于区分
+   - 持仓状态分别管理现金和 positions
+
+---
+
+## ✅ Phase 1 确认清单
+
+实施前需确认：
+
+1. **config.json 改动**
+   - [ ] production 节点结构正确？
+   - [ ] strategy_groups 格式（id, name, initial_capital, entry_strategy, exit_strategy）满足需求？
+   - [ ] buy_threshold 默认值 65 是否合适？
+
+2. **production_monitor_list.json**
+   - [ ] 初始 12 只股票列表是否需要调整？
+   - [ ] 文件位置 data/production_monitor_list.json 可以接受？
+
+3. **production_state.json**
+   - [ ] 初始化逻辑：首次运行时从 config.json 自动创建？
+   - [ ] 持仓字段（entry_price, entry_date, entry_score, quantity, peak_price）是否完整？
+
+4. **signals_YYYY-MM-DD.json**
+   - [ ] 按日期生成独立文件（无脑覆盖）？
+   - [ ] 每个策略组独立的 buy_signals/sell_signals？
+   - [ ] breakdown 字段用于详细分数展示？
+
+5. **trade_history.json**
+   - [ ] 所有交易追加，永不删除？
+   - [ ] strategy_group_id 字段足以区分多策略组？
+
+6. **trade_report_YYYY-MM-DD.md**
+   - [ ] Markdown 格式可以接受？
+   - [ ] 现金余额逐项展示（支持现金是否充足判断）？
+   - [ ] FIFO 处理：卖出时保持原 entry_price？
+
+---
+
+**确认无误后，我们开始实施 Phase 1**

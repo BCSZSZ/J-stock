@@ -13,8 +13,10 @@ import numpy as np
 from src.analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from src.analysis.strategies.base_exit_strategy import BaseExitStrategy
 from src.analysis.signals import TradingSignal, SignalAction, MarketData, Position
+from src.signal_generator import generate_signal_v2
 from src.backtest.models import Trade, BacktestResult
 from src.backtest.lot_size_manager import LotSizeManager
+from src.data.market_data_builder import MarketDataBuilder
 from src.backtest.metrics import (
     calculate_sharpe_ratio,
     calculate_max_drawdown,
@@ -126,14 +128,8 @@ class BacktestEngine:
         Returns:
             BacktestResult with metrics and trade history
         """
-        # Detect interface type
-        is_new_entry = hasattr(entry_strategy, 'generate_entry_signal')
-        is_new_exit = hasattr(exit_strategy, 'generate_exit_signal')
-        
-        strategy_name = (
-            f"{entry_strategy.strategy_name if is_new_entry else entry_strategy.__class__.__name__} + "
-            f"{exit_strategy.strategy_name if is_new_exit else exit_strategy.__class__.__name__}"
-        )
+        # Strategy names for logging
+        strategy_name = f"{getattr(entry_strategy, 'strategy_name', entry_strategy.__class__.__name__)} + {getattr(exit_strategy, 'strategy_name', exit_strategy.__class__.__name__)}"
         logger.info(f"Backtesting {ticker}: {strategy_name}")
         
         # Load data
@@ -149,8 +145,7 @@ class BacktestEngine:
             return self._empty_result(ticker, metadata, entry_strategy, exit_strategy, start_date, end_date)
         
         # Simulation state
-        position: Optional[Position] = None  # New Position type
-        old_position: Optional[OldPosition] = None  # Old Position type for backward compat
+        position: Optional[Position] = None
         trades: List[Trade] = []
         cash = self.starting_capital
         
@@ -179,7 +174,7 @@ class BacktestEngine:
             # STEP 1: EXECUTE PENDING ORDERS (from yesterday's signals)
             # =====================================================================
             
-            if pending_buy_signal and position is None and old_position is None:
+            if pending_buy_signal and position is None:
                 # Execute BUY at today's open price (signal was generated yesterday)
                 entry_price = current_open
                 shares = LotSizeManager.calculate_buyable_shares(ticker, cash, entry_price)
@@ -245,8 +240,8 @@ class BacktestEngine:
             # STEP 2: GENERATE NEW SIGNALS (for tomorrow's execution)
             # =====================================================================
             
-            # Build MarketData object for new strategies
-            market_data = MarketData(
+            # 使用 MarketDataBuilder 标准化数据并创建 MarketData 对象
+            market_data = MarketDataBuilder.build_from_dataframes(
                 ticker=ticker,
                 current_date=current_date,
                 df_features=df_features_historical,
@@ -256,101 +251,37 @@ class BacktestEngine:
             )
             
             if position is None:
-                # ENTRY LOGIC: No position, check for buy signal
+                # ENTRY LOGIC: No position, check for buy signal via v2
                 try:
-                    if is_new_entry:
-                        # New Strategy Interface
-                        signal = entry_strategy.generate_entry_signal(market_data)
-                        
-                        if signal.action == SignalAction.BUY:
-                            pending_buy_signal = signal
-                            score_display = signal.metadata.get('score', 'N/A')
-                            logger.info(f"BUY SIGNAL generated on {current_date.date()} ({signal.strategy_name}, Score: {score_display})")
-                    
-                    else:
-                        # Old Scorer Interface (backward compatible)
-                        score_result = entry_strategy.evaluate(
-                            ticker,
-                            df_features_historical,
-                            df_trades_historical,
-                            df_financials_historical,
-                            metadata
-                        )
-                        
-                        if score_result.total_score >= self.buy_threshold:
-                            # Wrap in TradingSignal
-                            pending_buy_signal = TradingSignal(
-                                action=SignalAction.BUY,
-                                confidence=score_result.total_score / 100,
-                                reasons=[f"Score {score_result.total_score:.1f} >= {self.buy_threshold}"],
-                                metadata={"score": score_result.total_score},
-                                strategy_name=entry_strategy.__class__.__name__
-                            )
-                            logger.info(f"BUY SIGNAL generated on {current_date.date()} (Score: {score_result.total_score:.1f})")
-                
+                    signal = generate_signal_v2(
+                        market_data=market_data,
+                        entry_strategy=entry_strategy
+                    )
+
+                    if signal.action == SignalAction.BUY:
+                        pending_buy_signal = signal
+                        score_display = signal.metadata.get('score', 'N/A')
+                        logger.info(f"BUY SIGNAL generated on {current_date.date()} ({signal.strategy_name}, Score: {score_display})")
                 except Exception as e:
                     logger.warning(f"Entry strategy failed on {current_date.date()}: {e}")
                     continue
             
             else:
-                # EXIT LOGIC: Holding position, check for exit signal
+                # EXIT LOGIC: Holding position, check for exit signal via v2
                 # Update peak price (using today's close)
                 position.peak_price_since_entry = max(position.peak_price_since_entry, current_close)
                 
                 try:
-                    if is_new_exit:
-                        # New Strategy Interface
-                        signal = exit_strategy.generate_exit_signal(position, market_data)
-                        
-                        if signal.action == SignalAction.SELL:
-                            pending_sell_signal = signal
-                            logger.info(f"SELL SIGNAL generated on {current_date.date()} ({signal.strategy_name}: {signal.reasons[0] if signal.reasons else 'N/A'})")
-                    
-                    else:
-                        # Old Exiter Interface (backward compatible)
-                        # Need to convert new Position to old Position
-                        if not old_position:
-                            old_position = OldPosition(
-                                ticker=ticker,
-                                entry_date=position.entry_date,
-                                entry_price=position.entry_price,
-                                entry_score=position.entry_signal.metadata.get('score', 0.0),
-                                quantity=position.quantity,
-                                peak_price_since_entry=position.peak_price_since_entry
-                            )
-                        else:
-                            old_position.peak_price_since_entry = position.peak_price_since_entry
-                        
-                        # Get current score for old interface
-                        current_score_result = entry_strategy.evaluate(
-                            ticker,
-                            df_features_historical,
-                            df_trades_historical,
-                            df_financials_historical,
-                            metadata
-                        )
-                        
-                        # Check exit signal
-                        exit_signal = exit_strategy.evaluate_exit(
-                            old_position,
-                            df_features_historical,
-                            df_trades_historical,
-                            df_financials_historical,
-                            metadata,
-                            current_score_result
-                        )
-                        
-                        if exit_signal.action != "HOLD":
-                            # Wrap in TradingSignal
-                            pending_sell_signal = TradingSignal(
-                                action=SignalAction.SELL,
-                                confidence=0.8,
-                                reasons=[exit_signal.reason],
-                                metadata={"trigger": exit_signal.urgency},
-                                strategy_name=exit_strategy.__class__.__name__
-                            )
-                            logger.info(f"SELL SIGNAL generated on {current_date.date()} ({exit_signal.urgency}: {exit_signal.reason})")
-                
+                    signal = generate_signal_v2(
+                        market_data=market_data,
+                        entry_strategy=entry_strategy,
+                        exit_strategy=exit_strategy,
+                        position=position
+                    )
+
+                    if signal.action == SignalAction.SELL:
+                        pending_sell_signal = signal
+                        logger.info(f"SELL SIGNAL generated on {current_date.date()} ({signal.strategy_name}: {signal.reasons[0] if signal.reasons else 'N/A'})")
                 except Exception as e:
                     logger.warning(f"Exit strategy failed on {current_date.date()}: {e}")            
             # =====================================================================
@@ -538,8 +469,8 @@ def calculate_benchmark_return(
 
 def backtest_strategy(
     ticker: str,
-    scorer: BaseScorer,
-    exiter: BaseExiter,
+    entry_strategy: BaseEntryStrategy,
+    exit_strategy: BaseExitStrategy,
     start_date: str = "2021-01-01",
     end_date: str = "2026-01-08",
     starting_capital_jpy: float = 5_000_000
@@ -549,8 +480,8 @@ def backtest_strategy(
     
     Args:
         ticker: Stock code
-        scorer: Scoring strategy
-        exiter: Exit strategy
+        entry_strategy: Entry strategy
+        exit_strategy: Exit strategy
         start_date: Backtest start
         end_date: Backtest end
         starting_capital_jpy: Starting capital
@@ -559,12 +490,12 @@ def backtest_strategy(
         BacktestResult
     """
     engine = BacktestEngine(starting_capital_jpy=starting_capital_jpy)
-    return engine.backtest_strategy(ticker, scorer, exiter, start_date, end_date)
+    return engine.backtest_strategy(ticker, entry_strategy, exit_strategy, start_date, end_date)
 
 
 def backtest_strategies(
     tickers: List[str],
-    strategies: List[Tuple[BaseScorer, BaseExiter]],
+    strategies: List[Tuple[BaseEntryStrategy, BaseExitStrategy]],
     start_date: str = "2021-01-01",
     end_date: str = "2026-01-08",
     starting_capital_jpy: float = 5_000_000,
@@ -602,17 +533,17 @@ def backtest_strategies(
     current_run = 0
     
     for ticker in tickers:
-        for scorer, exiter in strategies:
+        for entry_strategy, exit_strategy in strategies:
             current_run += 1
             logger.info(f"Progress: {current_run}/{total_runs}")
             
             # Print strategy separator
-            strategy_name = f"{scorer.strategy_name} + {exiter.strategy_name}"
+            strategy_name = f"{entry_strategy.strategy_name} + {exit_strategy.strategy_name}"
             print("\n" + "─" * 80)
             print(f"策略 {current_run}/{total_runs}: {ticker} × {strategy_name}")
             print("─" * 80)
             
-            result = engine.backtest_strategy(ticker, scorer, exiter, start_date, end_date)
+            result = engine.backtest_strategy(ticker, entry_strategy, exit_strategy, start_date, end_date)
             
             # Add benchmark comparison
             if benchmark_return is not None:

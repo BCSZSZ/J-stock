@@ -34,15 +34,20 @@ if __name__ == "__main__":
     # 生成所有组合
     combinations = generate_all_combinations()
     
-    # 保存到文件
-    output_file = "all_strategies.json"
+    # 确保输出目录存在
+    import os
+    os.makedirs("output/tools", exist_ok=True)
+    
+    # 保存到文件（新路径）
+    output_file = "output/tools/all_strategies.json"
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(combinations, f, indent=2, ensure_ascii=False)
     
     print(f"✅ 已生成 {len(combinations)} 个策略组合")
     print(f"✅ 保存到: {output_file}")
-    print("\n使用方法:")
-    print(f"  1. 打开 {output_file}")
-    print("  2. 复制全部或部分策略")
-    print("  3. 粘贴到 backtest_config.json 的 strategies 字段")
-    print("  4. 运行 python start_backtest.py")
+    print("\n注意:")
+    print("  现在CLI支持直接指定策略，通常不需要此文件")
+    print("  使用 --all-strategies 参数可测试全部策略组合")
+    print("\n示例:")
+    print("  python main.py backtest 7974 --all-strategies")
+    print("  python main.py portfolio --all --entry SimpleScorerStrategy --exit LayeredExitStrategy")
