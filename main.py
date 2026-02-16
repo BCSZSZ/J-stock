@@ -2,6 +2,7 @@
 J-Stock-Analyzer - 统一CLI入口
 提供生产流程、数据抓取、信号生成、回测与策略评估等命令
 """
+
 import argparse
 import io
 import os
@@ -37,7 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  python main.py production --dry-run\n\n"
             "  # 数据抓取\n"
             "  python main.py fetch --all                    # 抓取监视列表所有股票\n"
-            "  python main.py fetch --tickers 7974 8035      # 指定股票\n\n"
+            "  python main.py fetch --tickers 7974 8035      # 指定股票\n"
+            "  python main.py fetch --all --recompute        # 仅重算特征层\n\n"
             "  # 生成交易信号\n"
             "  python main.py signal 7974                    # 今日信号\n"
             "  python main.py signal 7974 --date 2026-01-10  # 指定日期\n\n"
@@ -56,76 +58,167 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
 
-    production_parser = subparsers.add_parser("production", help="生产环境每日工作流程 (Phase 5)")
-    production_parser.add_argument("--dry-run", action="store_true", help="试运行模式（不执行交易）")
-    production_parser.add_argument("--skip-fetch", action="store_true", help="跳过数据抓取步骤")
+    production_parser = subparsers.add_parser(
+        "production", help="生产环境每日工作流程 (Phase 5)"
+    )
+    production_parser.add_argument(
+        "--dry-run", action="store_true", help="试运行模式（不执行交易）"
+    )
+    production_parser.add_argument(
+        "--skip-fetch", action="store_true", help="跳过数据抓取步骤"
+    )
     production_parser.set_defaults(func=cmd_production)
 
     fetch_parser = subparsers.add_parser("fetch", help="抓取股票数据")
     fetch_group = fetch_parser.add_mutually_exclusive_group(required=True)
-    fetch_group.add_argument("--all", action="store_true", help="抓取监视列表中的所有股票")
+    fetch_group.add_argument(
+        "--all", action="store_true", help="抓取监视列表中的所有股票"
+    )
     fetch_group.add_argument("--tickers", nargs="+", help="指定股票代码列表")
+    fetch_parser.add_argument(
+        "--recompute",
+        action="store_true",
+        help="强制重算特征层（仅重算features，不重复抓取原始数据）",
+    )
     fetch_parser.set_defaults(func=cmd_fetch)
 
     signal_parser = subparsers.add_parser("signal", help="生成交易信号")
     signal_parser.add_argument("ticker", help="股票代码")
     signal_parser.add_argument("--date", help="指定日期 (格式: YYYY-MM-DD, 默认今天)")
-    signal_parser.add_argument("--entry", help="入场策略 (默认: config.json 的 default_strategies.entry)")
-    signal_parser.add_argument("--exit", help="出场策略 (默认: config.json 的 default_strategies.exit)")
+    signal_parser.add_argument(
+        "--entry", help="入场策略 (默认: config.json 的 default_strategies.entry)"
+    )
+    signal_parser.add_argument(
+        "--exit", help="出场策略 (默认: config.json 的 default_strategies.exit)"
+    )
     signal_parser.set_defaults(func=cmd_signal)
 
     backtest_parser = subparsers.add_parser("backtest", help="单股票回测")
     backtest_parser.add_argument("ticker", help="股票代码")
-    backtest_parser.add_argument("--entry", nargs="+", help="入场策略列表 (默认: config.json 的 default_strategies.entry，支持多个)")
-    backtest_parser.add_argument("--exit", nargs="+", help="出场策略列表 (默认: config.json 的 default_strategies.exit，支持多个)")
-    backtest_parser.add_argument("--all-strategies", action="store_true", help=f"测试所有策略组合 ({total_strategy_combinations}种)")
-    backtest_parser.add_argument("--years", type=int, help="仅回测最近x年 (优先于--start，默认: 全量)")
-    backtest_parser.add_argument("--start", help="开始日期 (默认: config.json 的 backtest.start_date)")
-    backtest_parser.add_argument("--end", help="结束日期 (默认: config.json 的 backtest.end_date)")
-    backtest_parser.add_argument("--capital", type=int, help="起始资金 (默认: config.json 的 backtest.starting_capital_jpy)")
+    backtest_parser.add_argument(
+        "--entry",
+        nargs="+",
+        help="入场策略列表 (默认: config.json 的 default_strategies.entry，支持多个)",
+    )
+    backtest_parser.add_argument(
+        "--exit",
+        nargs="+",
+        help="出场策略列表 (默认: config.json 的 default_strategies.exit，支持多个)",
+    )
+    backtest_parser.add_argument(
+        "--all-strategies",
+        action="store_true",
+        help=f"测试所有策略组合 ({total_strategy_combinations}种)",
+    )
+    backtest_parser.add_argument(
+        "--years", type=int, help="仅回测最近x年 (优先于--start，默认: 全量)"
+    )
+    backtest_parser.add_argument(
+        "--start", help="开始日期 (默认: config.json 的 backtest.start_date)"
+    )
+    backtest_parser.add_argument(
+        "--end", help="结束日期 (默认: config.json 的 backtest.end_date)"
+    )
+    backtest_parser.add_argument(
+        "--capital",
+        type=int,
+        help="起始资金 (默认: config.json 的 backtest.starting_capital_jpy)",
+    )
     backtest_parser.set_defaults(func=cmd_backtest)
 
     portfolio_parser = subparsers.add_parser("portfolio", help="组合投资回测")
     portfolio_group = portfolio_parser.add_mutually_exclusive_group(required=True)
-    portfolio_group.add_argument("--all", action="store_true", help="使用监视列表所有股票")
+    portfolio_group.add_argument(
+        "--all", action="store_true", help="使用监视列表所有股票"
+    )
     portfolio_group.add_argument("--tickers", nargs="+", help="指定股票代码列表")
-    portfolio_parser.add_argument("--entry", nargs="+", help="入场策略列表 (默认: config.json 的 default_strategies.entry，支持多个)")
-    portfolio_parser.add_argument("--exit", nargs="+", help="出场策略列表 (默认: config.json 的 default_strategies.exit，支持多个)")
-    portfolio_parser.add_argument("--all-strategies", action="store_true", help=f"测试所有策略组合 ({total_strategy_combinations}种)")
-    portfolio_parser.add_argument("--years", type=int, help="仅回测最近x年 (优先于--start，默认: 全量)")
-    portfolio_parser.add_argument("--start", help="开始日期 (默认: config.json 的 backtest.start_date)")
-    portfolio_parser.add_argument("--end", help="结束日期 (默认: config.json 的 backtest.end_date)")
-    portfolio_parser.add_argument("--capital", type=int, help="起始资金 (默认: config.json 的 backtest.starting_capital_jpy)")
+    portfolio_parser.add_argument(
+        "--entry",
+        nargs="+",
+        help="入场策略列表 (默认: config.json 的 default_strategies.entry，支持多个)",
+    )
+    portfolio_parser.add_argument(
+        "--exit",
+        nargs="+",
+        help="出场策略列表 (默认: config.json 的 default_strategies.exit，支持多个)",
+    )
+    portfolio_parser.add_argument(
+        "--all-strategies",
+        action="store_true",
+        help=f"测试所有策略组合 ({total_strategy_combinations}种)",
+    )
+    portfolio_parser.add_argument(
+        "--years", type=int, help="仅回测最近x年 (优先于--start，默认: 全量)"
+    )
+    portfolio_parser.add_argument(
+        "--start", help="开始日期 (默认: config.json 的 backtest.start_date)"
+    )
+    portfolio_parser.add_argument(
+        "--end", help="结束日期 (默认: config.json 的 backtest.end_date)"
+    )
+    portfolio_parser.add_argument(
+        "--capital",
+        type=int,
+        help="起始资金 (默认: config.json 的 backtest.starting_capital_jpy)",
+    )
     portfolio_parser.set_defaults(func=cmd_portfolio)
 
     universe_parser = subparsers.add_parser("universe", help="宇宙选股（从CSV加载）")
-    universe_parser.add_argument("--csv-file", type=str, help="CSV文件路径 (默认: data/jpx_final_list.csv)")
-    universe_parser.add_argument("--top-n", type=int, default=50, help="选出Top N股票 (默认: 50)")
+    universe_parser.add_argument(
+        "--csv-file", type=str, help="CSV文件路径 (默认: data/jpx_final_list.csv)"
+    )
+    universe_parser.add_argument(
+        "--top-n", type=int, default=50, help="选出Top N股票 (默认: 50)"
+    )
     universe_parser.add_argument("--limit", type=int, help="仅处理前N支股票（调试用）")
     universe_parser.add_argument("--batch-size", type=int, help="批次大小（默认100）")
-    universe_parser.add_argument("--resume", action="store_true", help="从checkpoint断点续传")
-    universe_parser.add_argument("--checkpoint", type=str, help="指定checkpoint路径（默认自动生成）")
-    universe_parser.add_argument("--no-fetch", action="store_true", help="跳过数据抓取，直接用现有features做归一化（快速重新评分）")
+    universe_parser.add_argument(
+        "--resume", action="store_true", help="从checkpoint断点续传"
+    )
+    universe_parser.add_argument(
+        "--checkpoint", type=str, help="指定checkpoint路径（默认自动生成）"
+    )
+    universe_parser.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="跳过数据抓取，直接用现有features做归一化（快速重新评分）",
+    )
     universe_parser.set_defaults(func=cmd_universe)
 
-    evaluate_parser = subparsers.add_parser("evaluate", help="策略综合评价（按年度/市场环境）")
-    evaluate_parser.add_argument("--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)")
+    evaluate_parser = subparsers.add_parser(
+        "evaluate", help="策略综合评价（按年度/市场环境）"
+    )
+    evaluate_parser.add_argument(
+        "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
+    )
     evaluate_parser.add_argument(
         "--mode",
         choices=["annual", "quarterly", "monthly", "custom"],
         default="annual",
         help="评估模式: annual=整年, quarterly=季度, monthly=按月, custom=自定义",
     )
-    evaluate_parser.add_argument("--months", nargs="+", type=int, help="月份列表（monthly模式，例如: 1 2 3）")
+    evaluate_parser.add_argument(
+        "--months", nargs="+", type=int, help="月份列表（monthly模式，例如: 1 2 3）"
+    )
     evaluate_parser.add_argument(
         "--custom-periods",
         type=str,
         help='自定义时间段（JSON格式）: [["2021-Q1","2021-01-01","2021-03-31"], ...]',
     )
-    evaluate_parser.add_argument("--entry-strategies", nargs="+", help="指定入场策略（默认全部）")
-    evaluate_parser.add_argument("--exit-strategies", nargs="+", help="指定出场策略（默认全部）")
-    evaluate_parser.add_argument("--output-dir", default="strategy_evaluation", help="输出目录（默认: strategy_evaluation）")
-    evaluate_parser.add_argument("--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）")
+    evaluate_parser.add_argument(
+        "--entry-strategies", nargs="+", help="指定入场策略（默认全部）"
+    )
+    evaluate_parser.add_argument(
+        "--exit-strategies", nargs="+", help="指定出场策略（默认全部）"
+    )
+    evaluate_parser.add_argument(
+        "--output-dir",
+        default="strategy_evaluation",
+        help="输出目录（默认: strategy_evaluation）",
+    )
+    evaluate_parser.add_argument(
+        "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
+    )
     evaluate_parser.set_defaults(func=cmd_evaluate)
 
     return parser
