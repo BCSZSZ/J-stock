@@ -1,930 +1,115 @@
-# GitHub Copilot Instructions - J-Stock-Analyzer
+# copilot.md
 
-## Project Overview
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-**J-Stock-Analyzer** is a production-grade Japanese stock trading system with:
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-- **Entry Logic:** SimpleScorerStrategy (scoring on technical, institutional, fundamental, volatility factors)
-- **Exit Logic:** 4 validated exit strategies (ATRExitStrategy, LayeredExitStrategy, BollingerDynamicExit, ADXTrendExhaustionExit)
-- **Backtesting:** Portfolio-level multi-stock backtest engine with TOPIX benchmark comparison
-- **Universe Selection:** 61-stock monitor list (1658 stocks evaluated, top 50 selected + 12 originals)
-- **Automation:** Daily data update pipeline (local → AWS migration planned Q3 2026)
-- **Deployment Status:** Phase 3 COMPLETED (Portfolio backtesting fully validated), Phase 5 IN PROGRESS (Production pipeline)
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
 ---
 
-## System Architecture
-
-### Current Structure
-
-```
-j-stock-analyzer/
-├── src/
-│   ├── client/              # J-Quants API V2 wrapper
-│   ├── data/
-│   │   ├── stock_data_manager.py      # Data pipeline with incremental updates
-│   │   ├── benchmark_manager.py       # TOPIX benchmark data management
-│   │   └── universe_selector.py       # 5-dimension percentile ranking (1658 stocks)
-│   ├── analysis/
-│   │   ├── scorers/         # Entry strategies (SimpleScorerStrategy only)
-│   │   ├── exiters/         # Exit strategies (4 validated: ATR, Layered, BollingerDynamic, ADXTrendExhaustion)
-│   │   └── technical_indicators.py
-│   ├── backtest/
-│   │   ├── portfolio_engine.py        # Multi-stock portfolio backtester with TOPIX benchmark
-│   │   └── single_engine.py
-│   ├── config/
-│   └── utils/
-├── data/
-│   ├── features/            # Daily OHLCV + 14 technical indicators (1,222 rows/stock)
-│   ├── raw_trades/          # Weekly institutional flows (Parquet)
-│   ├── raw_financials/      # Quarterly fundamentals (Parquet)
-│   ├── benchmarks/          # TOPIX daily OHLC (1,209 records, 2021-02-04 to 2026-01-15)
-│   ├── universe/            # Universe selection results (JSON checkpoints)
-│   ├── metadata/            # Earnings calendar, company info (JSON)
-│   └── monitor_list.json    # 61-stock tracking list
-├── tests/
-├── output/                  # Portfolio backtest results
-└── main.py                  # CLI entry point for portfolio backtesting
-```
-
-### Data Lake Specifications
-
-**Monitor List:** 61 stocks
-
-- 12 originals: 8035, 8306, 7974, 7011, 6861, 8058, 6501, 4063, 7203, 4568, 6098, others
-- 49 from universe top 50 selection (global percentile ranking across 1658 JPX stocks)
-
-**Universe Scoring (1658 stocks):** 5-dimension percentile ranking
-
-- Vol_Percentile (25%): Volatility over past 60 days
-- Liq_Percentile (25%): 30-day average trading volume × price
-- Trend_Percentile (20%): 6-month price trend (EMA_20 vs EMA_200)
-- Momentum_20d (20%): Momentum over past 20 days
-- Volume_Surge (10%): Recent volume spike detection
-
-**Feature Data:** Daily OHLCV + 14 technical indicators (~1,222 rows/stock)
-
-- Price: Open, High, Low, Close
-- Volume: Volume, Volume_SMA_20
-- Trends: EMA_20, EMA_50, EMA_200
-- Oscillators: RSI (14), MACD, MACD_Signal, MACD_Hist
-- Volatility: ATR (14)
-
-**TOPIX Benchmark:** 1,209 records from 2021-02-04 to 2026-01-15 (updated daily)
-
-- Columns: Date, Open, High, Low, Close
-- Latest: 2026-01-15, Close=3668.98
-
-**Raw Trades (Institutional Flows):** ~48 rows/stock weekly
-
-- EnDate: Week ending date
-- Investor types: Foreign, Domestic, Trust Bank, Retail, etc.
-- Flows: PurchaseValue, SalesValue, BalanceValue (¥)
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 ---
 
-## Daily Workflow (Cron Job Target)
+## 5. Project Scope (endfield-draw-calculator)
 
-**Execution:** Daily 7:00 AM JST (after market data available)
+- Primary files today:
+  - `myturnDRAW6up.py` (character draw logic)
+  - `weapon_draw.py` (weapon draw logic)
+  - `streamlit_all_app.py` (combined Streamlit app)
+- Current stack: Python + Streamlit (+ numpy/pandas/plotly if already used).
+- Default expectation: preserve current calculation behavior unless explicitly asked to change rules or probabilities.
 
-### Step 1: Add New Stock to Monitor
+## 6. Calculation Changes
 
-- **Logic:** TBD (user will define criteria)
-- **Action:** Add ticker to monitor list
-- **Data:** Fetch 5-year historical data for newcomer
+- For probability/DP updates, state the model assumption before coding.
+- Keep numeric invariants explicit where applicable (e.g., probability bounds, monotonic trends).
+- Prefer small pure helper functions for transition/math logic.
+- If formulas change, include a short note in code or README describing impact.
 
-### Step 2: Data Update
+## 7. Streamlit Changes
 
-- **Newcomers:** Full 5-year historical fetch
-- **Existing:** Incremental update
-- **Endpoints:**
-  - Daily bars (OHLCV)
-  - Investor types (institutional flows)
-  - Financials (quarterly reports)
-  - Earnings calendar (risk events)
+- Keep UI edits incremental and task-driven; do not redesign unrelated sections.
+- Reuse existing interaction patterns (inputs → compute → chart/table/text result).
+- Prefer lightweight rerun-friendly logic; avoid hidden global mutable state.
 
-### Step 3: Run Scorer (Entry Evaluation)
+## 8. Extensibility Without Over-Engineering
 
-- **Strategy:** TBD by user at runtime
-- **Input:** Latest data for all monitored stocks
-- **Output:** Score (0-100), signal (BUY/NEUTRAL/SELL), breakdown
+- New features should be added as small, isolated modules/functions with clear boundaries.
+- Keep app entry points stable; integrate new calculators/components via composition, not large rewrites.
+- Avoid speculative plugin systems/config frameworks unless explicitly requested.
+- When adding a new feature type, document where it plugs in and how to run it.
 
-### Step 4: Run Exiter (Position Management)
+## 9. Validation and Run Commands
 
-- **Strategy:** TBD by user at runtime
-- **Input:** Current holdings (user-provided position list)
-- **Output:** ExitSignal (HOLD/SELL_X%, urgency, reason)
+- Minimum validation after edits:
+  - Run relevant script(s): `python myturnDRAW6up.py` / `python weapon_draw.py`
+  - Run app if UI touched: `streamlit run streamlit_all_app.py`
+  - Check for import/runtime errors introduced by the change.
 
-### Step 5: Generate Daily Report
+## 10. Change Discipline for This Repo
 
-- **Format:** Markdown or HTML email
-- **Contents:**
-  - Market summary (TOPIX, sector rotation)
-  - New BUY signals (sorted by score)
-  - Exit recommendations for current holdings
-  - Risk alerts (earnings approaching, institutional exodus)
-
----
-
----
-
-## **CRITICAL: Interface Contracts & Data Structures**
-
-> **WHY THIS SECTION EXISTS:**  
-> We encountered multiple type mismatch bugs during backtest implementation because components expected different data formats. This section documents ALL interfaces to prevent future mismatches.
-
-### 1. **Data Source Interfaces (StockDataManager)**
-
-#### Raw Data Files (Parquet)
-
-**features/{ticker}\_features.parquet**
-
-```python
-# Columns (from compute_features):
-Date: datetime64[ns]          # Trading date (INDEX after engine loads it)
-Open: float64                 # Opening price
-High: float64                 # Daily high
-Low: float64                  # Daily low
-Close: float64                # Closing price
-Volume: int64                 # Trading volume
-EMA_20: float64              # 20-day EMA
-EMA_50: float64              # 50-day EMA
-EMA_200: float64             # 200-day EMA
-RSI: float64                 # 14-day RSI (0-100)
-MACD: float64                # MACD line
-MACD_Signal: float64         # Signal line
-MACD_Hist: float64           # Histogram
-ATR: float64                 # 14-day ATR
-Volume_SMA_20: float64       # 20-day volume average
-
-# Typical size: ~1,222 rows (5 years daily data)
-# Usage: Set Date as index in backtest engine
-```
-
-**raw_trades/{ticker}\_trades.parquet**
-
-```python
-# Columns (from API, filtered to TSEPrime):
-EnDate: datetime64[ns]       # Week ending date (COLUMN, not index)
-Section: str                 # Market section (filter to "TSEPrime")
-InvestorCode: str           # Investor type code
-PurchaseValue: int64        # Buy volume (¥)
-SalesValue: int64           # Sell volume (¥)
-BalanceValue: int64         # Net flow (¥)
-
-# Typical size: ~48 rows (weekly data, ~6 investor types × 52 weeks ÷ 6)
-# Usage: Scorers filter by current_date, keep EnDate as column
-```
-
-**raw_financials/{ticker}\_financials.parquet**
-
-```python
-# Columns (from API):
-DiscDate: datetime64[ns]     # Disclosure date (COLUMN, not index)
-Quarter: str                 # FY quarter (e.g., "Q2")
-TotalAssets: float64        # Total assets (¥ millions)
-Equity: float64             # Shareholders equity
-Revenue: float64            # Quarterly revenue
-OperatingProfit: float64    # Operating profit
-NetIncome: float64          # Net income
-EPS: float64                # Earnings per share
-ROE: float64                # Return on equity (%)
-ROA: float64                # Return on assets (%)
-DebtRatio: float64          # Debt/Equity ratio
-
-# Typical size: ~20 rows (quarterly data, 5 years)
-# Usage: Scorers filter by DiscDate <= current_date
-```
-
-**metadata/{ticker}\_metadata.json**
-
-```python
-{
-  "earnings_calendar": [
-    {
-      "Date": "2026-02-15",      # ISO format string
-      "EventType": "Quarterly",
-      "FiscalQuarter": "Q3"
-    }
-  ]
-}
-# Usage: Check earnings proximity for risk flags
-```
-
-#### DataFrame Contracts for Scorers/Exiters
-
-**When BacktestEngine calls scorer.evaluate():**
-
-```python
-df_features: pd.DataFrame
-    - Date is INDEX (pd.DatetimeIndex)
-    - All technical columns present
-    - Forward-filled (no gaps)
-
-df_trades: pd.DataFrame
-    - EnDate is COLUMN (not index)
-    - Filtered to TSEPrime section
-    - May be empty
-
-df_financials: pd.DataFrame
-    - DiscDate is COLUMN (not index)
-    - May be empty
-
-metadata: dict
-    - Parsed JSON
-    - May have empty earnings_calendar list
-```
-
----
-
-### 2. **Scorer Interface (BaseScorer)**
-
-#### Input Contract
-
-```python
-class BaseScorer(ABC):
-    def evaluate(
-        self,
-        ticker: str,
-        df_features: pd.DataFrame,     # Date as INDEX
-        df_trades: pd.DataFrame,       # EnDate as COLUMN
-        df_financials: pd.DataFrame,   # DiscDate as COLUMN
-        metadata: dict
-    ) -> ScoreResult:
-```
-
-#### Output Contract
-
-```python
-@dataclass
-class ScoreResult:
-    ticker: str                    # Stock code
-    total_score: float            # 0-100 (THIS IS THE NUMERIC VALUE)
-    signal_strength: str          # "STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"
-    breakdown: Dict[str, float]   # Component scores (Technical: 75.2, etc.)
-    risk_flags: List[str]         # ["EARNINGS_APPROACHING", "HIGH_VOLATILITY"]
-    strategy_name: str            # "SimpleScorer", "EnhancedScorer"
-```
-
-**⚠️ CRITICAL TYPE HANDLING:**
-
-```python
-# WRONG (causes comparison errors):
-if current_score > 70:  # current_score is ScoreResult object!
-
-# CORRECT (extract numeric value):
-if isinstance(current_score, ScoreResult):
-    score_value = current_score.total_score
-else:
-    score_value = current_score
-
-if score_value > 70:  # Now it's a float
-```
-
-#### Abstract Methods to Implement
-
-```python
-@abstractmethod
-def _get_weights(self) -> Dict[str, float]:
-    """Return {"technical": 0.4, "institutional": 0.2, "fundamental": 0.2, "volatility": 0.2}"""
-
-@abstractmethod
-def _calc_technical_score(self, row: pd.Series, df_features: pd.DataFrame) -> float:
-    """Return 0-100 based on EMA crossovers, RSI, MACD"""
-
-@abstractmethod
-def _calc_institutional_score(self, df_trades: pd.DataFrame, current_date: pd.Timestamp) -> float:
-    """Return 0-100 based on investor flows in last 4 weeks"""
-
-@abstractmethod
-def _calc_fundamental_score(self, df_fins: pd.DataFrame) -> float:
-    """Return 0-100 based on ROE, growth, debt ratio"""
-
-@abstractmethod
-def _calc_volatility_score(self, row: pd.Series, df_features: pd.DataFrame) -> float:
-    """Return 0-100 based on ATR, volatility patterns"""
-```
-
----
-
-### 3. **Exiter Interface (BaseExiter)**
-
-#### Input Contract
-
-```python
-@dataclass
-class Position:
-    ticker: str
-    entry_price: float
-    entry_date: pd.Timestamp              # ⚠️ MUST be Timestamp, not string!
-    entry_score: float
-    quantity: int
-    peak_price_since_entry: Optional[float] = None  # Track for trailing stops
-```
-
-**⚠️ CRITICAL: Entry Date Type**
-
-```python
-# WRONG (causes date arithmetic errors):
-position = Position(
-    entry_date="2025-01-15",  # String!
-)
-
-# CORRECT:
-position = Position(
-    entry_date=pd.Timestamp("2025-01-15"),  # Timestamp object
-)
-```
-
-#### Evaluation Method
-
-```python
-class BaseExiter(ABC):
-    @abstractmethod
-    def evaluate_exit(
-        self,
-        position: Position,
-        df_features: pd.DataFrame,      # Date as INDEX
-        df_trades: pd.DataFrame,        # EnDate as COLUMN
-        df_financials: pd.DataFrame,    # DiscDate as COLUMN
-        metadata: dict,
-        current_score: ScoreResult      # ⚠️ This is ScoreResult object, not float!
-    ) -> ExitSignal:
-```
-
-**⚠️ CRITICAL: ScoreResult Handling in Exiters**
-
-```python
-def evaluate_exit(self, position, df_features, df_trades, df_financials, metadata, current_score):
-    # MUST extract numeric value at start!
-    from ..scorers.base_scorer import ScoreResult
-
-    if isinstance(current_score, ScoreResult):
-        score_value = current_score.total_score
-        score_breakdown = current_score.breakdown
-    else:
-        score_value = current_score
-
-    # Now use score_value for all comparisons
-    if score_value < 40:  # ✅ Correct
-        return self._create_signal(...)
-```
-
-#### Output Contract
-
-```python
-@dataclass
-class ExitSignal:
-    ticker: str
-    action: str              # "HOLD", "SELL_25%", "SELL_50%", "SELL_75%", "SELL_100%"
-    urgency: str            # "LOW", "MEDIUM", "HIGH", "EMERGENCY"
-    reason: str             # Human-readable explanation
-    triggered_by: str       # "P0_StopLoss", "Layer3_Profit", etc.
-    current_price: float
-    current_score: float    # ⚠️ Store the NUMERIC value here (not ScoreResult)
-    entry_price: float
-    entry_score: float
-    profit_loss_pct: float  # Calculated: ((current - entry) / entry) * 100
-    holding_days: int       # Calculated: (current_date - entry_date).days
-```
-
----
-
-### 4. **Backtest Engine Interface**
-
-#### Trade Record
-
-```python
-@dataclass
-class Trade:
-    entry_date: str          # ISO format "YYYY-MM-DD"
-    entry_price: float
-    entry_score: float       # Numeric score at entry (not ScoreResult)
-    exit_date: str          # ISO format "YYYY-MM-DD"
-    exit_price: float
-    exit_reason: str        # From ExitSignal.reason
-    exit_urgency: str       # From ExitSignal.urgency
-    holding_days: int
-    shares: int
-    return_pct: float       # Percentage return
-    return_jpy: float       # Yen return
-    peak_price: float       # Highest price during hold
-```
-
-#### Backtest Result
-
-```python
-@dataclass
-class BacktestResult:
-    ticker: str
-    ticker_name: str
-    scorer_name: str
-    exiter_name: str
-    start_date: str
-    end_date: str
-    starting_capital_jpy: float
-
-    # Performance Metrics
-    final_capital_jpy: float
-    total_return_pct: float
-    annualized_return_pct: float
-    sharpe_ratio: float
-    max_drawdown_pct: float
-
-    # Trade Statistics
-    num_trades: int
-    win_rate_pct: float
-    avg_gain_pct: float
-    avg_loss_pct: float
-    avg_holding_days: float
-    profit_factor: float
-
-    # Benchmark (optional)
-    benchmark_return_pct: Optional[float] = None
-    alpha: Optional[float] = None
-    beat_benchmark: Optional[bool] = None
-
-    # Trade Details
-    trades: List[Trade] = field(default_factory=list)
-```
-
-#### Engine Entry Point
-
-```python
-class BacktestEngine:
-    def run(
-        self,
-        ticker: str,
-        scorer: BaseScorer,      # Instance, not class
-        exiter: BaseExiter,      # Instance, not class
-        start_date: str,         # "YYYY-MM-DD"
-        end_date: str           # "YYYY-MM-DD"
-    ) -> BacktestResult:
-```
-
----
-
-### 5. **Common Type Pitfalls & Solutions**
-
-#### Problem 1: ScoreResult vs float
-
-**Symptom:** `'<' not supported between instances of 'ScoreResult' and 'int'`
-
-**Root Cause:** Exiter receives ScoreResult object but treats it as float
-
-**Solution:**
-
-```python
-# At start of evaluate_exit():
-from ..scorers.base_scorer import ScoreResult
-
-if isinstance(current_score, ScoreResult):
-    score_value = current_score.total_score  # Extract float
-else:
-    score_value = current_score
-
-# Use score_value for all numeric operations
-```
-
-#### Problem 2: String vs Timestamp for dates
-
-**Symptom:** `unsupported operand type(s) for -: 'Timestamp' and 'str'`
-
-**Root Cause:** Position.entry_date is string but code does date arithmetic
-
-**Solution:**
-
-```python
-# When creating Position in backtest engine:
-position = Position(
-    ticker=ticker,
-    entry_price=entry_price,
-    entry_date=pd.Timestamp(entry_date),  # ✅ Convert to Timestamp
-    entry_score=entry_score,
-    quantity=shares
-)
-```
-
-#### Problem 3: DataFrame index assumptions
-
-**Symptom:** KeyError or unexpected filtering behavior
-
-**Root Cause:** Code assumes Date is index but it's a column (or vice versa)
-
-**Solution:**
-
-```python
-# Backtest engine MUST set Date as index for features:
-df_features = pd.read_parquet(path)
-if 'Date' in df_features.columns:
-    df_features['Date'] = pd.to_datetime(df_features['Date'])
-    df_features = df_features.set_index('Date')
-
-# Scorers/Exiters MUST keep EnDate/DiscDate as columns:
-# (Do NOT set as index - filtering logic expects columns)
-```
-
----
-
-## Backtest Framework (Utility Function)
-
-**Purpose:** Evaluate strategy performance over historical data
-
-### Interface
-
-```python
-def backtest_strategy(
-    ticker: str,
-    scorer_class: Type[BaseScorer],
-    exiter_class: Type[BaseExiter],
-    start_date: str,
-    end_date: str,
-    initial_capital: float
-) -> BacktestResult:
-    """
-    Backtest a scorer+exiter combination on historical data.
-
-    Returns:
-        BacktestResult with metrics:
-        - Total return %
-        - Sharpe ratio
-        - Max drawdown
-        - Win rate
-        - Avg gain/loss per trade
-        - Number of trades
-    """
-```
-
-### Workflow
-
-1. Load historical data (features, trades, financials)
-2. Iterate day-by-day:
-   - If no position: Run scorer, enter if score ≥65
-   - If in position: Run exiter, exit if signal != HOLD
-3. Track: Entry/exit prices, holding periods, P&L
-4. Calculate: Sharpe, drawdown, win rate, etc.
-
----
-
-## Deep Learning Pipeline (Future)
-
-**Goal:** Train neural networks to improve scoring/exit strategies
-
-### Phase 1: Feature Engineering
-
-- Input features: Technical (EMA, RSI, MACD), Fundamental (EPS, Sales), Institutional (flows)
-- Output target: Future return (1-week, 1-month, 3-month)
-
-### Phase 2: Model Training
-
-- Architecture: LSTM or Transformer for time series
-- Loss: Directional accuracy + Sharpe optimization
-- Validation: Walk-forward (train 2021-2023, test 2024-2025)
-
-### Phase 3: Strategy Integration
-
-- Create MLScorer (inherits BaseScorer)
-- Create MLExiter (inherits BaseExiter)
-- Compare to rule-based strategies in backtest
-
----
-
-## Coding Standards
-
-### Architecture Patterns
-
-- **Strategy Pattern:** All scorers inherit `BaseScorer`, all exiters inherit `BaseExiter`
-- **Abstract Base Classes:** Use `ABC` and `@abstractmethod` for interfaces
-- **Dataclasses:** Use `@dataclass` for data transfer objects (`ScoreResult`, `ExitSignal`, `Position`)
-
-### File Organization
-
-- **One class per file:** `simple_scorer.py` contains only `SimpleScorer`
-- **Folders for categories:** `scorers/`, `exiters/`, `backtesting/` (future)
-- **Package exports:** `__init__.py` exports all public classes
-
-### Import Style
-
-```python
-# Recommended (modular)
-from src.analysis.scorers import SimpleScorer, EnhancedScorer
-from src.analysis.exiters import ATRExiter, LayeredExiter
-
-# Backward compatible (deprecated)
-from src.analysis.scorer import SimpleScorer  # Still works via redirect
-```
-
-### Naming Conventions
-
-- **Classes:** PascalCase (`SimpleScorer`, `ATRExiter`)
-- **Methods:** snake_case (`evaluate_exit`, `_check_emergency`)
-- **Private methods:** Leading underscore (`_calc_technical_score`)
-- **Constants:** UPPER_SNAKE (`EMERGENCY_EXIT_TRIGGERS`)
-
-### Type Hints
-
-- **Always use type hints:** Function signatures must have types
-- **Return types required:** Especially for public methods
-
-```python
-def evaluate_exit(self, position: Position, ...) -> ExitSignal:
-    ...
-```
-
-### Documentation
-
-- **Docstrings:** All public classes/methods must have docstrings
-- **Inline comments:** Explain WHY not WHAT (code explains what)
-- **Japanese market context:** Note cultural/regulatory specifics
-
-```python
-# Japanese companies are conservative with guidance → beats are strong signals
-if beat_ratio > 1.02:  # Beat by 2%+
-    score += 15
-```
-
----
-
-## Japanese Stock Market Specifics
-
-### Cultural Context
-
-- **Conservative guidance:** Companies under-promise, over-deliver
-- **Earnings gaps:** Avg 8-12% (vs 4-6% US) - don't hold overnight
-- **Retail = contrarian indicator:** Retail buying at tops = warning sign
-
-### Data Characteristics
-
-- **Foreign investors:** 30% of volume, trend leaders
-- **Trust banks (TrstBnkBal):** Pension funds, long-term smart money
-- **Retail (IndBal):** Contrarian, fade at extremes
-- **Proprietary traders (PropBal):** Fast money, short-term
-
-### Technical Differences
-
-- **Lower volatility:** Avg daily move ~1.2% (vs 1.8% US)
-- **ATR usage critical:** Fixed % stops don't work (vary by sector)
-- **EMA200 significance:** Strong support/resistance level
-
----
-
-## Position Management
-
-### Position Tracking
-
-User will provide current holdings via:
-
-- Manual list (CSV, JSON)
-- OR database table (future)
-- OR portfolio tracker integration (future)
-
-**Required fields:**
-
-```python
-Position(
-    ticker="8035",
-    entry_price=31861,
-    entry_date="2025-12-09",
-    entry_score=75.0,
-    quantity=100,
-    peak_price_since_entry=37373  # Track for trailing stops
-)
-```
-
-### Exit Execution
-
-- System generates `ExitSignal`
-- User executes manually (current)
-- Auto-execution via broker API (future)
-
----
-
-## AWS Migration Plan (Future)
-
-### Current: Local Cron
-
-```bash
-# crontab -e
-0 7 * * * /path/to/venv/bin/python /path/to/daily_pipeline.py
-```
-
-### Future: AWS Architecture
-
-- **Lambda:** Daily trigger (CloudWatch Events)
-- **S3:** Data lake storage (replace local Parquet)
-- **DynamoDB:** Position tracking, monitor list
-- **SES:** Email reports
-- **SageMaker:** ML model training/inference
-
----
-
-## Critical Rules for Copilot
-
-### ❌ NEVER DO (Unless Explicitly Asked)
-
-1. **Do NOT create markdown files** - Code and docstrings only
-2. **Do NOT modify scorer/exiter base classes** - Extend, don't change
-3. **Do NOT use fixed % for stops** - Always use ATR multipliers
-4. **Do NOT ignore earnings dates** - Japanese gaps are brutal
-5. **Do NOT remove backward compatibility** - Keep old import paths working
-
-### ✅ ALWAYS DO
-
-1. **Use type hints** - Every function signature
-2. **Add docstrings** - Explain purpose and Japanese market context
-3. **Test before commit** - Run test_scorer.py, test_exit.py
-4. **Update **init**.py** - When adding new strategies
-5. **Consider ATR** - Price-based decisions must account for volatility
-6. **Track peak price** - Required for trailing stops
-
-### 🔄 Unified Signal Interface (v2) & MarketDataBuilder
-
-- All non-CLI paths (backtest/portfolio/production/evaluators) must call `generate_signal_v2`; keep CLI v1 only in `src/signal_generator.py` for CLI ergonomics.
-- When calling `generate_signal_v2`, always pass `entry_strategy` even on exit paths (along with `exit_strategy` and `position`) to satisfy the unified signature and preserve scoring metadata.
-- Do not add new direct calls to `generate_entry_signal` or `generate_exit_signal`; route through `generate_signal_v2` for consistency and backward compatibility handling.
-- Use `MarketDataBuilder` as the single entry to standardize features/trades/financials; do not manually build `MarketData` in new code.
-- Avoid DataFrame truthiness in builder calls—check for `None` explicitly instead of `df_trades or ...` to prevent ambiguous truth-value errors.
-
-### 🎯 When Implementing New Strategies
-
-```python
-# Scorer example
-class MomentumScorer(BaseScorer):
-    """Focus on price momentum and volume."""
-
-    def __init__(self):
-        super().__init__(strategy_name="Momentum_v1")
-
-    def _get_weights(self) -> Dict[str, float]:
-        return {"technical": 0.6, "institutional": 0.2, "fundamental": 0.1, "volatility": 0.1}
-
-    # Implement all @abstractmethod from BaseScorer
-    def _calc_technical_score(self, row, df_features) -> float: ...
-    def _calc_institutional_score(self, df_trades, current_date) -> float: ...
-    def _calc_fundamental_score(self, df_fins) -> float: ...
-    def _calc_volatility_score(self, row, df_features) -> float: ...
-
-# Then add to scorers/__init__.py
-from .momentum_scorer import MomentumScorer
-__all__ = [..., 'MomentumScorer']
-```
-
-### 🔍 When Debugging
-
-1. Check test scripts first (test_scorer.py, test_exit.py)
-2. Verify data files exist (data/features/, data/raw_trades/, etc.)
-3. Check for encoding issues (use `encoding='utf-8'` for JSON)
-4. Print score breakdown to diagnose which component is failing
-
-### 📊 When Adding Metrics
-
-- Sharpe ratio = (Return - RiskFreeRate) / StdDev
-- Max drawdown = Peak-to-trough decline
-- Win rate = Winning trades / Total trades
-- Expectancy = (AvgWin × WinRate) - (AvgLoss × LossRate)
-
-### ✅ Testing Strategy (CRITICAL RULE)
-
-**NEVER create test.py files for testing.** Always use actual CLI commands:
-
-- Single-stock backtest: `python main.py backtest <ticker> --entry SimpleScorerStrategy --exit ATRExitStrategy --years 2`
-- Portfolio backtest: `python main.py portfolio --all --entry SimpleScorerStrategy --exit ATRExitStrategy --years 1`
-- Data fetch: `python main.py fetch --all`
-- Strategy evaluation: `python main.py evaluate`
-
-**Why:**
-
-- Test files duplicate CLI logic and become stale
-- CLI commands are the actual production paths
-- Verification happens against real code paths, not mocks
-- Reduces maintenance burden
-
----
-
-## Quick Reference
-
-### Run Tests via CLI
-
-```bash
-# Activate venv
-.\venv\Scripts\Activate.ps1  # Windows
-source venv/bin/activate      # Linux/Mac
-
-# Single-stock backtest (validate entry/exit strategies)
-python main.py backtest 8035 --entry SimpleScorerStrategy --exit ATRExitStrategy --years 2
-
-# Portfolio backtest (validate portfolio engine)
-python main.py portfolio --all --entry SimpleScorerStrategy --exit ATRExitStrategy --years 1
-```
-
-### Add New Stock Data
-
-```python
-from src.data.stock_data_manager import StockDataManager
-
-manager = StockDataManager(api_key="your_key")
-manager.update_stock("8035")  # Full 2-year fetch if new
-```
-
-### Check Current Scores
-
-```python
-from src.analysis.scorers import EnhancedScorer
-scorer = EnhancedScorer()
-result = scorer.evaluate(ticker, df_features, df_trades, df_financials, metadata)
-print(result.total_score, result.signal_strength)
-```
-
-### Evaluate Exit
-
-```python
-from src.analysis.exiters import ATRExiter, Position
-exiter = ATRExiter()
-signal = exiter.evaluate_exit(position, df_features, df_trades, df_financials, metadata, current_score)
-print(signal.action, signal.reason)
-```
-
----
-
-## Version History & Status
-
-- **v0.1.0** - Initial scorer integration
-- **v0.2.0** - Modular scorer refactor (BaseScorer + strategies)
-- **v0.3.0** - Exit strategy framework (BaseExiter + ATR/Layered)
-- **v0.4.0** - Portfolio backtesting with TOPIX benchmark (COMPLETED)
-- **v0.5.0** - 4 exit strategies validated (COMPLETED Jan 16, 2026)
-- **v0.6.0** - Daily production pipeline (IN PROGRESS)
-- **v1.0.0** - AWS deployment (planned Q3 2026)
-- **v2.0.0** - ML pipeline (planned Q4 2026+)
-
----
-
-## Latest Performance Validation (Jan 16, 2026)
-
-### 2-Year Backtest Results (2024-01-01 to 2026-01-08)
-
-| Exit Strategy           | Return      | Sharpe   | Win Rate | Max Drawdown | TOPIX Outperformance | Status              |
-| ----------------------- | ----------- | -------- | -------- | ------------ | -------------------- | ------------------- |
-| **LayeredExitStrategy** | **147.83%** | **1.28** | 48.4%    | 28.32%       | **+101.36%**         | ⭐ RECOMMENDED      |
-| ADXTrendExhaustionExit  | 136.67%     | 1.61     | 49.0%    | 23.04%       | +90.19%              | Strong Alternative  |
-| BollingerDynamicExit    | 124.46%     | 1.55     | 66.3%    | 19.18%       | +77.99%              | Good for Short-term |
-| ATRExitStrategy         | 119.16%     | 1.46     | 37.2%    | 25.16%       | +72.68%              | Baseline            |
-
-**Key Finding:** LayeredExitStrategy best choice for production deployment based on:
-
-- Highest 2-year return (147.83%)
-- Strongest TOPIX outperformance (+101.36% alpha)
-- 964 trades over 2 years (sufficient sample size)
-- Consistent performance across market conditions
-
-**Production Strategy Recommendation:**
-
-- Deploy: **LayeredExitStrategy** (Entry: SimpleScorerStrategy)
-- Monitor: Quarterly evaluation with rolling 1-year backtest
-- Switch: Only if consecutive quarter underperformance >10% vs TOPIX
-- Capital: ¥5,000,000 (validated in backtest)
-- Max Positions: 5 concurrent (validated in backtest)
-- Position Sizing: Lot-based on price (validated in backtest)
-
----
-
-## Context for LLM
-
-**When user says "add to monitor list":**
-
-- Means: Add ticker to tracking system
-- Action: Fetch historical data + add to daily evaluation
-
-**When user says "run the pipeline":**
-
-- Means: Steps 1-5 of daily workflow
-- Action: Update data → Score all → Check exits → Generate report
-
-**When user says "backtest this":**
-
-- Means: Historical performance evaluation
-- Action: Run scorer+exiter combo over past 5 years, return metrics
-
-**When user mentions AWS:**
-
-- Means: Future deployment target
-- Don't implement AWS yet, but keep architecture cloud-ready (stateless, config-driven)
-
----
-
-## Remember
-
-This is a **real trading system** for Japanese equities. Code quality matters:
-
-- ❌ No untested strategies (all 4 exit strategies validated 2-year backtest)
-- ❌ No magic numbers (use constants with explanations)
-- ❌ No "TODO" without GitHub issue
-- ✅ Test on real data (61 monitored stocks from 1658 universe)
-- ✅ Consider earnings calendar (Japanese gaps are 2-3x US)
-- ✅ Respect institutional flows (they lead the market)
-- ✅ Use TOPIX benchmark for performance comparison (all strategies show +70%+ alpha)
-- ✅ Validate with long-term backtest (1-2 year minimum)
-
-**Current Priority:** Set up daily automation (Windows Task Scheduler at 7:00 AM JST for `python main.py fetch --all`)
-
-**Final Rule:** When in doubt, ask user. Don't guess about strategy logic or risk parameters.
+- Keep diffs small and directly traceable to the request.
+- Do not rename files/public interfaces unless requested.
+- Do not add new dependencies unless necessary; justify in one sentence when added.
+- Update README only when usage/setup/output expectations actually change.

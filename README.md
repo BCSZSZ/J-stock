@@ -1,144 +1,161 @@
 # J-Stock-Analyzer
 
-日本股票量化分析系统 - 基于 J-Quants API 的数据抓取、策略回测与信号生成平台
+日本股票量化分析系统（基于 J-Quants API）：覆盖数据抓取、交易信号、单票/组合回测、宇宙选股与策略综合评价。
 
-## ✨ 核心功能
+## ✨ 功能总览
 
-### 1. 📥 数据抓取
+### 1) 数据抓取与数据湖
 
-- 从 J-Quants API 自动获取日本股票数据
-- 支持增量更新，减少 API 调用
-- Parquet 格式存储，高效读写
+- 从 J-Quants API 抓取并增量更新股票数据
+- 自动维护 `features/raw_prices/raw_trades/raw_financials/metadata/benchmarks`
+- 使用 Parquet 存储，便于回测与策略计算
 
-### 2. 🎯 策略信号生成
+### 2) 交易信号生成
 
-- 基于技术指标和综合评分的入场判断
-- 支持多种出场策略（ATR/分数衰减/分层控制/Bollinger动态/ADX趋势穷尽）
-- 实时生成交易信号
+- 支持按股票代码和日期生成信号
+- 支持指定入场/出场策略
+- 可直接用于日常监控与交易决策
 
-### 3. 📊 回测分析
+### 3) 单股票回测
 
-- **单股票回测** - 全仓交易模拟
-- **组合投资回测** - 多股票分散投资（最多 5 只同时持仓）
-- 双基准对比：Buy&Hold vs TOPIX
-- 完整性能指标：夏普比率、最大回撤、择时 Alpha、选股 Alpha
+- 支持单策略或多策略组合回测
+- 支持最近 N 年、起止日期、初始资金
+- 输出收益率、回撤、夏普、交易统计等指标
 
-### 4. 🔬 策略综合评价 (新增)
+### 4) 组合投资回测
 
-- **多时段评估**：支持月度、季度、整年、自定义时间段
-- **Period标签**：所有报表中清晰区分不同时段的相同策略表现
-- **市场环境分类**：按 TOPIX 收益率自动分类（熊市/温和牛市/强势牛市等）
-- **完整报告**：Markdown 报告 + 原始数据 CSV + 按市场环境分组的 CSV
-- **跨期分析**：对比同一策略在不同市场环境下的表现
+- 支持监视列表全量或手动指定股票池
+- 支持多策略组合回测
+- 对比 TOPIX 与 Buy&Hold，输出组合层面业绩指标
 
-### 5. 🌐 宇宙选股
+### 5) 宇宙选股
 
-- 从 1,658 只 JPX 上市公司中评分筛选
-- 基于 5 维度百分位排序（波动率、流动性、趋势、动量、成交量）
-- 输出监视列表供实时信号生成使用
+- 从 CSV（默认 `data/jpx_final_list.csv`）进行评分筛选
+- 支持 Top-N、断点续传、批处理、快速重评分（`--no-fetch`）
+- 输出结果可用于更新监视列表
 
-## 🚀 快速开始
+### 6) 策略综合评价
 
-### 统一 CLI 命令
+- 支持 `annual/quarterly/monthly/custom` 多时段评估
+- 支持批量策略组合比较
+- 输出 Markdown 报告 + CSV 原始结果 + 按市场环境聚合结果
+
+### 7) 生产流程编排
+
+- `production` 命令用于日常生产流程编排
+- 支持 `--dry-run` 与 `--skip-fetch`
+
+## 🚀 命令行大全
+
+### A. 统一入口（推荐）：`main.py`
 
 ```bash
-# 查看所有可用命令
+# 查看总帮助
 python main.py --help
 
-# 1. 数据抓取
-python main.py fetch --all                    # 抓取监视列表所有股票
-python main.py fetch --tickers 7974 8035      # 抓取指定股票
+# 1) production
+python main.py production
+python main.py production --dry-run
+python main.py production --skip-fetch
 
-# 2. 生成交易信号（新功能）
-python main.py signal 7974                    # 生成今日信号
-python main.py signal 7974 --date 2026-01-08  # 指定日期
+# 2) fetch
+python main.py fetch --all
+python main.py fetch --tickers 7974 8035 6501
 
-# 3. 单股票回测
-python main.py backtest 7974                  # 使用默认策略
-python main.py backtest 7974 \
-  --entry EnhancedScorerStrategy \
-  --exit LayeredExitStrategy
+# 3) signal
+python main.py signal 7974
+python main.py signal 7974 --date 2026-02-16
+python main.py signal 7974 --entry EnhancedScorerStrategy --exit LayeredExitStrategy
 
-# 4. 组合投资回测
-python main.py portfolio --all                # 回测监视列表所有股票
+# 4) backtest
+python main.py backtest 7974
+python main.py backtest 7974 --entry SimpleScorerStrategy EnhancedScorerStrategy --exit ATRExitStrategy LayeredExitStrategy
+python main.py backtest 7974 --all-strategies
+python main.py backtest 7974 --years 2 --capital 10000000
+
+# 5) portfolio
+python main.py portfolio --all
 python main.py portfolio --tickers 7974 8035 6501
+python main.py portfolio --all --entry SimpleScorerStrategy --exit LayeredExitStrategy
+python main.py portfolio --all --all-strategies --years 2
 
-# 5. 宇宙选股 (Universe Selection)
-python main.py universe                       # 从1658只JPX股票中评分和筛选
+# 6) universe
+python main.py universe
+python main.py universe --csv-file data/jpx_final_list.csv --top-n 50
+python main.py universe --resume --checkpoint data/universe/checkpoint.json
+python main.py universe --no-fetch
 
-# 6. 策略综合评价 (Strategy Evaluation) ⭐ 新功能
-# 月度回测多个时段的多种策略组合（新的period标签增强）
-python main.py evaluate --mode monthly \
-  --years 2024 2025 \
-  --months 1 2 3                              # 2024-01, 2024-02, ... 2025-03
-
-# 年度评估
-python main.py evaluate --mode annual \
-  --years 2023 2024 2025
-
-# 季度评估
-python main.py evaluate --mode quarterly \
-  --years 2024 2025
-
-# 自定义时间段评估
-python main.py evaluate --mode custom \
-  --custom-periods '[["2024-Q1","2024-01-01","2024-03-31"],["2024-Q2","2024-04-01","2024-06-30"]]'
+# 7) evaluate
+python main.py evaluate --mode annual --years 2023 2024 2025
+python main.py evaluate --mode quarterly --years 2024 2025
+python main.py evaluate --mode monthly --years 2024 2025 --months 1 2 3
+python main.py evaluate --mode custom --custom-periods '[["2024-Q1","2024-01-01","2024-03-31"]]'
+python main.py evaluate --entry-strategies SimpleScorerStrategy --exit-strategies LayeredExitStrategy --verbose
 ```
 
-详细使用方法请参阅 [QUICKSTART.md](QUICKSTART.md) 和 [STRATEGY_EVALUATION_QUICK_START.md](STRATEGY_EVALUATION_QUICK_START.md)
+#### `main.py` 子命令参数速查
 
-## 📁 项目架构（全新）
+- `production`: `--dry-run`, `--skip-fetch`
+- `fetch`: `--all` 或 `--tickers ...`（二选一）
+- `signal`: `ticker`, `--date`, `--entry`, `--exit`
+- `backtest`: `ticker`, `--entry ...`, `--exit ...`, `--all-strategies`, `--years`, `--start`, `--end`, `--capital`
+- `portfolio`: `--all` 或 `--tickers ...`（二选一）, `--entry ...`, `--exit ...`, `--all-strategies`, `--years`, `--start`, `--end`, `--capital`
+- `universe`: `--csv-file`, `--top-n`, `--limit`, `--batch-size`, `--resume`, `--checkpoint`, `--no-fetch`
+- `evaluate`: `--years ...`, `--mode`, `--months ...`, `--custom-periods`, `--entry-strategies ...`, `--exit-strategies ...`, `--output-dir`, `--verbose`
+
+### B. 辅助命令脚本
+
+```bash
+# 快速回测（不改配置文件）
+python quick_backtest.py --list
+python quick_backtest.py simple atr
+python quick_backtest.py enhanced layered --ticker 6501 --start 2023-01-01 --end 2026-01-08 --capital 5000000
+
+# 传统宇宙选股脚本
+python run_universe_selector.py --help
+python run_universe_selector.py --universe-file data/jpx_final_list.csv --top-n 50
+python run_universe_selector.py --universe-file data/jpx_final_list.csv --top-n 30 --test
+
+# 配置文件驱动回测入口
+python start_backtest.py
+python start_portfolio_backtest.py
+```
+
+更多细节见文档目录 [docs/README.md](docs/README.md)。
+
+## 📁 项目架构（按当前源码）
 
 ```
 j-stock-analyzer/
+├── main.py                              # 统一CLI入口（7个子命令）
+├── config.json                          # 系统配置（默认策略/回测区间/production配置）
 ├── src/
-│   ├── client/
-│   │   ├── __init__.py
-│   │   └── jquants_client.py           # J-Quants API V2 wrapper
-│   ├── data/
-│   │   ├── __init__.py
-│   │   ├── stock_data_manager.py       # Core business logic
-│   │   ├── benchmark_manager.py        # TOPIX benchmark管理
-│   │   ├── universe_selector.py        # 宇宙选股
-│   │   └── pipeline.py                 # 数据抓取管道
-│   ├── analysis/
-│   │   ├── scorers/                    # 入场策略 (SimpleScorerStrategy, EnhancedScorerStrategy等)
-│   │   ├── exiters/                    # 出场策略 (ATRExitStrategy, LayeredExitStrategy等)
-│   │   ├── base_scorer.py              # 基础评分接口
-│   │   ├── base_exiter.py              # 基础出场接口
-│   │   └── technical_indicators.py     # 技术指标计算
-│   ├── backtest/
-│   │   ├── single_engine.py            # 单股票回测引擎
-│   │   └── portfolio_engine.py         # 组合投资回测引擎
-│   ├── evaluation/
-│   │   └── strategy_evaluator.py       # 策略综合评价系统 (支持period标签)
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   └── helpers.py
-│   ├── config/
-│   │   ├── __init__.py
-│   │   └── settings.py
-│   └── main.py                         # Entry point with 6 CLI commands
+│   ├── cli/                             # production/fetch/signal/backtest/portfolio/universe/evaluate
+│   ├── client/jquants_client.py         # J-Quants API 客户端
+│   ├── data/                            # 数据抓取、特征计算、benchmark 管理
+│   ├── analysis/strategies/             # Entry/Exit 策略实现
+│   ├── backtest/                        # 单票与组合回测引擎
+│   ├── evaluation/strategy_evaluator.py # 策略综合评价
+│   ├── production/                      # 生产工作流（state/signal/report/trade）
+│   ├── universe/                        # 宇宙选股逻辑
+│   └── utils/strategy_loader.py         # 策略注册与组合生成
 ├── data/
-│   ├── features/                       # Daily OHLCV + 14 technical indicators
-│   ├── raw_trades/                     # Weekly institutional flows
-│   ├── raw_financials/                 # Quarterly fundamentals
-│   ├── benchmarks/                     # TOPIX daily data
-│   ├── metadata/                       # Earnings calendar & company info
-│   ├── universe/                       # Universe selection results
-│   └── monitor_list.json               # 61-stock tracking list
-├── strategy_evaluation/                # Strategy evaluation outputs (ignored by git)
-│   ├── strategy_evaluation_report_*.md  # Markdown reports with period labels
-│   ├── strategy_evaluation_raw_*.csv    # Raw strategy metrics
-│   └── strategy_evaluation_by_regime_*.csv  # Results grouped by market environment
-├── tests/
-├── .env.example
-├── requirements.txt
-├── setup.py
-├── main.py                             # Unified CLI entry point
-├── QUICKSTART.md                       # Quick start guide
-├── STRATEGY_EVALUATION_QUICK_START.md  # Strategy evaluation guide
-└── README.md
+│   ├── raw_prices/                      # 原始K线: {ticker}.parquet
+│   ├── features/                        # 技术特征: {ticker}_features.parquet
+│   ├── raw_trades/                      # 机构流向: {ticker}_trades.parquet
+│   ├── raw_financials/                  # 财务数据: {ticker}_financials.parquet
+│   ├── metadata/                        # 元数据: {ticker}_metadata.json
+│   ├── benchmarks/                      # 基准数据: topix_daily.parquet
+│   └── universe/                        # 宇宙选股中间结果与输出
+├── output/
+│   ├── signals/                         # production 信号输出
+│   └── report/                          # production 报告输出
+├── strategy_evaluation/                 # evaluate 命令输出
+└── docs/
+    ├── QUICKSTART.md
+    ├── USAGE_GUIDE.md
+    ├── STRATEGY_EVALUATION_GUIDE.md
+    └── ...
 ```
 
 ## Installation
@@ -174,115 +191,58 @@ JQUANTS_API_KEY=your_actual_api_key_here
 
 ## Usage
 
-### Basic Example
+### 基本使用（CLI）
 
 ```bash
-python src/main.py
+python main.py --help
+python main.py fetch --all
+python main.py signal 7974
+python main.py backtest 7974 --all-strategies
 ```
 
-This will:
-
-1. Fetch/update data for Sony (6758) and Toyota (7203)
-2. Calculate technical indicators
-3. Generate structured analysis prompts
-
-### Programmatic Usage
+### 程序化读取数据（与当前源码一致）
 
 ```python
 from src.data.stock_data_manager import StockDataManager
-import os
 
-# Initialize
-manager = StockDataManager(api_key=os.getenv('JQUANTS_API_KEY'))
+# 读取本地数据（无需API）
+manager = StockDataManager()
 
-# Generate analysis prompt
-prompt = manager.generate_llm_prompt('6758')  # Sony
-print(prompt)
+features = manager.load_stock_features("7974")
+metadata = manager.load_metadata("7974")
+
+print(features.tail(1))
+print(metadata)
 ```
 
-### Sample Output
+## 当前实现（源码对齐）
 
-```
-# Input Data
-- **Ticker:** 6758
-- **Price:** ¥12,450.00
-- **Trend:** Above EMA200 (Price: 12450.00, EMA200: 11800.00)
+### 数据抓取与更新
 
-## 1. Market Context (The Dice)
-- **Foreign Investors (Weekly):** ¥1,234,567,890 (Buying)
-- **TOPIX Correlation:** Strong (0.78)
-- **Next Earnings Date:** 2026-02-10 (WARNING: 33 days left)
+- 冷启动抓取最近约 5 年日线数据（`fetch_and_update_ohlc`）
+- 增量模式按最后日期继续抓取并去重
+- 请求限速与重试：1 秒节流、429 重试
 
-## 2. Technicals
-- **RSI:** 62.34
-- **MACD:** 0.0123
+### 策略与回测矩阵
 
-## 3. Fundamentals
-- **Op. Profit:** ¥890,000M
-```
+- Entry 策略：`SimpleScorerStrategy` / `EnhancedScorerStrategy` / `MACDCrossoverStrategy` / `BollingerSqueezeStrategy` / `IchimokuStochStrategy`
+- Exit 策略：`ATRExitStrategy` / `ScoreBasedExitStrategy` / `LayeredExitStrategy` / `BollingerDynamicExit` / `ADXTrendExhaustionExit`
+- `--all-strategies` 为 5×5 共 25 组合（来自 `src/utils/strategy_loader.py`）
 
-## Key Features
+### 落盘文件（实际命名）
 
-### 1. Incremental Updates
+- `data/raw_prices/{ticker}.parquet`
+- `data/features/{ticker}_features.parquet`
+- `data/raw_trades/{ticker}_trades.parquet`
+- `data/raw_financials/{ticker}_financials.parquet`
+- `data/metadata/{ticker}_metadata.json`
+- `data/benchmarks/topix_daily.parquet`
 
-- **Cold Start**: Fetches 2 years of historical data
-- **Incremental**: Only fetches new data since last update
-- **Deduplication**: Automatic handling of overlapping data
+### evaluate 输出（实际命名）
 
-### 2. Five Critical Datasets
-
-| Dataset           | Endpoint                         | Purpose              |
-| ----------------- | -------------------------------- | -------------------- |
-| Daily Bars        | `/v2/equities/bars/daily`        | OHLC price data      |
-| Investor Types    | `/v2/equities/investor-types`    | Foreign/Retail flows |
-| Earnings Calendar | `/v2/equities/earnings-calendar` | Risk event dates     |
-| TOPIX Index       | `/v2/indices/bars/daily/topix`   | Market correlation   |
-| Financial Summary | `/v2/fins/summary`               | Fundamentals check   |
-
-### 3. Technical Indicators
-
-- **EMA**: 20, 50, 200-period
-- **RSI**: 14-period
-- **MACD**: 12/26/9 configuration
-- **ATR**: 14-period volatility
-- **Bollinger Bands**, **Ichimoku**, **Stochastic** (in strategy variants)
-
-### 4. Entry Strategies (Scorers)
-
-- **SimpleScorerStrategy**: Basic 4-factor scoring (Technical/Institutional/Fundamental/Volatility)
-- **EnhancedScorerStrategy**: Improved weighting and edge detection
-- **MACDCrossoverStrategy**: MACD-based entry signals
-- **BollingerSqueezeStrategy**: Bollinger Band squeeze detection
-- **IchimokuStochStrategy**: Ichimoku cloud + Stochastic hybrid
-
-### 5. Exit Strategies (Exiters)
-
-- **ATRExitStrategy**: ATR-based trailing stops
-- **LayeredExitStrategy**: Multi-layer profit-taking (P1 25%, P2 50%, P3 100%)
-- **BollingerDynamicExit**: Dynamic exits based on Bollinger Band width
-- **ADXTrendExhaustionExit**: ADX trend strength exhaustion detection
-- **ScoreBasedExitStrategy**: Exits when score drops below threshold
-
-### 6. Rate Limiting
-
-- Automatic 1-second delays between requests
-- Retry logic for 429 (Too Many Requests) errors
-- Graceful degradation on missing data
-
-## Data Storage
-
-### Parquet Files
-
-Data is stored in `./data/` with naming convention:
-
-- OHLC: `{code}_ohlc.parquet`
-- Columns: `Date`, `Open`, `High`, `Low`, `Close`, `Volume`
-
-### Why Parquet?
-
-- **Fast**: Columnar format optimized for analytics
-- **Compact**: 10x smaller than CSV
-- **S3-Ready**: Can easily migrate to cloud storage
+- `{output_dir}/strategy_evaluation_raw_{timestamp}.csv`
+- `{output_dir}/strategy_evaluation_by_regime_{timestamp}.csv`
+- `{output_dir}/strategy_evaluation_report_{timestamp}.md`
 
 ## Development
 
@@ -292,60 +252,12 @@ Data is stored in `./data/` with naming convention:
 pytest tests/
 ```
 
-### Code Standards
+### 文档入口
 
-- ✅ Type hints on all methods
-- ✅ Docstrings explaining logic
-- ✅ Error handling with logging
-- ✅ PEP 8 compliant
-
-### Extending the System
-
-To add new indicators:
-
-```python
-# In stock_data_manager.py -> add_indicators()
-df['YOUR_INDICATOR'] = ta.your_function(df['Close'])
-```
-
-To add new data sources:
-
-```python
-# In jquants_client.py
-def get_new_endpoint(self, params):
-    return self._make_request('/v2/new/endpoint', params)
-```
-
-## Troubleshooting
-
-### "No data returned for {code}"
-
-- Check if stock code is correct (e.g., '6758' not 'SONY')
-- Verify API key is valid
-- Check if market is open (data lags by 1 day)
-
-### "Rate limit hit (429)"
-
-- System will auto-retry after 5 seconds
-- Consider reducing number of concurrent tickers
-
-### "Investor data not available"
-
-- This is normal - data is weekly and may lag
-- System handles gracefully with "N/A" fallback
-
-## Roadmap
-
-- [x] Multi-strategy backtest framework (5 scorers × 5 exiters = 25 combinations)
-- [x] Strategy comprehensive evaluation system with period labels
-- [x] Universe selection from 1,658 JPX stocks
-- [x] Portfolio-level backtesting with TOPIX benchmark
-- [ ] Add more advanced indicators (CCI, Stochastic RSI)
-- [ ] Implement screener for multi-stock filtering
-- [ ] Add S3 storage backend for cloud deployment
-- [ ] Create Streamlit dashboard for real-time monitoring
-- [ ] Integrate ML-based scoring (LSTM/Transformer)
-- [ ] AWS Lambda deployment (Phase 5 - Production pipeline)
+- 快速开始：`docs/QUICKSTART.md`
+- 使用指南：`docs/USAGE_GUIDE.md`
+- 回测配置：`docs/BACKTEST_CONFIG_GUIDE.md`
+- 策略评估：`docs/STRATEGY_EVALUATION_GUIDE.md`
 
 ## License
 
@@ -358,17 +270,3 @@ Pull requests welcome! Please ensure tests pass and follow PEP 8.
 ## Contact
 
 For questions about J-Quants API: https://jpx-jquants.com/
-
-```
-python src/main.py
-```
-
-This will initialize the `StockDataManager`, fetch data for the specified tickers, add technical indicators, and print the formatted prompts.
-
-## Contributing
-
-Contributions are welcome! Please submit a pull request or open an issue for any enhancements or bug fixes.
-
-## License
-
-This project is licensed under the MIT License. See the LICENSE file for details.
