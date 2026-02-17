@@ -128,7 +128,7 @@ python main.py universe --csv-file data/jpx_final_list.csv --top-n 50
 python main.py portfolio --all
 ```
 
-更多细节见文档目录 [docs/README.md](docs/README.md)。
+更多细节见文档目录 [docs/DOCS_INDEX.md](docs/DOCS_INDEX.md)。
 
 ## 📁 项目架构（按当前源码）
 
