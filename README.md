@@ -109,22 +109,17 @@ python main.py evaluate --entry-strategies SimpleScorerStrategy --exit-strategie
 - `universe`: `--csv-file`, `--top-n`, `--limit`, `--batch-size`, `--resume`, `--checkpoint`, `--no-fetch`
 - `evaluate`: `--years ...`, `--mode`, `--months ...`, `--custom-periods`, `--entry-strategies ...`, `--exit-strategies ...`, `--output-dir`, `--verbose`
 
-### B. 辅助命令脚本
+### B. 历史脚本说明
+
+根目录历史辅助脚本（如 `quick_backtest.py`、`run_universe_selector.py`、`start_backtest.py`、`start_portfolio_backtest.py`）已从仓库移除，不再作为支持入口。
+
+请统一使用 `main.py`：
 
 ```bash
-# 快速回测（不改配置文件）
-python quick_backtest.py --list
-python quick_backtest.py simple atr
-python quick_backtest.py enhanced layered --ticker 6501 --start 2023-01-01 --end 2026-01-08 --capital 5000000
-
-# 传统宇宙选股脚本
-python run_universe_selector.py --help
-python run_universe_selector.py --universe-file data/jpx_final_list.csv --top-n 50
-python run_universe_selector.py --universe-file data/jpx_final_list.csv --top-n 30 --test
-
-# 配置文件驱动回测入口
-python start_backtest.py
-python start_portfolio_backtest.py
+# 等价能力（推荐）
+python main.py backtest 6501 --entry EnhancedScorerStrategy --exit LayeredExitStrategy --start 2023-01-01 --end 2026-01-08 --capital 5000000
+python main.py universe --csv-file data/jpx_final_list.csv --top-n 50
+python main.py portfolio --all
 ```
 
 更多细节见文档目录 [docs/README.md](docs/README.md)。

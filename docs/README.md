@@ -1,15 +1,20 @@
-# J-Stock-Analyzer Documentation
+# J-Stock-Analyzer Documentation（2026-02 清洗版）
 
-## 📚 Active Documentation
+本目录以“源码为准”重建为四类文档：
 
-- [QUICKSTART.md](QUICKSTART.md) - Quick start guide
-- [USAGE_GUIDE.md](USAGE_GUIDE.md) - Comprehensive usage guide
-- [BACKTEST_CONFIG_GUIDE.md](BACKTEST_CONFIG_GUIDE.md) - Backtest configuration
-- [PORTFOLIO_BACKTEST_GUIDE.md](PORTFOLIO_BACKTEST_GUIDE.md) - Portfolio backtest guide
-- [DATA_LAKE_GUIDE.md](DATA_LAKE_GUIDE.md) - Data lake structure
-- [UNIVERSE_SELECTOR_GUIDE.md](UNIVERSE_SELECTOR_GUIDE.md) - Stock universe selector
-- [FINAL_STRATEGY_ARCHITECTURE.md](FINAL_STRATEGY_ARCHITECTURE.md) - System architecture
+1. CLI 命令参数与效果
+2. 入场/出场策略逻辑与数学公式
+3. 功能代码实装接口定义
+4. Feature 计算方法与全集
 
-## 📦 Archive
+## 文档入口
 
-Historical documentation and refactoring plans are stored in [archive/](archive/).
+- [CLI 命令参考](cli/COMMANDS_REFERENCE.md)
+- [策略逻辑与公式](strategies/ENTRY_EXIT_STRATEGIES.md)
+- [实现接口说明](interfaces/IMPLEMENTATION_INTERFACES.md)
+- [Feature 目录与计算方法](features/FEATURE_CATALOG.md)
+
+## 清洗说明
+
+- 旧版历史文档已从仓库移除，不再保留归档目录
+- 当前文档以 `main.py` + `src/` 实际行为为准
