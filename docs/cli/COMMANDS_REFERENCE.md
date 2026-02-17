@@ -8,11 +8,25 @@
 
 ## 1.1 `production`
 
-执行生产流程：加载状态 →（可选）抓取数据 → 生成信号 → 生成日报。
+执行生产工作流（当前默认单组，保留多组扩展）：
+
+- `--daily`: 盘后流程（加载状态 → 可选抓取 → 生成信号 → 生成日报）
+- `--input`: 次日人工成交回传（读取前一日信号并写入 state/history）
+- `--status`: 查看当前资金/持仓/历史概览
+- `--set-cash`: 管理员修正分组现金
+- `--set-position`: 管理员覆盖分组持仓
 
 参数：
 
-- `--dry-run`
+- `--daily`
+- `--input`
+- `--status`
+- `--set-cash <GROUP_ID> <AMOUNT>`
+- `--set-position <GROUP_ID> <TICKER> <QTY> <PRICE>`
+- `--signal-date YYYY-MM-DD`（配合 `--input`）
+- `--trade-date YYYY-MM-DD`（配合 `--input`）
+- `--entry-date YYYY-MM-DD`（配合 `--set-position`）
+- `--yes`（配合 `--input` 跳过确认）
 - `--skip-fetch`
 
 ---
@@ -94,6 +108,11 @@
 ## 1.7 `evaluate`
 
 策略综合评价（多时间段、多策略组合）。
+
+默认输出行为（2026-02 重构后）：
+
+- 未指定 `--output-dir` 时，优先输出到 `G:\My Drive\AI-Stock-Sync\strategy_evaluation`
+- 若该路径不可写，自动回退到本地 `strategy_evaluation`，并打印提醒
 
 参数：
 

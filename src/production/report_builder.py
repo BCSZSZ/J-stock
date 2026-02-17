@@ -243,7 +243,7 @@ class ReportBuilder:
                 
                 if buy_signal:
                     confidence_pct = f"{buy_signal.confidence*100:.0f}%"
-                    reason = buy_signal.reason[:50] if buy_signal.reason else "..."
+                    reason = (buy_signal.reason or "...").replace("|", "/")
                     lines.append(
                         f"| {rank} | {eval_obj.ticker} | {buy_signal.strategy_name} | "
                         f"{buy_signal.score:.1f} | {confidence_pct} | {reason} |"

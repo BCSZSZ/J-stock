@@ -69,6 +69,7 @@ backtest_debug.txt
 backtest_results_*.csv
 trade_analysis_*.md
 strategy_evaluation/
+reports/
 
 # Test outputs
 test_*.txt

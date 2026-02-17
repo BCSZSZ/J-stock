@@ -4,6 +4,7 @@ Implements rate-limited requests to J-Quants API V2 endpoints.
 """
 import time
 import logging
+import random
 from typing import Dict, List, Optional, Any
 import requests
 from datetime import datetime, timedelta
@@ -21,7 +22,8 @@ class JQuantsV2Client:
     BASE_URL = "https://api.jquants.com"
     RATE_LIMIT_DELAY = 1.0  # seconds between requests
     MAX_RETRIES = 3
-    RETRY_WAIT = 5  # seconds to wait on 429
+    RETRY_WAIT = 5  # base seconds to wait on 429
+    MAX_RETRY_WAIT = 60  # cap for exponential backoff
     
     def __init__(self, api_key: str):
         """
@@ -60,6 +62,19 @@ class JQuantsV2Client:
             requests.HTTPError: On non-retryable errors.
         """
         url = f"{self.BASE_URL}{endpoint}"
+
+        def _compute_retry_wait(response, attempt_idx: int) -> float:
+            """Compute retry wait using Retry-After header first, then exponential backoff + jitter."""
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    return max(1.0, float(retry_after))
+                except (TypeError, ValueError):
+                    pass
+
+            base_wait = min(self.RETRY_WAIT * (2 ** attempt_idx), self.MAX_RETRY_WAIT)
+            jitter = random.uniform(0, 1.0)
+            return base_wait + jitter
         
         for attempt in range(self.MAX_RETRIES):
             self._rate_limit()
@@ -68,8 +83,12 @@ class JQuantsV2Client:
                 response = requests.get(url, headers=self.headers, params=params, timeout=30)
                 
                 if response.status_code == 429:
-                    logger.warning(f"Rate limit hit (429). Waiting {self.RETRY_WAIT}s...")
-                    time.sleep(self.RETRY_WAIT)
+                    wait_seconds = _compute_retry_wait(response, attempt)
+                    logger.warning(
+                        f"Rate limit hit (429). Waiting {wait_seconds:.1f}s "
+                        f"before retry {attempt + 1}/{self.MAX_RETRIES}..."
+                    )
+                    time.sleep(wait_seconds)
                     continue
                     
                 response.raise_for_status()
@@ -82,7 +101,9 @@ class JQuantsV2Client:
                 logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying...")
                 time.sleep(2)
                 
-        return {}
+        raise requests.HTTPError(
+            f"Request failed after {self.MAX_RETRIES} attempts (possible persistent rate limit): {url}"
+        )
     
     def _fetch_paginated(
         self, 

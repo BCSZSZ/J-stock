@@ -186,7 +186,7 @@ class ComprehensiveEvaluator:
                             signal_action=signal_action,
                             score=score,
                             confidence=confidence,
-                            reason=entry_signal.reasons[0] if entry_signal.reasons else "",
+                            reason=("; ".join(entry_signal.reasons) if entry_signal.reasons else ""),
                             metadata=entry_signal.metadata or {}
                         )
                         

@@ -369,7 +369,7 @@ if __name__ == "__main__":
     
     # Test dry run
     test_signal = Signal(
-        group_id="group_a",
+        group_id="group_main",
         ticker="8035",
         ticker_name="東京エレクトロン",
         signal_type="BUY",

@@ -48,8 +48,11 @@
 
 ### 7) 生产流程编排
 
-- `production` 命令用于日常生产流程编排
-- 支持 `--dry-run` 与 `--skip-fetch`
+- `production` 命令用于盘后信号与次日人工回传流程
+- 当前默认是**单组实盘工作流**（`group_main`），架构保留多组扩展能力
+- 主要模式：`--daily` / `--input` / `--status`，并支持 `--skip-fetch`
+- 工具命令：`--set-cash`、`--set-position`
+- 运行态文件可配置为 Google Drive 路径，用于多终端同步
 
 ## 🚀 命令行大全
 
@@ -60,8 +63,11 @@
 python main.py --help
 
 # 1) production
-python main.py production
-python main.py production --dry-run
+python main.py production --daily
+python main.py production --input
+python main.py production --status
+python main.py production --set-cash group_main 8000000
+python main.py production --set-position group_main 8035 100 31500
 python main.py production --skip-fetch
 
 # 2) fetch
@@ -101,7 +107,7 @@ python main.py evaluate --entry-strategies SimpleScorerStrategy --exit-strategie
 
 #### `main.py` 子命令参数速查
 
-- `production`: `--dry-run`, `--skip-fetch`
+- `production`: `--daily`, `--input`, `--status`, `--set-cash`, `--set-position`, `--signal-date`, `--trade-date`, `--entry-date`, `--yes`, `--skip-fetch`
 - `fetch`: `--all` 或 `--tickers ...`（二选一）
 - `signal`: `ticker`, `--date`, `--entry`, `--exit`
 - `backtest`: `ticker`, `--entry ...`, `--exit ...`, `--all-strategies`, `--years`, `--start`, `--end`, `--capital`
@@ -244,6 +250,21 @@ print(metadata)
 - `{output_dir}/strategy_evaluation_raw_{timestamp}.csv`
 - `{output_dir}/strategy_evaluation_by_regime_{timestamp}.csv`
 - `{output_dir}/strategy_evaluation_report_{timestamp}.md`
+
+默认输出行为（2026-02 重构后）：
+
+- 若未显式传 `--output-dir`，优先写入 `G:\My Drive\AI-Stock-Sync\strategy_evaluation`
+- 若 Google Drive 路径不可写，自动回退到本地 `strategy_evaluation` 并输出 console 提示
+
+### production 运行态文件（推荐）
+
+为支持双终端一致性，建议将 production 运行态文件配置到 Google Drive（`config.json` 的 `production.*` 路径）：
+
+- `state_file`
+- `history_file`
+- `signal_file_pattern`
+- `report_file_pattern`
+- `monitor_list_file`
 
 ## Development
 

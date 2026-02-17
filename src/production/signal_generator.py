@@ -1,7 +1,8 @@
 """
 Production Signal Generator
 
-Generates trading signals for multi-strategy-group portfolio management.
+Generates trading signals for production portfolio management.
+Default operation uses a single strategy group, while keeping multi-group compatibility.
 - Evaluates entry signals for non-position stocks
 - Evaluates exit signals for open positions
 - Outputs daily signal file for reporting/UI

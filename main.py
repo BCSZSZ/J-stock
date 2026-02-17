@@ -34,8 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "示例用法:\n"
             "  # 生产流程\n"
-            "  python main.py production\n"
-            "  python main.py production --dry-run\n\n"
+            "  python main.py production --daily\n"
+            "  python main.py production --input\n"
+            "  python main.py production --status\n\n"
             "  # 数据抓取\n"
             "  python main.py fetch --all                    # 抓取监视列表所有股票\n"
             "  python main.py fetch --tickers 7974 8035      # 指定股票\n"
@@ -61,8 +62,50 @@ def build_parser() -> argparse.ArgumentParser:
     production_parser = subparsers.add_parser(
         "production", help="生产环境每日工作流程 (Phase 5)"
     )
+    production_mode = production_parser.add_mutually_exclusive_group()
+    production_mode.add_argument(
+        "--daily",
+        action="store_true",
+        help="盘后工作流：抓取数据 + 生成次日信号 + 生成日报（默认）",
+    )
+    production_mode.add_argument(
+        "--input",
+        action="store_true",
+        help="次日回传工作流：读取信号并录入人工成交",
+    )
+    production_mode.add_argument(
+        "--status",
+        action="store_true",
+        help="查看生产状态（资金/持仓/历史概览）",
+    )
+    production_mode.add_argument(
+        "--set-cash",
+        nargs=2,
+        metavar=("GROUP_ID", "AMOUNT"),
+        help="工具命令：直接修正某分组现金",
+    )
+    production_mode.add_argument(
+        "--set-position",
+        nargs=4,
+        metavar=("GROUP_ID", "TICKER", "QTY", "PRICE"),
+        help="工具命令：覆盖某分组某股票持仓（管理员修正）",
+    )
     production_parser.add_argument(
-        "--dry-run", action="store_true", help="试运行模式（不执行交易）"
+        "--signal-date",
+        help="配合 --input 使用：指定读取信号日期 YYYY-MM-DD（默认最近一份）",
+    )
+    production_parser.add_argument(
+        "--trade-date",
+        help="配合 --input 使用：指定成交回传日期 YYYY-MM-DD（默认今天）",
+    )
+    production_parser.add_argument(
+        "--entry-date",
+        help="配合 --set-position 使用：指定持仓建仓日期 YYYY-MM-DD（默认今天）",
+    )
+    production_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="配合 --input 使用：跳过开始确认提示",
     )
     production_parser.add_argument(
         "--skip-fetch", action="store_true", help="跳过数据抓取步骤"
@@ -213,8 +256,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evaluate_parser.add_argument(
         "--output-dir",
-        default="strategy_evaluation",
-        help="输出目录（默认: strategy_evaluation）",
+        default=None,
+        help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation，失败回退到本地strategy_evaluation）",
     )
     evaluate_parser.add_argument(
         "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"

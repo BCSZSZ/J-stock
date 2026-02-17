@@ -1,7 +1,8 @@
 """
 Production State Management Module
 
-Handles portfolio state tracking for multi-strategy-group trading system.
+Handles portfolio state tracking for production signal workflow.
+Default operation uses a single strategy group, with optional multi-group expansion.
 Features:
 - Independent cash/position tracking per strategy group
 - FIFO position handling for partial sells

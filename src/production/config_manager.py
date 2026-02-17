@@ -119,7 +119,10 @@ class ConfigManager:
         
         return ProductionConfig(
             # Data paths
-            monitor_list_file=data_cfg.get("monitor_list_file"),
+            monitor_list_file=prod_cfg.get(
+                "monitor_list_file",
+                data_cfg.get("monitor_list_file")
+            ),
             data_dir=data_cfg.get("data_dir"),
             
             # Production settings

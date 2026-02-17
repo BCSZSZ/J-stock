@@ -1,12 +1,37 @@
 def cmd_evaluate(args):
     """策略综合评价命令"""
     import json
+    from pathlib import Path
     from src.evaluation import (
         StrategyEvaluator,
         create_annual_periods,
         create_monthly_periods,
         create_quarterly_periods,
     )
+
+    def resolve_output_dir(user_output_dir):
+        local_fallback = Path("strategy_evaluation")
+
+        if user_output_dir:
+            return user_output_dir
+
+        cloud_default = Path(r"G:\My Drive\AI-Stock-Sync\strategy_evaluation")
+        try:
+            cloud_default.mkdir(parents=True, exist_ok=True)
+            probe = cloud_default / ".write_probe.tmp"
+            with open(probe, "w", encoding="utf-8") as f:
+                f.write("ok")
+            probe.unlink(missing_ok=True)
+            print(f"📁 输出目录: {cloud_default} (Google Drive)")
+            return str(cloud_default)
+        except Exception as e:
+            local_fallback.mkdir(parents=True, exist_ok=True)
+            print(
+                "⚠️ Google Drive输出目录不可写，已回退到本地目录: "
+                f"{local_fallback}"
+            )
+            print(f"   原因: {e}")
+            return str(local_fallback)
 
     print("\n" + "=" * 80)
     print("🔬 策略综合评价系统")
@@ -68,9 +93,11 @@ def cmd_evaluate(args):
     if len(periods) > 5:
         print(f"   ... 共 {len(periods)} 个时间段")
 
+    output_dir = resolve_output_dir(args.output_dir)
+
     evaluator = StrategyEvaluator(
         data_root="data",
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         verbose=args.verbose,
     )
 

@@ -1,7 +1,8 @@
 """
 Production Trading System
 
-Modules for multi-strategy-group portfolio management and execution.
+Modules for post-close signal workflow and portfolio state management.
+Default operation is single strategy group, while architecture supports multi-group extension.
 """
 
 from .config_manager import (
