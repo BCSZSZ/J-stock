@@ -75,7 +75,9 @@ class MACDCrossoverStrategy(BaseEntryStrategy):
         # 可选确认1: 成交量
         if self.confirm_volume:
             volume_now = df.iloc[-1]['Volume']
-            volume_avg = df['Volume'].rolling(20).mean().iloc[-1]
+            volume_avg = df.iloc[-1].get('Volume_SMA_20')
+            if pd.isna(volume_avg):
+                volume_avg = df['Volume'].rolling(20).mean().iloc[-1]
             
             if pd.notna(volume_avg) and volume_avg > 0:
                 volume_ratio = volume_now / volume_avg

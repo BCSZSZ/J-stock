@@ -98,13 +98,20 @@ class IchimokuStochStrategy(BaseEntryStrategy):
         stoch_oversold = k_cur < self.stoch_oversold if pd.notna(k_cur) else False
         
         # 3. OBV趋势判断
-        obv_series = df['OBV'].dropna()
-        if len(obv_series) >= self.obv_lookback:
-            obv_slope = (obv_series.iloc[-1] - obv_series.iloc[-self.obv_lookback]) / self.obv_lookback
-            obv_rising = obv_slope > 0
+        if self.obv_lookback == 10 and 'OBV_Slope_10' in df.columns:
+            obv_slope = latest.get('OBV_Slope_10', 0)
+            obv_rising = pd.notna(obv_slope) and obv_slope > 0
+        elif self.obv_lookback == 20 and 'OBV_Slope_20' in df.columns:
+            obv_slope = latest.get('OBV_Slope_20', 0)
+            obv_rising = pd.notna(obv_slope) and obv_slope > 0
         else:
-            obv_rising = False
-            obv_slope = 0
+            obv_series = df['OBV'].dropna()
+            if len(obv_series) >= self.obv_lookback:
+                obv_slope = (obv_series.iloc[-1] - obv_series.iloc[-self.obv_lookback]) / self.obv_lookback
+                obv_rising = obv_slope > 0
+            else:
+                obv_rising = False
+                obv_slope = 0
         
         # 综合判断
         if above_cloud:

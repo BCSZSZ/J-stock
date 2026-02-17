@@ -167,28 +167,13 @@ def cmd_universe(args):
 
         print(f"\n📊 全局归一化 ({len(all_scores)} 支股票)")
 
-        all_scores["Rank_Vol"] = all_scores["ATR_Ratio"].rank(pct=True, ascending=True)
-        all_scores["Rank_Liq"] = all_scores["MedianTurnover"].rank(pct=True, ascending=True)
-        all_scores["Rank_Trend"] = all_scores["TrendStrength"].rank(pct=True, ascending=True)
-        all_scores["Rank_Momentum"] = all_scores["Momentum_20d"].rank(pct=True, ascending=True)
-        all_scores["Rank_VolSurge"] = all_scores["Volume_Surge"].rank(pct=True, ascending=True)
-
-        WEIGHT_VOL = 0.25
-        WEIGHT_LIQ = 0.25
-        WEIGHT_TREND = 0.20
-        WEIGHT_MOMENTUM = 0.20
-        WEIGHT_VOLSURGE = 0.10
-
-        all_scores["TotalScore"] = (
-            WEIGHT_VOL * all_scores["Rank_Vol"]
-            + WEIGHT_LIQ * all_scores["Rank_Liq"]
-            + WEIGHT_TREND * all_scores["Rank_Trend"]
-            + WEIGHT_MOMENTUM * all_scores["Rank_Momentum"]
-            + WEIGHT_VOLSURGE * all_scores["Rank_VolSurge"]
-        )
+        all_scores = selector.normalize_features(all_scores)
+        all_scores = selector.calculate_scores(all_scores)
 
         print(
-            f"   权重分配: Vol={WEIGHT_VOL}, Liq={WEIGHT_LIQ}, Trend={WEIGHT_TREND}, Momentum={WEIGHT_MOMENTUM}, VolSurge={WEIGHT_VOLSURGE}"
+            f"   权重分配: Vol={selector.WEIGHT_VOLATILITY}, Liq={selector.WEIGHT_LIQUIDITY}, "
+            f"Trend={selector.WEIGHT_TREND}, Momentum={selector.WEIGHT_MOMENTUM}, "
+            f"VolSurge={selector.WEIGHT_VOLUME_SURGE}"
         )
         print(f"   分数范围: {all_scores['TotalScore'].min():.3f} - {all_scores['TotalScore'].max():.3f}")
 

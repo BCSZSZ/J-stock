@@ -362,6 +362,43 @@ class StockDataManager:
         obv = OnBalanceVolumeIndicator(close=df["Close"], volume=df["Volume"])
         df["OBV"] = obv.on_balance_volume()
 
+        # ==================== PRECOMPUTED DERIVED FEATURES ====================
+        # Turnover and turnover median
+        df["Turnover"] = df["Close"] * df["Volume"]
+        df["Turnover_Median_20"] = df["Turnover"].rolling(window=20).median()
+
+        # ATR ratio and trend strength
+        df["ATR_Ratio"] = df["ATR"] / df["Close"].replace(0, pd.NA)
+        df["TrendStrength_200"] = (
+            (df["Close"] - df["EMA_200"]) / df["EMA_200"].replace(0, pd.NA)
+        )
+
+        # Returns
+        df["Return_5d"] = df["Close"].pct_change(periods=5)
+        df["Return_20d"] = df["Close"].pct_change(periods=20)
+
+        # Volume surge: recent 20d avg vs baseline 100d avg (120d total lookback)
+        vol_recent_20 = df["Volume"].rolling(window=20).mean()
+        vol_baseline_100 = df["Volume"].shift(20).rolling(window=100).mean()
+        df["Volume_Surge_20_120"] = vol_recent_20 / vol_baseline_100.replace(0, pd.NA)
+
+        # OBV slopes
+        df["OBV_Slope_10"] = (df["OBV"] - df["OBV"].shift(10)) / 10
+        df["OBV_Slope_20"] = (df["OBV"] - df["OBV"].shift(20)) / 20
+
+        # LLV for MACD+KDJ strategy
+        df["LLV_9"] = df["Low"].rolling(window=9).min()
+
+        # ATR Z-score over 60-day window
+        atr_mean_60 = df["ATR"].rolling(window=60).mean()
+        atr_std_60 = df["ATR"].rolling(window=60).std()
+        df["ATR_Z_60"] = (df["ATR"] - atr_mean_60) / atr_std_60.replace(0, pd.NA)
+
+        # Optional: rolling 20th percentile of BB width over 100-day window
+        df["BB_Width_Q20_100"] = (
+            df["BB_Width"].rolling(window=100).quantile(0.2)
+        )
+
         # Save to features layer
         self._atomic_save(df, features_path)
         logger.info(

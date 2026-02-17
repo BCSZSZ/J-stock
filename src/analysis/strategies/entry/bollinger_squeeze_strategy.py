@@ -87,7 +87,9 @@ class BollingerSqueezeStrategy(BaseEntryStrategy):
                 strategy_name="BollingerSqueezeStrategy"
             )
         
-        squeeze_threshold = np.percentile(bb_width_series.tail(100), self.squeeze_percentile)
+        squeeze_threshold = latest.get('BB_Width_Q20_100')
+        if pd.isna(squeeze_threshold):
+            squeeze_threshold = np.percentile(bb_width_series.tail(100), self.squeeze_percentile)
         is_squeezed = latest['BB_Width'] < squeeze_threshold
         
         # 2. 突破上轨检测

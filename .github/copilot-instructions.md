@@ -113,3 +113,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Do not rename files/public interfaces unless requested.
 - Do not add new dependencies unless necessary; justify in one sentence when added.
 - Update README only when usage/setup/output expectations actually change.
+
+## 11. Documentation Sync Rule
+
+- If a logic change affects anything documented in the 4 docs folders or README, update those docs in the same task.
+- Keep docs fully synced: add new behavior/details and remove outdated content.

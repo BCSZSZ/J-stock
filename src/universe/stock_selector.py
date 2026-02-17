@@ -43,10 +43,12 @@ class UniverseSelector:
     MIN_ATR_RATIO = 0.015  # 1.5%
     MAX_ATR_RATIO = 0.050  # 5.0%
     
-    # Scoring Weights
-    WEIGHT_VOLATILITY = 0.4
-    WEIGHT_LIQUIDITY = 0.3
-    WEIGHT_TREND = 0.3
+    # Scoring Weights (5-dimension)
+    WEIGHT_VOLATILITY = 0.25
+    WEIGHT_LIQUIDITY = 0.25
+    WEIGHT_TREND = 0.20
+    WEIGHT_MOMENTUM = 0.20
+    WEIGHT_VOLUME_SURGE = 0.10
     
     # Data Requirements
     MIN_HISTORY_DAYS = 250  # Need at least 250 days for MA200
@@ -283,36 +285,46 @@ class UniverseSelector:
         # Get latest row
         latest = df_features.iloc[-1]
         
-        # Calculate custom metrics
-        # 1. MedianTurnover (Trading Value over last 20 days)
-        df_recent = df_features.tail(20).copy()  # .copy() to avoid SettingWithCopyWarning
-        df_recent['TradingValue'] = df_recent['Close'] * df_recent['Volume']
-        median_turnover = df_recent['TradingValue'].median()
-        
-        # 2. ATR Ratio
-        atr = latest.get('ATR', np.nan)
+        # Calculate metrics (prefer precomputed feature columns)
         close = latest.get('Close', np.nan)
-        atr_ratio = atr / close if (close > 0 and not np.isnan(atr)) else np.nan
-        
-        # 3. Trend Strength (relative to MA200)
-        # Use EMA_200 as proxy for MA200
+        atr = latest.get('ATR', np.nan)
         ema_200 = latest.get('EMA_200', np.nan)
-        trend_strength = (close - ema_200) / ema_200 if (ema_200 > 0 and not np.isnan(ema_200)) else np.nan
-        
-        # 4. Momentum_20d (20-day return)
-        if len(df_features) >= 21:
-            price_20d_ago = df_features.iloc[-21]['Close']
-            momentum_20d = (close - price_20d_ago) / price_20d_ago if price_20d_ago > 0 else np.nan
-        else:
-            momentum_20d = np.nan
-        
-        # 5. Volume_Surge (recent 20d vs baseline 100d volume ratio)
-        if len(df_features) >= 120:
-            vol_recent = df_features.tail(20)['Volume'].mean()
-            vol_baseline = df_features.iloc[-120:-20]['Volume'].mean()
-            volume_surge = vol_recent / vol_baseline if vol_baseline > 0 else np.nan
-        else:
-            volume_surge = np.nan
+
+        # 1) MedianTurnover
+        median_turnover = latest.get('Turnover_Median_20', np.nan)
+        if pd.isna(median_turnover):
+            df_recent = df_features.tail(20).copy()
+            df_recent['TradingValue'] = df_recent['Close'] * df_recent['Volume']
+            median_turnover = df_recent['TradingValue'].median()
+
+        # 2) ATR Ratio
+        atr_ratio = latest.get('ATR_Ratio', np.nan)
+        if pd.isna(atr_ratio):
+            atr_ratio = atr / close if (close > 0 and not np.isnan(atr)) else np.nan
+
+        # 3) Trend Strength
+        trend_strength = latest.get('TrendStrength_200', np.nan)
+        if pd.isna(trend_strength):
+            trend_strength = (close - ema_200) / ema_200 if (ema_200 > 0 and not np.isnan(ema_200)) else np.nan
+
+        # 4) Momentum_20d
+        momentum_20d = latest.get('Return_20d', np.nan)
+        if pd.isna(momentum_20d):
+            if len(df_features) >= 21:
+                price_20d_ago = df_features.iloc[-21]['Close']
+                momentum_20d = (close - price_20d_ago) / price_20d_ago if price_20d_ago > 0 else np.nan
+            else:
+                momentum_20d = np.nan
+
+        # 5) Volume_Surge
+        volume_surge = latest.get('Volume_Surge_20_120', np.nan)
+        if pd.isna(volume_surge):
+            if len(df_features) >= 120:
+                vol_recent = df_features.tail(20)['Volume'].mean()
+                vol_baseline = df_features.iloc[-120:-20]['Volume'].mean()
+                volume_surge = vol_recent / vol_baseline if vol_baseline > 0 else np.nan
+            else:
+                volume_surge = np.nan
         
         # Validate all required fields
         if any(np.isnan([close, median_turnover, atr_ratio, trend_strength, momentum_20d, volume_surge])):
@@ -385,7 +397,7 @@ class UniverseSelector:
             df: Filtered DataFrame.
             
         Returns:
-            DataFrame with Rank_Vol, Rank_Liq, Rank_Trend columns.
+            DataFrame with rank columns for all scoring dimensions.
         """
         logger.info("Phase 2: Normalizing features via percentile ranking...")
         
@@ -399,6 +411,12 @@ class UniverseSelector:
         
         # Rank_Trend: Higher Trend Strength = Higher Score
         df_norm['Rank_Trend'] = df_norm['TrendStrength'].rank(pct=True, ascending=True)
+
+        # Rank_Momentum: Higher 20d return = Higher Score
+        df_norm['Rank_Momentum'] = df_norm['Momentum_20d'].rank(pct=True, ascending=True)
+
+        # Rank_VolSurge: Higher volume surge = Higher Score
+        df_norm['Rank_VolSurge'] = df_norm['Volume_Surge'].rank(pct=True, ascending=True)
         
         logger.info(f"  - Normalized {len(df_norm)} stocks")
         
@@ -409,7 +427,8 @@ class UniverseSelector:
         Phase 3: Calculate weighted composite scores.
         
         Formula:
-            TotalScore = 0.4 × Rank_Vol + 0.3 × Rank_Liq + 0.3 × Rank_Trend
+            TotalScore = 0.25×Rank_Vol + 0.25×Rank_Liq + 0.20×Rank_Trend
+                         + 0.20×Rank_Momentum + 0.10×Rank_VolSurge
             
         Args:
             df: Normalized DataFrame.
@@ -424,7 +443,9 @@ class UniverseSelector:
         df_scored['TotalScore'] = (
             self.WEIGHT_VOLATILITY * df_scored['Rank_Vol'] +
             self.WEIGHT_LIQUIDITY * df_scored['Rank_Liq'] +
-            self.WEIGHT_TREND * df_scored['Rank_Trend']
+            self.WEIGHT_TREND * df_scored['Rank_Trend'] +
+            self.WEIGHT_MOMENTUM * df_scored['Rank_Momentum'] +
+            self.WEIGHT_VOLUME_SURGE * df_scored['Rank_VolSurge']
         )
         
         logger.info(f"  - Score range: {df_scored['TotalScore'].min():.3f} - {df_scored['TotalScore'].max():.3f}")
@@ -523,11 +544,11 @@ class UniverseSelector:
                     'min_liquidity': self.MIN_LIQUIDITY,
                     'atr_ratio_range': [self.MIN_ATR_RATIO, self.MAX_ATR_RATIO],
                     'weights': {
-                        'volatility': 0.25,
-                        'liquidity': 0.25,
-                        'trend': 0.20,
-                        'momentum': 0.20,
-                        'volume_surge': 0.10
+                        'volatility': self.WEIGHT_VOLATILITY,
+                        'liquidity': self.WEIGHT_LIQUIDITY,
+                        'trend': self.WEIGHT_TREND,
+                        'momentum': self.WEIGHT_MOMENTUM,
+                        'volume_surge': self.WEIGHT_VOLUME_SURGE
                     }
                 },
                 'tickers': tickers_list
@@ -624,7 +645,7 @@ class UniverseSelector:
         
         display_cols = [
             'Rank', 'Code', 'CompanyName', 'TotalScore',
-            'Rank_Vol', 'Rank_Liq', 'Rank_Trend'
+            'Rank_Vol', 'Rank_Liq', 'Rank_Trend', 'Rank_Momentum', 'Rank_VolSurge'
         ]
         
         print("\nTop {} stocks:".format(min(n, len(df_top))))

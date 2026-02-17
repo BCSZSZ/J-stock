@@ -235,14 +235,17 @@ def calculate_volatility_score(df_features: pd.DataFrame) -> float:
     latest = df_features.iloc[-1]
     score = 50.0
     
-    # ATR相对历史水平
-    atr_current = latest['ATR']
-    atr_avg = df_features['ATR'].tail(60).mean()
-    atr_std = df_features['ATR'].tail(60).std()
-    
-    if pd.notna(atr_avg) and pd.notna(atr_std) and atr_std > 0:
-        atr_zscore = (atr_current - atr_avg) / atr_std
-        
+    # ATR相对历史水平（优先使用预计算列）
+    atr_zscore = latest.get('ATR_Z_60', np.nan)
+    if pd.isna(atr_zscore):
+        atr_current = latest['ATR']
+        atr_avg = df_features['ATR'].tail(60).mean()
+        atr_std = df_features['ATR'].tail(60).std()
+
+        if pd.notna(atr_avg) and pd.notna(atr_std) and atr_std > 0:
+            atr_zscore = (atr_current - atr_avg) / atr_std
+
+    if pd.notna(atr_zscore):
         if atr_zscore < -0.5:  # 低于平均（低波动）
             score += 20
         elif atr_zscore > 1.0:  # 高于平均（高波动）
@@ -429,9 +432,16 @@ def detect_trend_breakdown(df_features: pd.DataFrame) -> Optional[str]:
     
     # 4. 成交量萎缩 + 价格下跌
     if len(df_features) >= 20:
-        volume_avg = df_features['Volume'].tail(20).mean()
+        volume_avg = latest.get('Volume_SMA_20', np.nan)
+        if pd.isna(volume_avg):
+            volume_avg = df_features['Volume'].tail(20).mean()
+
         if latest['Volume'] < volume_avg * 0.7:
-            price_change_5d = (latest['Close'] / df_features.iloc[-6]['Close'] - 1) * 100
+            return_5d = latest.get('Return_5d', np.nan)
+            if pd.notna(return_5d):
+                price_change_5d = return_5d * 100
+            else:
+                price_change_5d = (latest['Close'] / df_features.iloc[-6]['Close'] - 1) * 100
             if price_change_5d < -3:
                 signals.append("Volume dry-up")
     

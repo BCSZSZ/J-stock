@@ -107,13 +107,20 @@ class BollingerDynamicExit(BaseExitStrategy):
             pctb_falling = prev['BB_PctB'] > self.profit_pctb_threshold and latest['BB_PctB'] < self.profit_pctb_threshold
             
             # OBV趋势判断
-            obv_series = df['OBV'].dropna()
-            if len(obv_series) >= self.obv_lookback:
-                obv_slope = (obv_series.iloc[-1] - obv_series.iloc[-self.obv_lookback]) / self.obv_lookback
-                obv_turning_negative = obv_slope < 0
+            if self.obv_lookback == 10 and 'OBV_Slope_10' in df.columns:
+                obv_slope = latest.get('OBV_Slope_10', 0)
+                obv_turning_negative = pd.notna(obv_slope) and obv_slope < 0
+            elif self.obv_lookback == 20 and 'OBV_Slope_20' in df.columns:
+                obv_slope = latest.get('OBV_Slope_20', 0)
+                obv_turning_negative = pd.notna(obv_slope) and obv_slope < 0
             else:
-                obv_turning_negative = False
-                obv_slope = 0
+                obv_series = df['OBV'].dropna()
+                if len(obv_series) >= self.obv_lookback:
+                    obv_slope = (obv_series.iloc[-1] - obv_series.iloc[-self.obv_lookback]) / self.obv_lookback
+                    obv_turning_negative = obv_slope < 0
+                else:
+                    obv_turning_negative = False
+                    obv_slope = 0
             
             if pctb_falling and obv_turning_negative:
                 reasons.append(f"[P1] 从高位回落（PctB {prev['BB_PctB']:.2f}→{latest['BB_PctB']:.2f}）")

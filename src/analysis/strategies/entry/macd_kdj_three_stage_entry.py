@@ -110,7 +110,10 @@ class MACDKDJThreeStageEntry(BaseEntryStrategy):
         kdj_golden_cross = (k_prev <= d_prev) and (k_now > d_now)
         kdj_oversold = d_now < self.kd_oversold_threshold
 
-        llv9 = df["Low"].rolling(self.llv_window).min().iloc[-1]
+        if self.llv_window == 9 and "LLV_9" in df.columns:
+            llv9 = latest.get("LLV_9")
+        else:
+            llv9 = df["Low"].rolling(self.llv_window).min().iloc[-1]
         sma20 = latest["SMA_20"]
         close = latest["Close"]
         price_support = (
