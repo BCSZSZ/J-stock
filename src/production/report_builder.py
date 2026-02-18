@@ -134,6 +134,9 @@ class ReportBuilder:
         # Actionable recommendations from signals
         sections.append(self._build_actionable_recommendations(signals))
 
+        # Final picks after secondary filtering
+        sections.append(self._build_final_picks(evaluations, signals))
+
         # Current portfolio with exit evaluations
         sections.append(self._build_portfolio_status_section())
 
@@ -216,16 +219,26 @@ class ReportBuilder:
             ),
         )
 
-        # Main evaluation table
+        # Main evaluation table (dynamic strategy columns)
+        strategy_names = []
+        for eval_obj in evaluations.values():
+            for name in eval_obj.evaluations.keys():
+                if name not in strategy_names:
+                    strategy_names.append(name)
+        strategy_names = sorted(strategy_names)
+
         lines.append("### Main Evaluation Table")
         lines.append("")
+
+        strategy_header = " | ".join(strategy_names) if strategy_names else "Strategies"
         lines.append(
-            "| Ticker | Name | Price | SimpleScorerStrategy | Ichimoku<br>Strategy | "
-            "EMA20 | EMA50 | EMA200 | RSI | ATR | Overall |"
+            "| Ticker | Name | Price | "
+            f"{strategy_header} | EMA20 | EMA50 | EMA200 | RSI | ATR | Overall |"
         )
         lines.append(
-            "|--------|------|-------|----------------------|----------------------|"
-            "-------|-------|--------|-----|-----|---------|"
+            "|--------|------|-------|"
+            + "|".join(["----------------------"] * max(len(strategy_names), 1))
+            + "|-------|-------|--------|-----|-----|---------|"
         )
 
         # Table rows
@@ -234,11 +247,15 @@ class ReportBuilder:
             price = f"¥{eval_obj.current_price:,.0f}"
 
             # Get signals from each strategy (if available)
-            simple_eval = eval_obj.evaluations.get("SimpleScorerStrategy")
-            ichimoku_eval = eval_obj.evaluations.get("IchimokuStochStrategy")
-
-            simple_signal = f"{simple_eval.signal_action}" if simple_eval else "—"
-            ichimoku_signal = f"{ichimoku_eval.signal_action}" if ichimoku_eval else "—"
+            strategy_cells = []
+            if strategy_names:
+                for strategy_name in strategy_names:
+                    strategy_eval = eval_obj.evaluations.get(strategy_name)
+                    strategy_cells.append(
+                        f"{strategy_eval.signal_action}" if strategy_eval else "—"
+                    )
+            else:
+                strategy_cells.append("—")
 
             # Technical indicators
             ema20 = f"{eval_obj.technical_indicators.get('EMA_20', 0):.0f}"
@@ -257,10 +274,10 @@ class ReportBuilder:
 
             overall = f"{signal_emoji} {eval_obj.overall_signal}"
 
+            strategy_row = " | ".join(strategy_cells)
             lines.append(
                 f"| {ticker} | {eval_obj.ticker_name[:15]} | {price} | "
-                f"{simple_signal} | {ichimoku_signal} | "
-                f"{ema20} | {ema50} | {ema200} | {rsi} | {atr} | {overall} |"
+                f"{strategy_row} | {ema20} | {ema50} | {ema200} | {rsi} | {atr} | {overall} |"
             )
 
         # BUY signals summary (executable-first ranking)
@@ -361,30 +378,187 @@ class ReportBuilder:
         lines.append("### 🔴 SELL (Holdings-Based)")
         lines.append("")
 
-        if sell_signals:
-            sorted_sell = self._sort_sell_signals(sell_signals)
-            lines.append(
-                "| Urgency | Group | Ticker | Action | Qty | Current Price | P&L (%) | Reason |"
-            )
-            lines.append(
-                "|---------|-------|--------|--------|-----|---------------|---------|--------|"
-            )
-            for sig in sorted_sell:
-                qty_str = (
-                    str(sig.position_qty) if sig.position_qty is not None else "N/A"
+        sell_by_key = {}
+        for sig in sell_signals:
+            key = (sig.group_id, sig.ticker)
+            sell_by_key[key] = sig
+
+        lines.append(
+            "| Group | Ticker | Shares | Current Price | P&L (%) | Recommend | Action | Reason |"
+        )
+        lines.append(
+            "|-------|--------|--------|---------------|---------|-----------|--------|--------|"
+        )
+
+        holdings_found = False
+        for group in self.state_manager.get_all_groups():
+            for pos in group.positions:
+                if pos.quantity <= 0:
+                    continue
+                holdings_found = True
+                key = (group.id, pos.ticker)
+                sig = sell_by_key.get(key)
+                current_price = (
+                    sig.current_price
+                    if sig is not None and sig.current_price
+                    else (pos.peak_price if pos.peak_price > pos.entry_price else pos.entry_price)
                 )
+                cost_basis = pos.entry_price
                 pnl_pct = (
-                    f"{sig.unrealized_pl_pct:+.2f}%"
-                    if sig.unrealized_pl_pct is not None
-                    else "N/A"
+                    ((current_price - cost_basis) / cost_basis) * 100
+                    if cost_basis > 0
+                    else 0
                 )
-                reason = (sig.reason or "N/A").replace("|", "/")
+                pnl_pct_str = f"{pnl_pct:+.2f}%"
+                recommend = "YES" if sig is not None else "NO"
+                action = sig.action if sig is not None else "HOLD"
+                reason = (sig.reason if sig is not None else "No SELL signal").replace(
+                    "|", "/"
+                )
+
                 lines.append(
-                    f"| {sig.urgency_derived} | {sig.group_id} | {sig.ticker} | {sig.action} | "
-                    f"{qty_str} | ¥{sig.current_price:,.0f} | {pnl_pct} | {reason} |"
+                    f"| {group.id} | {pos.ticker} | {pos.quantity} | "
+                    f"¥{current_price:,.0f} | {pnl_pct_str} | {recommend} | {action} | {reason} |"
                 )
-        else:
-            lines.append("*No SELL recommendations.*")
+
+        if not holdings_found:
+            lines.append("| - | - | - | - | - | - | - | No holdings |")
+
+        return "\n".join(lines)
+
+    def _build_final_picks(self, evaluations: Dict, signals: List[Signal]) -> str:
+        """Build a secondary-filtered shortlist from available signals and indicators."""
+        if not evaluations:
+            return "## ✅ Final Picks (Secondary Filter)\n\n*No evaluations available.*"
+
+        buy_signals = [s for s in (signals or []) if s.signal_type == "BUY"]
+        best_buy_by_ticker: Dict[str, Signal] = {}
+        for sig in buy_signals:
+            current = best_buy_by_ticker.get(sig.ticker)
+            if current is None:
+                best_buy_by_ticker[sig.ticker] = sig
+                continue
+            current_exec = 1 if (current.suggested_qty or 0) > 0 else 0
+            sig_exec = 1 if (sig.suggested_qty or 0) > 0 else 0
+            current_cap = (
+                current.required_capital if current.required_capital else float("inf")
+            )
+            sig_cap = sig.required_capital if sig.required_capital else float("inf")
+            current_key = (
+                current_exec,
+                -current.score,
+                -current.confidence,
+                -current_cap,
+            )
+            sig_key = (sig_exec, -sig.score, -sig.confidence, -sig_cap)
+            if sig_key > current_key:
+                best_buy_by_ticker[sig.ticker] = sig
+
+        def _trend_ok(eval_obj) -> bool:
+            ema20 = eval_obj.technical_indicators.get("EMA_20", 0)
+            ema50 = eval_obj.technical_indicators.get("EMA_50", 0)
+            ema200 = eval_obj.technical_indicators.get("EMA_200", 0)
+            return ema20 > ema50 > ema200
+
+        def _rsi_ok(eval_obj) -> bool:
+            rsi = eval_obj.technical_indicators.get("RSI", 0)
+            return 55 <= rsi <= 75
+
+        def _atr_ok(eval_obj) -> bool:
+            atr = eval_obj.technical_indicators.get("ATR", 0)
+            price = eval_obj.current_price or 0
+            if price <= 0:
+                return False
+            atr_pct = atr / price
+            return atr_pct <= 0.04
+
+        def _price_ok(eval_obj) -> bool:
+            return (eval_obj.current_price or 0) >= 1000
+
+        candidates = []
+        for eval_obj in evaluations.values():
+            best_signal = best_buy_by_ticker.get(eval_obj.ticker)
+            if best_signal is None:
+                continue
+            if (best_signal.suggested_qty or 0) <= 0:
+                continue
+            if eval_obj.overall_signal not in ["STRONG_BUY", "BUY"]:
+                continue
+            if not _trend_ok(eval_obj):
+                continue
+            if not _rsi_ok(eval_obj):
+                continue
+            if not _atr_ok(eval_obj):
+                continue
+            if not _price_ok(eval_obj):
+                continue
+
+            atr_pct = (
+                eval_obj.technical_indicators.get("ATR", 0) / eval_obj.current_price
+            )
+            rsi = eval_obj.technical_indicators.get("RSI", 0)
+            rsi_quality = 1.0 if 60 <= rsi <= 70 else 0.7
+            risk_score = max(0.0, 1.0 - min(atr_pct / 0.04, 1.0))
+            trend_score = 1.0
+            final_score = (
+                0.45 * (best_signal.score / 100.0)
+                + 0.25 * trend_score
+                + 0.15 * rsi_quality
+                + 0.15 * risk_score
+            )
+
+            candidates.append(
+                {
+                    "eval": eval_obj,
+                    "signal": best_signal,
+                    "atr_pct": atr_pct,
+                    "final_score": final_score,
+                }
+            )
+
+        candidates = sorted(
+            candidates,
+            key=lambda c: (
+                -c["final_score"],
+                c["signal"].required_capital
+                if c["signal"].required_capital
+                else float("inf"),
+            ),
+        )
+
+        lines = [
+            "## ✅ Final Picks (Secondary Filter)",
+            "",
+            "**Filters:** Executable qty, STRONG_BUY/BUY, EMA20>EMA50>EMA200, "
+            "RSI 55-75, ATR/Price <= 4%, Price >= ¥1,000",
+            "",
+        ]
+
+        if not candidates:
+            lines.append("*No candidates passed secondary filters.*")
+            return "\n".join(lines)
+
+        lines.append(
+            "| Rank | Ticker | Price | Score | Qty | Capital (¥) | RSI | ATR% | Reasons |"
+        )
+        lines.append("|------|--------|-------|-------|-----|-------------|-----|------|---------|")
+
+        for rank, item in enumerate(candidates[:8], 1):
+            eval_obj = item["eval"]
+            sig = item["signal"]
+            rsi = eval_obj.technical_indicators.get("RSI", 0)
+            atr_pct = item["atr_pct"] * 100
+            capital_str = (
+                f"{sig.required_capital:,.0f}" if sig.required_capital else "0"
+            )
+            reason = (
+                f"EMA20>EMA50>EMA200; RSI={rsi:.0f}; ATR%={atr_pct:.2f}"
+            )
+            lines.append(
+                f"| {rank} | {eval_obj.ticker} | ¥{eval_obj.current_price:,.0f} | "
+                f"{sig.score:.1f} | {sig.suggested_qty} | {capital_str} | "
+                f"{rsi:.0f} | {atr_pct:.2f}% | {reason} |"
+            )
 
         return "\n".join(lines)
 

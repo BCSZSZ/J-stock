@@ -152,3 +152,13 @@
 - `cmd_evaluate`
 
 每个 `cmd_*` 负责：参数解释、配置加载、调用核心服务层接口，不承载策略数学逻辑。
+
+---
+
+## 7. Production 报告接口
+
+定义于 `src/production/report_builder.py`：
+
+- `ReportBuilder.generate_daily_report(signals, execution_results=None, report_date=None, comprehensive_evaluations=None) -> str`
+- 当提供 `comprehensive_evaluations` 时，报告使用动态策略列（来自 `evaluations.keys()`）
+- SELL 推荐区块始终列出全部持仓，并标注是否建议卖出与理由

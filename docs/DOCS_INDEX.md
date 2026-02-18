@@ -27,3 +27,5 @@
 - 默认实盘配置采用单组（`group_main`），同时保留多组扩展能力
 - production 运行态文件支持放在 Google Drive 目录，便于多终端同步
 - `evaluate` 未指定 `--output-dir` 时默认云端优先，失败回退本地并提示
+- `production --daily` 自动使用“最新可用数据日”生成信号
+- 日报中的评估表策略列为动态适配，SELL 区块展示全部持仓与推荐状态
