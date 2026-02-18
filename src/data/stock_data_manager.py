@@ -23,6 +23,54 @@ from src.client.jquants_client import JQuantsV2Client
 logger = logging.getLogger(__name__)
 
 
+REQUIRED_FEATURE_COLUMNS = {
+    "Date",
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume",
+    "EMA_20",
+    "EMA_50",
+    "EMA_200",
+    "SMA_20",
+    "ADX_14",
+    "Ichi_Tenkan",
+    "Ichi_Kijun",
+    "Ichi_SpanA",
+    "Ichi_SpanB",
+    "RSI",
+    "MACD",
+    "MACD_Signal",
+    "MACD_Hist",
+    "Stoch_K",
+    "Stoch_D",
+    "KDJ_K_9",
+    "KDJ_D_9",
+    "KDJ_J_9",
+    "ATR",
+    "BB_Upper",
+    "BB_Lower",
+    "BB_Middle",
+    "BB_Width",
+    "BB_PctB",
+    "Volume_SMA_20",
+    "OBV",
+    "Turnover",
+    "Turnover_Median_20",
+    "ATR_Ratio",
+    "TrendStrength_200",
+    "Return_5d",
+    "Return_20d",
+    "Volume_Surge_20_120",
+    "OBV_Slope_10",
+    "OBV_Slope_20",
+    "LLV_9",
+    "ATR_Z_60",
+    "BB_Width_Q20_100",
+}
+
+
 class StockDataManager:
     """
     Manages stock data ingestion, storage, and technical analysis.
@@ -260,13 +308,23 @@ class StockDataManager:
 
         # Check if we need to recompute
         if not force_recompute and features_path.exists():
-            # Compare raw vs features file timestamps
-            raw_mtime = raw_path.stat().st_mtime
-            features_mtime = features_path.stat().st_mtime
+            try:
+                existing_features = pd.read_parquet(features_path)
+                missing_cols = REQUIRED_FEATURE_COLUMNS - set(existing_features.columns)
+                if missing_cols:
+                    logger.info(
+                        f"[{code}] Features missing {len(missing_cols)} columns, recomputing"
+                    )
+                else:
+                    # Compare raw vs features file timestamps
+                    raw_mtime = raw_path.stat().st_mtime
+                    features_mtime = features_path.stat().st_mtime
 
-            if features_mtime >= raw_mtime:
-                logger.info(f"[{code}] Features up-to-date, skip recompute")
-                return pd.read_parquet(features_path)
+                    if features_mtime >= raw_mtime:
+                        logger.info(f"[{code}] Features up-to-date, skip recompute")
+                        return existing_features
+            except Exception as e:
+                logger.warning(f"[{code}] Failed to load features for check: {e}")
 
         df = pd.read_parquet(raw_path)
 
@@ -369,8 +427,8 @@ class StockDataManager:
 
         # ATR ratio and trend strength
         df["ATR_Ratio"] = df["ATR"] / df["Close"].replace(0, pd.NA)
-        df["TrendStrength_200"] = (
-            (df["Close"] - df["EMA_200"]) / df["EMA_200"].replace(0, pd.NA)
+        df["TrendStrength_200"] = (df["Close"] - df["EMA_200"]) / df["EMA_200"].replace(
+            0, pd.NA
         )
 
         # Returns
@@ -395,9 +453,7 @@ class StockDataManager:
         df["ATR_Z_60"] = (df["ATR"] - atr_mean_60) / atr_std_60.replace(0, pd.NA)
 
         # Optional: rolling 20th percentile of BB width over 100-day window
-        df["BB_Width_Q20_100"] = (
-            df["BB_Width"].rolling(window=100).quantile(0.2)
-        )
+        df["BB_Width_Q20_100"] = df["BB_Width"].rolling(window=100).quantile(0.2)
 
         # Save to features layer
         self._atomic_save(df, features_path)

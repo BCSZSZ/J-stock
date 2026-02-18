@@ -75,8 +75,10 @@ def load_monitor_list(file_path: str = "data/monitor_list.json") -> List[str]:
         raise
 
 
-def main(recompute_features: bool = False):
-    """Main function to run the ETL pipeline."""
+def run_fetch(
+    monitor_list_file: str = "data/monitor_list.json", recompute_features: bool = False
+):
+    """Run the ETL pipeline for a monitor list file."""
     # Load environment variables
     load_dotenv()
 
@@ -85,14 +87,15 @@ def main(recompute_features: bool = False):
     if not api_key and not recompute_features:
         logger.error("JQUANTS_API_KEY not found in environment variables!")
         logger.error("Please create a .env file with: JQUANTS_API_KEY=your_key_here")
-        return
+        return None
 
-    # Load tickers from monitor list JSON
-    tickers = load_monitor_list()
+    # Load tickers from monitor list
+    tickers = load_monitor_list(monitor_list_file)
 
     logger.info("=" * 60)
     logger.info("J-Stock-Analyzer - Batch ETL Pipeline")
     logger.info("=" * 60)
+    logger.info(f"Monitor list: {monitor_list_file}")
     logger.info(f"Processing {len(tickers)} tickers")
     logger.info("")
 
@@ -134,6 +137,12 @@ def main(recompute_features: bool = False):
     print("=" * 60)
 
     logger.info("\nETL Pipeline complete!")
+    return summary
+
+
+def main(recompute_features: bool = False):
+    """Main function to run the ETL pipeline."""
+    run_fetch(recompute_features=recompute_features)
 
 
 if __name__ == "__main__":

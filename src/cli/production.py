@@ -1,6 +1,6 @@
-from datetime import datetime
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -18,7 +18,9 @@ def _load_monitor_tickers(monitor_list_file: str) -> List[str]:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         raw = data.get("tickers", []) if isinstance(data, dict) else data
-        tickers = [item.get("code") if isinstance(item, dict) else str(item) for item in raw]
+        tickers = [
+            item.get("code") if isinstance(item, dict) else str(item) for item in raw
+        ]
         return [ticker for ticker in tickers if ticker]
 
     tickers = []
@@ -43,7 +45,9 @@ def _ensure_groups(state, config_mgr, prod_cfg) -> None:
                 name=group_cfg["name"],
                 initial_capital=group_cfg["initial_capital"],
             )
-            print(f"    Created: {group_cfg['name']} (¥{group_cfg['initial_capital']:,})")
+            print(
+                f"    Created: {group_cfg['name']} (¥{group_cfg['initial_capital']:,})"
+            )
     else:
         initial_capital = config_mgr.get_initial_capital()
         state.add_group(
@@ -62,13 +66,17 @@ def _get_signal_date_from_path(path: Path) -> Optional[str]:
     return stem
 
 
-def _find_latest_signal_file(pattern: str, signal_date: Optional[str]) -> Optional[Path]:
+def _find_latest_signal_file(
+    pattern: str, signal_date: Optional[str]
+) -> Optional[Path]:
     if signal_date:
         candidate = Path(pattern.replace("{date}", signal_date))
         return candidate if candidate.exists() else None
 
     pattern_path = Path(pattern)
-    parent = pattern_path.parent if str(pattern_path.parent) not in ["", "."] else Path(".")
+    parent = (
+        pattern_path.parent if str(pattern_path.parent) not in ["", "."] else Path(".")
+    )
     if not parent.exists():
         return None
 
@@ -146,22 +154,11 @@ def _run_daily_workflow(args, prod_cfg, state) -> None:
 
     if not args.skip_fetch:
         print("\n[Data Update] Fetching latest market data...")
-        from src.client.jquants_client import JQuantsV2Client
-        from src.data.benchmark_manager import update_benchmarks
-        from src.data.pipeline import StockETLPipeline
+        from src.data_fetch_manager import run_fetch
 
-        if not api_key:
-            print("[ERROR] JQUANTS_API_KEY not found (required when fetch is enabled)")
-            return
-
-        client = JQuantsV2Client(api_key)
-        benchmark_result = update_benchmarks(client)
-        if benchmark_result["success"]:
-            print(f"  TOPIX updated: {benchmark_result['topix_records']} records")
-
-        pipeline = StockETLPipeline(api_key)
-        summary = pipeline.run_batch(monitor_tickers, fetch_aux_data=True)
-        print(f"  Updated {summary['successful']}/{summary['total']} stocks")
+        summary = run_fetch(monitor_list_file=prod_cfg.monitor_list_file)
+        if summary:
+            print(f"  Updated {summary['successful']}/{summary['total']} stocks")
     else:
         print("\n[Data Update] Skipped (--skip-fetch flag)")
 
@@ -188,7 +185,9 @@ def _run_daily_workflow(args, prod_cfg, state) -> None:
     entry_strategy_names = set()
     for group in groups:
         cfg = group_configs.get(group.id, {})
-        entry_strategy_names.add(cfg.get("entry_strategy", prod_cfg.default_entry_strategy))
+        entry_strategy_names.add(
+            cfg.get("entry_strategy", prod_cfg.default_entry_strategy)
+        )
 
     strategies_config = [{"name": name} for name in sorted(entry_strategy_names)]
     evaluator = ComprehensiveEvaluator(data_manager, strategies_config)
@@ -222,8 +221,12 @@ def _run_daily_workflow(args, prod_cfg, state) -> None:
 
     for group in groups:
         group_cfg = group_configs.get(group.id, {})
-        entry_strategy_name = group_cfg.get("entry_strategy", prod_cfg.default_entry_strategy)
-        exit_strategy_name = group_cfg.get("exit_strategy", prod_cfg.default_exit_strategy)
+        entry_strategy_name = group_cfg.get(
+            "entry_strategy", prod_cfg.default_entry_strategy
+        )
+        exit_strategy_name = group_cfg.get(
+            "exit_strategy", prod_cfg.default_exit_strategy
+        )
 
         print(f"    Group: {group.name} ({entry_strategy_name} + {exit_strategy_name})")
 
@@ -401,7 +404,9 @@ def _parse_sell_action_to_pct(action: str) -> float:
 def _run_input_workflow(args, prod_cfg, state) -> None:
     from src.production import TradeHistoryManager
 
-    signal_path = _find_latest_signal_file(prod_cfg.signal_file_pattern, args.signal_date)
+    signal_path = _find_latest_signal_file(
+        prod_cfg.signal_file_pattern, args.signal_date
+    )
     if not signal_path:
         print("[ERROR] Signal file not found. Run 'production --daily' first.")
         return
@@ -440,7 +445,13 @@ def _run_input_workflow(args, prod_cfg, state) -> None:
 
         ticker = sig.get("ticker")
         ref_price = float(sig.get("current_price", 0) or 0)
-        ans = input(f"BUY {group_id} {ticker} ({sig.get('ticker_name', ticker)}) executed? [y/N]: ").strip().lower()
+        ans = (
+            input(
+                f"BUY {group_id} {ticker} ({sig.get('ticker_name', ticker)}) executed? [y/N]: "
+            )
+            .strip()
+            .lower()
+        )
         if ans != "y":
             continue
 
@@ -489,10 +500,16 @@ def _run_input_workflow(args, prod_cfg, state) -> None:
             continue
 
         ref_price = float(sig.get("current_price", 0) or 0)
-        default_qty = max(1, int(held_qty * _parse_sell_action_to_pct(sig.get("action", "SELL_100%"))))
-        ans = input(
-            f"SELL {group_id} {ticker} held={held_qty} action={sig.get('action', 'SELL_100%')} executed? [y/N]: "
-        ).strip().lower()
+        default_qty = max(
+            1, int(held_qty * _parse_sell_action_to_pct(sig.get("action", "SELL_100%")))
+        )
+        ans = (
+            input(
+                f"SELL {group_id} {ticker} held={held_qty} action={sig.get('action', 'SELL_100%')} executed? [y/N]: "
+            )
+            .strip()
+            .lower()
+        )
         if ans != "y":
             continue
 
@@ -627,6 +644,11 @@ def cmd_production(args):
     state = ProductionState(state_file=prod_cfg.state_file)
     _ensure_groups(state, config_mgr, prod_cfg)
 
+    # 显示路径信息
+    if "G:\\" in prod_cfg.state_file:
+        print("📁 Production 工作目录: G盘 (Google Drive)")
+    else:
+        print("⚠️  Production 工作目录: 本地（G盘不可用）")
     print(f"  State file: {prod_cfg.state_file}")
     print(f"  Monitor list: {prod_cfg.monitor_list_file}")
     print(f"  Signal pattern: {prod_cfg.signal_file_pattern}")
