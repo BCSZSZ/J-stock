@@ -92,7 +92,61 @@ python main.py production --input --signal-date 2026-02-17 --trade-date 2026-02-
 
 ---
 
-## 3) 管理员修正命令（谨慎使用）
+## 3) 持仓同步（重要）
+
+**使用场景**：
+
+- 手动买入了不在监视列表中的股票
+- 持仓中存在系统未跟踪的股票（无法生成正确的卖出信号）
+
+命令：
+
+```bash
+python main.py production --sync-positions
+```
+
+**行为**：
+
+1. 扫描所有分组的持仓，找出所有 ticker
+2. 对比监视列表，找出缺失的 ticker
+3. 自动抓取缺失股票的数据（5年历史）
+4. 更新 3 个监视列表文件：
+   - `G:\My Drive\AI-Stock-Sync\state\production_monitor_list.json`（生产环境）
+   - `data/production_monitor_list.json`（本地备份）
+   - `data/monitor_list.json`（普通监视列表，含详细信息）
+
+**建议执行时机**：
+
+- 每次手动买入新股票后
+- 每周执行一次作为例行检查
+- 运行 `--daily` 发现卖出信号为空但确实持有该股票时
+
+**示例输出**：
+
+```
+[1/5] Found 6 unique ticker(s) in positions:
+  - 1321
+  - 2737
+  - 4530
+  - 7011
+  - 7013
+  - 8058
+
+[3/5] Found 1 missing ticker(s):
+  ⚠️  7013
+
+[4/5] Fetching data for missing tickers...
+  Fetching 7013... ✅
+
+[5/5] Updating monitor lists...
+  ✅ Updated: G:\My Drive\...\production_monitor_list.json
+  ✅ Updated: data\production_monitor_list.json
+  ✅ Updated: data\monitor_list.json
+```
+
+---
+
+## 4) 管理员修正命令（谨慎使用）
 
 ```bash
 python main.py production --set-cash group_main 8000000
@@ -107,16 +161,16 @@ python main.py production --set-position group_main 8035 100 31500 --entry-date 
 
 ---
 
-## 4) 双终端运行规则（关键）
+## 5) 双终端运行规则（关键）
 
-- 规则 1：同一时间只允许一台电脑执行写操作（`--daily` / `--input` / 管理员修正）
+- 规则 1：同一时间只允许一台电脑执行写操作（`--daily` / `--input` / `--sync-positions` / 管理员修正）
 - 规则 2：执行前先 `--status` 对账
 - 规则 3：切换电脑前确认 Google Drive 已同步完成
 - 规则 4：若发现状态异常，先暂停操作，再用 `trade_history.json` 回溯
 
 ---
 
-## 5) 常见问题速查
+## 6) 常见问题速查
 
 ### Q1: 看到 `Rate limit hit (429)`
 
@@ -133,3 +187,7 @@ python main.py production --set-position group_main 8035 100 31500 --entry-date 
 ### Q4: 多电脑状态不一致怎么办？
 
 先停止两边写操作，确认 Google Drive 同步完成后，再执行 `production --status` 比对；必要时用管理员修正命令对齐。
+
+### Q5: 我手动买入的股票为什么没有卖出信号？
+
+可能该股票不在监视列表中。运行 `production --sync-positions` 同步持仓到监视列表，系统会自动抓取数据并在下次 `--daily` 时生成信号。

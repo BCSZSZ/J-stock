@@ -1,163 +1,14 @@
 {
   "version": "1.1",
-  "last_updated": "2026-01-16",
+  "last_updated": "2026-02-19",
   "description": "Stocks actively monitored by the analyzer. Add manually based on research, sector rotation, or earnings calendar.",
   "tickers": [
-    {
-      "code": "8035",
-      "name": "Tokyo Electron",
-      "sector": "Semiconductors",
-      "added_date": "2026-01-08",
-      "reason": "Semi equipment leader"
-    },
-    {
-      "code": "8306",
-      "name": "MUFG Bank",
-      "sector": "Financials",
-      "added_date": "2026-01-08",
-      "reason": "Banking sector proxy"
-    },
-    {
-      "code": "7974",
-      "name": "Nintendo",
-      "sector": "Gaming",
-      "added_date": "2026-01-08",
-      "reason": "Gaming industry leader"
-    },
-    {
-      "code": "7011",
-      "name": "Mitsubishi Heavy",
-      "sector": "Defense",
-      "added_date": "2026-01-08",
-      "reason": "Defense spending growth"
-    },
-    {
-      "code": "6861",
-      "name": "Keyence",
-      "sector": "Automation",
-      "added_date": "2026-01-08",
-      "reason": "FA/Automation leader"
-    },
-    {
-      "code": "8058",
-      "name": "Mitsubishi Corp",
-      "sector": "Trading",
-      "added_date": "2026-01-08",
-      "reason": "Diversified conglomerate"
-    },
-    {
-      "code": "6501",
-      "name": "Hitachi",
-      "sector": "IT/Infrastructure",
-      "added_date": "2026-01-08",
-      "reason": "IT infrastructure play"
-    },
-    {
-      "code": "4063",
-      "name": "Shin-Etsu Chemical",
-      "sector": "Chemicals",
-      "added_date": "2026-01-08",
-      "reason": "Semi materials supplier"
-    },
-    {
-      "code": "7203",
-      "name": "Toyota",
-      "sector": "Automotive",
-      "added_date": "2026-01-08",
-      "reason": "Auto industry leader"
-    },
-    {
-      "code": "4568",
-      "name": "Daiichi Sankyo",
-      "sector": "Pharmaceuticals",
-      "added_date": "2026-01-08",
-      "reason": "Oncology drug pipeline"
-    },
-    {
-      "code": "6098",
-      "name": "Recruit Holdings",
-      "sector": "HR Tech",
-      "added_date": "2026-01-08",
-      "reason": "HR platform growth"
-    },
     {
       "code": "1321",
       "name": "Nikkei 225 ETF",
       "sector": "ETF",
       "added_date": "2026-01-09",
       "reason": "Index tracking / market beta"
-    },
-    {
-      "code": "285A",
-      "name": "Stock_285A",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #1, Score 0.984)",
-      "universe_rank": 1,
-      "universe_score": 0.9839264173703257
-    },
-    {
-      "code": "6269",
-      "name": "Stock_6269",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #2, Score 0.976)",
-      "universe_rank": 2,
-      "universe_score": 0.9762062726176116
-    },
-    {
-      "code": "5713",
-      "name": "Stock_5713",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #3, Score 0.960)",
-      "universe_rank": 3,
-      "universe_score": 0.9602834740651387
-    },
-    {
-      "code": "6330",
-      "name": "Stock_6330",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #4, Score 0.958)",
-      "universe_rank": 4,
-      "universe_score": 0.9580820265379975
-    },
-    {
-      "code": "5707",
-      "name": "Stock_5707",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #5, Score 0.954)",
-      "universe_rank": 5,
-      "universe_score": 0.9535585042219542
-    },
-    {
-      "code": "6525",
-      "name": "Stock_6525",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #6, Score 0.948)",
-      "universe_rank": 6,
-      "universe_score": 0.9483413751507842
-    },
-    {
-      "code": "7003",
-      "name": "Stock_7003",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #7, Score 0.946)",
-      "universe_rank": 7,
-      "universe_score": 0.9455669481302774
-    },
-    {
-      "code": "4506",
-      "name": "Stock_4506",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #8, Score 0.941)",
-      "universe_rank": 8,
-      "universe_score": 0.9414957780458384
     },
     {
       "code": "1662",
@@ -169,49 +20,13 @@
       "universe_score": 0.9375452352231605
     },
     {
-      "code": "5714",
-      "name": "Stock_5714",
+      "code": "1801",
+      "name": "Stock_1801",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #10, Score 0.934)",
-      "universe_rank": 10,
-      "universe_score": 0.934469240048251
-    },
-    {
-      "code": "5715",
-      "name": "Stock_5715",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #11, Score 0.929)",
-      "universe_rank": 11,
-      "universe_score": 0.9291314837153197
-    },
-    {
-      "code": "3110",
-      "name": "Stock_3110",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #12, Score 0.927)",
-      "universe_rank": 12,
-      "universe_score": 0.9266284680337756
-    },
-    {
-      "code": "5711",
-      "name": "Stock_5711",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #13, Score 0.919)",
-      "universe_rank": 13,
-      "universe_score": 0.9193606755126659
-    },
-    {
-      "code": "5706",
-      "name": "Stock_5706",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #14, Score 0.917)",
-      "universe_rank": 14,
-      "universe_score": 0.9173401688781664
+      "reason": "Universe selection (Rank #30, Score 0.884)",
+      "universe_rank": 30,
+      "universe_score": 0.8843486127864898
     },
     {
       "code": "1885",
@@ -223,76 +38,13 @@
       "universe_score": 0.9169179734620025
     },
     {
-      "code": "5471",
-      "name": "Stock_5471",
+      "code": "1893",
+      "name": "Stock_1893",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #16, Score 0.914)",
-      "universe_rank": 16,
-      "universe_score": 0.91354041013269
-    },
-    {
-      "code": "5541",
-      "name": "Stock_5541",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #17, Score 0.912)",
-      "universe_rank": 17,
-      "universe_score": 0.9116706875753922
-    },
-    {
-      "code": "6361",
-      "name": "Stock_6361",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #18, Score 0.903)",
-      "universe_rank": 18,
-      "universe_score": 0.9034680337756332
-    },
-    {
-      "code": "7735",
-      "name": "Stock_7735",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #19, Score 0.901)",
-      "universe_rank": 19,
-      "universe_score": 0.9012967430639324
-    },
-    {
-      "code": "6590",
-      "name": "Stock_6590",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #20, Score 0.898)",
-      "universe_rank": 20,
-      "universe_score": 0.8983715319662244
-    },
-    {
-      "code": "4384",
-      "name": "Stock_4384",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #21, Score 0.897)",
-      "universe_rank": 21,
-      "universe_score": 0.8974366706875754
-    },
-    {
-      "code": "5202",
-      "name": "Stock_5202",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #22, Score 0.897)",
-      "universe_rank": 22,
-      "universe_score": 0.8971652593486128
-    },
-    {
-      "code": "6315",
-      "name": "Stock_6315",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #23, Score 0.892)",
-      "universe_rank": 23,
-      "universe_score": 0.8924004825090471
+      "reason": "Universe selection (Rank #32, Score 0.882)",
+      "universe_rank": 32,
+      "universe_score": 0.8823582629674307
     },
     {
       "code": "2737",
@@ -304,31 +56,40 @@
       "universe_score": 0.8902593486127865
     },
     {
-      "code": "6407",
-      "name": "Stock_6407",
+      "code": "2768",
+      "name": "Stock_2768",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #25, Score 0.888)",
-      "universe_rank": 25,
-      "universe_score": 0.8878468033775634
+      "reason": "Universe selection (Rank #31, Score 0.884)",
+      "universe_rank": 31,
+      "universe_score": 0.8837153196622437
     },
     {
-      "code": "3549",
-      "name": "Stock_3549",
+      "code": "285A",
+      "name": "Stock_285A",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #26, Score 0.887)",
-      "universe_rank": 26,
-      "universe_score": 0.8870325693606755
+      "reason": "Universe selection (Rank #1, Score 0.984)",
+      "universe_rank": 1,
+      "universe_score": 0.9839264173703257
     },
     {
-      "code": "6871",
-      "name": "Stock_6871",
+      "code": "3103",
+      "name": "Stock_3103",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #27, Score 0.887)",
-      "universe_rank": 27,
-      "universe_score": 0.8867310012062726
+      "reason": "Universe selection (Rank #46, Score 0.862)",
+      "universe_rank": 46,
+      "universe_score": 0.8623341375150784
+    },
+    {
+      "code": "3110",
+      "name": "Stock_3110",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #12, Score 0.927)",
+      "universe_rank": 12,
+      "universe_score": 0.9266284680337756
     },
     {
       "code": "3186",
@@ -340,31 +101,13 @@
       "universe_score": 0.8847104945717733
     },
     {
-      "code": "1801",
-      "name": "Stock_1801",
+      "code": "3549",
+      "name": "Stock_3549",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #30, Score 0.884)",
-      "universe_rank": 30,
-      "universe_score": 0.8843486127864898
-    },
-    {
-      "code": "2768",
-      "name": "Stock_2768",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #31, Score 0.884)",
-      "universe_rank": 31,
-      "universe_score": 0.8837153196622437
-    },
-    {
-      "code": "1893",
-      "name": "Stock_1893",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #32, Score 0.882)",
-      "universe_rank": 32,
-      "universe_score": 0.8823582629674307
+      "reason": "Universe selection (Rank #26, Score 0.887)",
+      "universe_rank": 26,
+      "universe_score": 0.8870325693606755
     },
     {
       "code": "4004",
@@ -385,76 +128,11 @@
       "universe_score": 0.8801266586248492
     },
     {
-      "code": "5857",
-      "name": "Stock_5857",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #35, Score 0.876)",
-      "universe_rank": 35,
-      "universe_score": 0.8764776839565742
-    },
-    {
-      "code": "7012",
-      "name": "Stock_7012",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #36, Score 0.876)",
-      "universe_rank": 36,
-      "universe_score": 0.875633293124246
-    },
-    {
-      "code": "4530",
-      "name": "Stock_4530",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #37, Score 0.874)",
-      "universe_rank": 37,
-      "universe_score": 0.8744873341375151
-    },
-    {
-      "code": "8015",
-      "name": "Stock_8015",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #38, Score 0.874)",
-      "universe_rank": 38,
-      "universe_score": 0.8737032569360675
-    },
-    {
-      "code": "8338",
-      "name": "Stock_8338",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #39, Score 0.869)",
-      "universe_rank": 39,
-      "universe_score": 0.8688178528347407
-    },
-    {
-      "code": "7182",
-      "name": "Stock_7182",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #40, Score 0.867)",
-      "universe_rank": 40,
-      "universe_score": 0.8670687575392039
-    },
-    {
-      "code": "5727",
-      "name": "Stock_5727",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #41, Score 0.867)",
-      "universe_rank": 41,
-      "universe_score": 0.8666465621230397
-    },
-    {
-      "code": "8361",
-      "name": "Stock_8361",
-      "sector": "Unknown",
-      "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #42, Score 0.866)",
-      "universe_rank": 42,
-      "universe_score": 0.8655307599517492
+      "code": "4063",
+      "name": "Shin-Etsu Chemical",
+      "sector": "Chemicals",
+      "added_date": "2026-01-08",
+      "reason": "Semi materials supplier"
     },
     {
       "code": "4082",
@@ -466,13 +144,144 @@
       "universe_score": 0.8651387213510254
     },
     {
-      "code": "6920",
-      "name": "Stock_6920",
+      "code": "4384",
+      "name": "Stock_4384",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #44, Score 0.865)",
-      "universe_rank": 44,
-      "universe_score": 0.8646562123039807
+      "reason": "Universe selection (Rank #21, Score 0.897)",
+      "universe_rank": 21,
+      "universe_score": 0.8974366706875754
+    },
+    {
+      "code": "4506",
+      "name": "Stock_4506",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #8, Score 0.941)",
+      "universe_rank": 8,
+      "universe_score": 0.9414957780458384
+    },
+    {
+      "code": "4530",
+      "name": "Stock_4530",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #37, Score 0.874)",
+      "universe_rank": 37,
+      "universe_score": 0.8744873341375151
+    },
+    {
+      "code": "4568",
+      "name": "Daiichi Sankyo",
+      "sector": "Pharmaceuticals",
+      "added_date": "2026-01-08",
+      "reason": "Oncology drug pipeline"
+    },
+    {
+      "code": "5202",
+      "name": "Stock_5202",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #22, Score 0.897)",
+      "universe_rank": 22,
+      "universe_score": 0.8971652593486128
+    },
+    {
+      "code": "5471",
+      "name": "Stock_5471",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #16, Score 0.914)",
+      "universe_rank": 16,
+      "universe_score": 0.91354041013269
+    },
+    {
+      "code": "5541",
+      "name": "Stock_5541",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #17, Score 0.912)",
+      "universe_rank": 17,
+      "universe_score": 0.9116706875753922
+    },
+    {
+      "code": "5706",
+      "name": "Stock_5706",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #14, Score 0.917)",
+      "universe_rank": 14,
+      "universe_score": 0.9173401688781664
+    },
+    {
+      "code": "5707",
+      "name": "Stock_5707",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #5, Score 0.954)",
+      "universe_rank": 5,
+      "universe_score": 0.9535585042219542
+    },
+    {
+      "code": "5711",
+      "name": "Stock_5711",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #13, Score 0.919)",
+      "universe_rank": 13,
+      "universe_score": 0.9193606755126659
+    },
+    {
+      "code": "5713",
+      "name": "Stock_5713",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #3, Score 0.960)",
+      "universe_rank": 3,
+      "universe_score": 0.9602834740651387
+    },
+    {
+      "code": "5714",
+      "name": "Stock_5714",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #10, Score 0.934)",
+      "universe_rank": 10,
+      "universe_score": 0.934469240048251
+    },
+    {
+      "code": "5715",
+      "name": "Stock_5715",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #11, Score 0.929)",
+      "universe_rank": 11,
+      "universe_score": 0.9291314837153197
+    },
+    {
+      "code": "5727",
+      "name": "Stock_5727",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #41, Score 0.867)",
+      "universe_rank": 41,
+      "universe_score": 0.8666465621230397
+    },
+    {
+      "code": "5857",
+      "name": "Stock_5857",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #35, Score 0.876)",
+      "universe_rank": 35,
+      "universe_score": 0.8764776839565742
+    },
+    {
+      "code": "6098",
+      "name": "Recruit Holdings",
+      "sector": "HR Tech",
+      "added_date": "2026-01-08",
+      "reason": "HR platform growth"
     },
     {
       "code": "6146",
@@ -484,13 +293,108 @@
       "universe_score": 0.863751507840772
     },
     {
-      "code": "3103",
-      "name": "Stock_3103",
+      "code": "6254",
+      "name": "Stock_6254",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #46, Score 0.862)",
-      "universe_rank": 46,
-      "universe_score": 0.8623341375150784
+      "reason": "Universe selection (Rank #49, Score 0.856)",
+      "universe_rank": 49,
+      "universe_score": 0.8563027744270206
+    },
+    {
+      "code": "6269",
+      "name": "Stock_6269",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #2, Score 0.976)",
+      "universe_rank": 2,
+      "universe_score": 0.9762062726176116
+    },
+    {
+      "code": "6315",
+      "name": "Stock_6315",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #23, Score 0.892)",
+      "universe_rank": 23,
+      "universe_score": 0.8924004825090471
+    },
+    {
+      "code": "6330",
+      "name": "Stock_6330",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #4, Score 0.958)",
+      "universe_rank": 4,
+      "universe_score": 0.9580820265379975
+    },
+    {
+      "code": "6361",
+      "name": "Stock_6361",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #18, Score 0.903)",
+      "universe_rank": 18,
+      "universe_score": 0.9034680337756332
+    },
+    {
+      "code": "6407",
+      "name": "Stock_6407",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #25, Score 0.888)",
+      "universe_rank": 25,
+      "universe_score": 0.8878468033775634
+    },
+    {
+      "code": "6501",
+      "name": "Hitachi",
+      "sector": "IT/Infrastructure",
+      "added_date": "2026-01-08",
+      "reason": "IT infrastructure play"
+    },
+    {
+      "code": "6525",
+      "name": "Stock_6525",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #6, Score 0.948)",
+      "universe_rank": 6,
+      "universe_score": 0.9483413751507842
+    },
+    {
+      "code": "6590",
+      "name": "Stock_6590",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #20, Score 0.898)",
+      "universe_rank": 20,
+      "universe_score": 0.8983715319662244
+    },
+    {
+      "code": "6861",
+      "name": "Keyence",
+      "sector": "Automation",
+      "added_date": "2026-01-08",
+      "reason": "FA/Automation leader"
+    },
+    {
+      "code": "6871",
+      "name": "Stock_6871",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #27, Score 0.887)",
+      "universe_rank": 27,
+      "universe_score": 0.8867310012062726
+    },
+    {
+      "code": "6920",
+      "name": "Stock_6920",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #44, Score 0.865)",
+      "universe_rank": 44,
+      "universe_score": 0.8646562123039807
     },
     {
       "code": "6954",
@@ -502,6 +406,38 @@
       "universe_score": 0.8617310012062727
     },
     {
+      "code": "7003",
+      "name": "Stock_7003",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #7, Score 0.946)",
+      "universe_rank": 7,
+      "universe_score": 0.9455669481302774
+    },
+    {
+      "code": "7011",
+      "name": "Mitsubishi Heavy",
+      "sector": "Defense",
+      "added_date": "2026-01-08",
+      "reason": "Defense spending growth"
+    },
+    {
+      "code": "7012",
+      "name": "Stock_7012",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #36, Score 0.876)",
+      "universe_rank": 36,
+      "universe_score": 0.875633293124246
+    },
+    {
+      "code": "7013",
+      "name": "Stock_7013",
+      "sector": "Unknown",
+      "added_date": "2026-02-19",
+      "reason": "Auto-synced from production positions"
+    },
+    {
       "code": "7014",
       "name": "Stock_7014",
       "sector": "Unknown",
@@ -511,13 +447,84 @@
       "universe_score": 0.8591978287092884
     },
     {
-      "code": "6254",
-      "name": "Stock_6254",
+      "code": "7182",
+      "name": "Stock_7182",
       "sector": "Unknown",
       "added_date": "2026-01-16",
-      "reason": "Universe selection (Rank #49, Score 0.856)",
-      "universe_rank": 49,
-      "universe_score": 0.8563027744270206
+      "reason": "Universe selection (Rank #40, Score 0.867)",
+      "universe_rank": 40,
+      "universe_score": 0.8670687575392039
+    },
+    {
+      "code": "7203",
+      "name": "Toyota",
+      "sector": "Automotive",
+      "added_date": "2026-01-08",
+      "reason": "Auto industry leader"
+    },
+    {
+      "code": "7735",
+      "name": "Stock_7735",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #19, Score 0.901)",
+      "universe_rank": 19,
+      "universe_score": 0.9012967430639324
+    },
+    {
+      "code": "7974",
+      "name": "Nintendo",
+      "sector": "Gaming",
+      "added_date": "2026-01-08",
+      "reason": "Gaming industry leader"
+    },
+    {
+      "code": "8015",
+      "name": "Stock_8015",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #38, Score 0.874)",
+      "universe_rank": 38,
+      "universe_score": 0.8737032569360675
+    },
+    {
+      "code": "8035",
+      "name": "Tokyo Electron",
+      "sector": "Semiconductors",
+      "added_date": "2026-01-08",
+      "reason": "Semi equipment leader"
+    },
+    {
+      "code": "8058",
+      "name": "Mitsubishi Corp",
+      "sector": "Trading",
+      "added_date": "2026-01-08",
+      "reason": "Diversified conglomerate"
+    },
+    {
+      "code": "8306",
+      "name": "MUFG Bank",
+      "sector": "Financials",
+      "added_date": "2026-01-08",
+      "reason": "Banking sector proxy"
+    },
+    {
+      "code": "8338",
+      "name": "Stock_8338",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #39, Score 0.869)",
+      "universe_rank": 39,
+      "universe_score": 0.8688178528347407
+    },
+    {
+      "code": "8361",
+      "name": "Stock_8361",
+      "sector": "Unknown",
+      "added_date": "2026-01-16",
+      "reason": "Universe selection (Rank #42, Score 0.866)",
+      "universe_rank": 42,
+      "universe_score": 0.8655307599517492
     },
     {
       "code": "8411",

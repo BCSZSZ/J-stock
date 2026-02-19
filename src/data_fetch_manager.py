@@ -56,7 +56,11 @@ def load_monitor_list(file_path: str = "data/monitor_list.json") -> List[str]:
         if monitor_file.suffix == ".json":
             with open(monitor_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                tickers = [stock["code"] for stock in data["tickers"]]
+                # Support both formats: [{"code": "8035"}, ...] and ["8035", ...]
+                if data["tickers"] and isinstance(data["tickers"][0], dict):
+                    tickers = [stock["code"] for stock in data["tickers"]]
+                else:
+                    tickers = data["tickers"]
                 logger.info(f"Loaded {len(tickers)} stocks from {file_path}")
                 return tickers
 

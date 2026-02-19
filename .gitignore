@@ -89,6 +89,9 @@ config.json
 *_analysis_*.md
 *_debug*.txt
 
+# Manual trade inputs
+today.csv
+
 # OS
 .DS_Store
 Thumbs.db

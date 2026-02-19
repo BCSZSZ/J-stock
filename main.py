@@ -36,7 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  # 生产流程\n"
             "  python main.py production --daily\n"
             "  python main.py production --input\n"
-            "  python main.py production --status\n\n"
+            "  python main.py production --status\n"
+            "  python main.py production --sync-positions    # 同步持仓到监视列表\n\n"
             "  # 数据抓取\n"
             "  python main.py fetch --all                    # 抓取监视列表所有股票\n"
             "  python main.py fetch --tickers 7974 8035      # 指定股票\n"
@@ -77,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--status",
         action="store_true",
         help="查看生产状态（资金/持仓/历史概览）",
+    )
+    production_mode.add_argument(
+        "--sync-positions",
+        action="store_true",
+        help="同步持仓到监视列表并抓取缺失数据",
     )
     production_mode.add_argument(
         "--set-cash",

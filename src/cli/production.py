@@ -1,6 +1,7 @@
 from src.cli.production_daily import run_daily_workflow
 from src.cli.production_input import run_input_workflow
 from src.cli.production_status import run_set_cash, run_set_position, run_status
+from src.cli.production_sync import run_sync_positions
 from src.cli.production_utils import ensure_groups
 
 
@@ -28,6 +29,10 @@ def cmd_production(args):
 
     if args.status:
         run_status(prod_cfg, state)
+        return
+
+    if args.sync_positions:
+        run_sync_positions(prod_cfg, state)
         return
 
     if args.set_cash:
