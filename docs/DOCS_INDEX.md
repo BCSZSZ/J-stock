@@ -15,6 +15,7 @@
 - [实现接口说明](interfaces/IMPLEMENTATION_INTERFACES.md)
 - [Feature 目录与计算方法](features/FEATURE_CATALOG.md)
 - [Agent 实施设计简报（Momentum + Regime）](AGENT_IMPLEMENTATION_BRIEF_MOMENTUM_REGIME.md)
+- [Overlay 基础层设计](overlays/OVERLAY_FRAMEWORK.md)
 
 ## 清洗说明
 

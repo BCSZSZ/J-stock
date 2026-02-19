@@ -18,6 +18,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
     from src.production.signal_generator import Signal
     from src.utils.strategy_loader import load_exit_strategy
+    from src.overlays import OverlayContext, OverlayManager
 
     load_dotenv()
     api_key = os.getenv("JQUANTS_API_KEY")
@@ -93,6 +94,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     Path("output/report").mkdir(parents=True, exist_ok=True)
 
     data_manager = StockDataManager(api_key=api_key)
+    overlay_manager = OverlayManager.from_config(raw_config, data_root="data")
     print(f"  Monitoring {len(monitor_tickers)} stocks")
 
     # 自动检测全市场最新可用数据日
@@ -162,6 +164,27 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         required_capital = qty * current_price
         return qty, required_capital, lot_size
 
+    overlay_summaries = []
+
+    def _get_group_current_prices(group):
+        prices = {}
+        for pos in group.positions:
+            if pos.quantity <= 0:
+                continue
+            try:
+                market_data = MarketDataBuilder.build_from_manager(
+                    data_manager=data_manager,
+                    ticker=pos.ticker,
+                    current_date=pd.Timestamp.now(),
+                )
+            except Exception:
+                continue
+            if market_data is None or market_data.df_features.empty:
+                continue
+            latest_row = market_data.df_features.iloc[-1]
+            prices[pos.ticker] = float(latest_row.get("Close", 0.0))
+        return prices
+
     for group in groups:
         group_cfg = group_configs.get(group.id, {})
         entry_strategy_name = group_cfg.get(
@@ -180,23 +203,73 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             continue
 
         current_tickers = {pos.ticker for pos in group.positions if pos.quantity > 0}
+        current_prices = _get_group_current_prices(group)
+        total_value = group.cash + sum(
+            pos.quantity * current_prices.get(pos.ticker, pos.entry_price)
+            for pos in group.positions
+            if pos.quantity > 0
+        )
+
+        overlay_decision = None
+        if overlay_manager.overlays:
+            overlay_context = OverlayContext(
+                current_date=pd.Timestamp(signal_date),
+                portfolio_cash=group.cash,
+                portfolio_value=total_value,
+                positions={pos.ticker: pos for pos in group.positions},
+                current_prices=current_prices,
+                group_id=group.id,
+            )
+            overlay_decision, per_overlay = overlay_manager.evaluate(overlay_context)
+            overlay_summaries.append(
+                {
+                    "group_id": group.id,
+                    "group_name": group.name,
+                    **overlay_manager.summarize(overlay_decision, per_overlay),
+                }
+            )
         buy_count = 0
+        new_positions_opened = 0
+        max_new_positions = (
+            overlay_decision.max_new_positions if overlay_decision else None
+        )
         for ticker, eval_obj in comprehensive_evals.items():
             if ticker in current_tickers:
                 continue
             strategy_eval = eval_obj.evaluations.get(entry_strategy_name)
             if not strategy_eval or strategy_eval.signal_action != "BUY":
                 continue
+            if max_new_positions is not None and new_positions_opened >= max_new_positions:
+                break
+
+            max_position_pct = float(prod_cfg.max_position_pct)
+            if overlay_decision and overlay_decision.position_scale is not None:
+                max_position_pct *= overlay_decision.position_scale
+
+            available_cash = float(group.cash)
+            if overlay_decision and overlay_decision.target_exposure is not None:
+                invested_value = sum(
+                    pos.quantity * current_prices.get(pos.ticker, pos.entry_price)
+                    for pos in group.positions
+                    if pos.quantity > 0
+                )
+                max_invested = total_value * overlay_decision.target_exposure
+                available_exposure = max(0.0, max_invested - invested_value)
+                available_cash = min(available_cash, available_exposure)
 
             suggested_qty, required_capital, lot_size = _calc_suggested_qty(
                 ticker=ticker,
                 current_price=float(eval_obj.current_price),
-                available_cash=float(group.cash),
-                max_position_pct=float(prod_cfg.max_position_pct),
+                available_cash=available_cash,
+                max_position_pct=max_position_pct,
             )
 
             buy_reason = strategy_eval.reason
-            if suggested_qty <= 0:
+            if overlay_decision and overlay_decision.block_new_entries:
+                suggested_qty = 0
+                required_capital = 0.0
+                buy_reason = f"{buy_reason}; Overlay blocked new entries"
+            elif suggested_qty <= 0:
                 buy_reason = (
                     f"{buy_reason}; SuggestedQty=0: cash/position limit insufficient "
                     f"for lot size {lot_size}"
@@ -219,6 +292,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             all_signals.append(signal)
             buy_count += 1
             total_buy_signals += 1
+            if suggested_qty > 0:
+                new_positions_opened += 1
 
         sell_count = 0
         for position in group.positions:
@@ -245,6 +320,42 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     continue
 
                 entry_date_ts = pd.Timestamp(position.entry_date)
+                unrealized_pl = (
+                    (current_price - position.entry_price) / position.entry_price
+                ) * 100
+                md = market_data.metadata if market_data else {}
+                overlay_reason = None
+                if overlay_decision and overlay_decision.force_exit:
+                    overlay_reason = "Overlay force exit"
+                elif (
+                    overlay_decision
+                    and overlay_decision.exit_overrides
+                    and ticker in overlay_decision.exit_overrides
+                ):
+                    overlay_reason = overlay_decision.exit_overrides[ticker]
+
+                if overlay_reason:
+                    signal = Signal(
+                        group_id=group.id,
+                        ticker=ticker,
+                        ticker_name=md.get("company_name", ticker) if md else ticker,
+                        signal_type="SELL",
+                        action="SELL",
+                        confidence=1.0,
+                        score=0,
+                        reason=overlay_reason,
+                        current_price=float(current_price),
+                        position_qty=position.quantity,
+                        entry_price=position.entry_price,
+                        entry_date=position.entry_date,
+                        holding_days=(pd.Timestamp(signal_date) - entry_date_ts).days,
+                        unrealized_pl_pct=float(unrealized_pl),
+                        strategy_name="Overlay",
+                    )
+                    all_signals.append(signal)
+                    sell_count += 1
+                    total_sell_signals += 1
+                    continue
                 signals_position = Position(
                     ticker=ticker,
                     entry_price=position.entry_price,
@@ -324,6 +435,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         signals=all_signals,
         report_date=signal_date,
         comprehensive_evaluations=comprehensive_evals,
+        overlay_summary=overlay_summaries,
     )
     report_file = prod_cfg.report_file_pattern.replace("{date}", signal_date)
     builder.save_report(report_md, report_file)

@@ -59,6 +59,23 @@ python main.py production --daily --skip-fetch
 python main.py production --input
 ```
 
+若有“信号以外”的成交，使用CSV手动录入（仅执行CSV，不走信号交互）：
+
+```bash
+python main.py production --input --manual --manual-file today.csv
+```
+
+CSV格式（可含表头）：
+
+```
+ticker,action,qty,price,date
+```
+
+说明：
+
+- `action` 仅支持 `BUY` / `SELL`
+- `date` 可省略，默认使用 `--trade-date` 或今天
+
 可选：
 
 ```bash

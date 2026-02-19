@@ -57,6 +57,12 @@
 - 日报包含完整评估表（策略列动态适配）、可执行建议与二次筛选 Final Picks
 - SELL 推荐区块始终列出所有持仓，并标注是否建议卖出与原因
 
+### 8) Overlay 全局风控层
+
+- Overlay 作为全局控制层，可统一调节仓位、限制新开仓、触发强制减仓
+- 默认提供 RegimeOverlay（TOPIX 趋势 + 波动过滤）
+- 配置见 `config.json` 的 `overlays` 区块，详细说明见 `docs/overlays/OVERLAY_FRAMEWORK.md`
+
 ## 🚀 命令行大全
 
 ### A. 统一入口（推荐）：`main.py`

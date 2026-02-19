@@ -33,6 +33,8 @@
 - `--trade-date YYYY-MM-DD`（配合 `--input`）
 - `--entry-date YYYY-MM-DD`（配合 `--set-position`）
 - `--yes`（配合 `--input` 跳过确认）
+- `--manual`（配合 `--input` 追加手动CSV成交录入）
+- `--manual-file <path>`（配合 `--input --manual` 指定CSV路径）
 - `--skip-fetch`
 
 ---

@@ -12,8 +12,8 @@
   },
 
   "portfolio": {
-    "max_positions": 5,
-    "max_position_pct": 0.3,
+    "max_positions": 8,
+    "max_position_pct": 0.2,
     "min_position_pct": 0.05,
     "output_dir": "portfolio_backtest_results"
   },
@@ -29,14 +29,27 @@
     "exit": "ATRExitStrategy"
   },
 
+  "overlays": {
+    "enabled": ["RegimeOverlay"],
+    "RegimeOverlay": {
+      "benchmark": "TOPIX",
+      "ema_window": 200,
+      "vol_lookback": 20,
+      "vol_threshold": 0.22,
+      "risk_on_target_exposure": 1.0,
+      "risk_off_target_exposure": 0.4,
+      "block_new_entries_when_off": false
+    }
+  },
+
   "production": {
     "monitor_list_file": "data/production_monitor_list.json",
     "state_file": "production_state.json",
     "signal_file_pattern": "output/signals/{date}.json",
     "report_file_pattern": "output/report/{date}.md",
     "history_file": "trade_history.json",
-    "max_positions_per_group": 5,
-    "max_position_pct": 0.3,
+    "max_positions_per_group": 8,
+    "max_position_pct": 0.2,
     "buy_threshold": 65,
     "strategy_groups": [
       {

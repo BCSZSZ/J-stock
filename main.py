@@ -108,6 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="配合 --input 使用：跳过开始确认提示",
     )
     production_parser.add_argument(
+        "--manual",
+        action="store_true",
+        help="配合 --input 使用：追加手动成交录入（CSV）",
+    )
+    production_parser.add_argument(
+        "--manual-file",
+        help="配合 --input --manual 使用：CSV文件路径",
+    )
+    production_parser.add_argument(
         "--skip-fetch", action="store_true", help="跳过数据抓取步骤"
     )
     production_parser.set_defaults(func=cmd_production)

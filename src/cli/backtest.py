@@ -15,6 +15,7 @@ def cmd_backtest(args):
     from src.backtest.engine import backtest_strategy
     from src.backtest.lot_size_manager import LotSizeManager
     from src.data.stock_data_manager import StockDataManager
+    from src.overlays import OverlayManager
     from src.utils.output_logger import create_logger
     import pandas as pd
 
@@ -96,6 +97,7 @@ def cmd_backtest(args):
             entry_strategy = load_entry_strategy(entry_name)
             exit_strategy = load_exit_strategy(exit_name)
 
+            overlay_manager = OverlayManager.from_config(config)
             result = backtest_strategy(
                 ticker=args.ticker,
                 entry_strategy=entry_strategy,
@@ -103,6 +105,7 @@ def cmd_backtest(args):
                 start_date=start_date,
                 end_date=end_date,
                 starting_capital_jpy=capital,
+                overlay_manager=overlay_manager,
             )
 
             results.append({

@@ -19,6 +19,7 @@ from .lot_size_manager import LotSizeManager
 from .models import BacktestResult, Trade
 from .portfolio import Portfolio, Position
 from .signal_ranker import SignalRanker
+from ..overlays import OverlayContext, OverlayManager
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class PortfolioBacktestEngine:
         min_position_pct: float = 0.05,
         signal_ranking_method: str = "simple_score",
         data_root: str = "./data",
+        overlay_manager: Optional[OverlayManager] = None,
     ):
         """
         Args:
@@ -57,6 +59,7 @@ class PortfolioBacktestEngine:
         self.max_position_pct = max_position_pct
         self.min_position_pct = min_position_pct
         self.data_root = data_root
+        self.overlay_manager = overlay_manager
 
         # 创建信号排序器
         self.signal_ranker = SignalRanker(method=signal_ranking_method)
@@ -132,11 +135,49 @@ class PortfolioBacktestEngine:
         pending_buy_signals: Dict[str, TradingSignal] = {}
         pending_sell_signals: Dict[str, TradingSignal] = {}
 
+        benchmark_data = None
+        if self.overlay_manager and self.overlay_manager.needs_benchmark_data:
+            manager = BenchmarkManager(client=None, data_root=self.data_root)
+            benchmark_data = manager.get_topix_data()
+
         # 每日循环
         for i, current_date in enumerate(trading_days):
             executed_buys = []
             executed_sells = []
             current_prices = self._get_current_prices(all_data, current_date)
+
+            overlay_decision = None
+            if self.overlay_manager:
+                total_value = portfolio.get_total_value(current_prices)
+                overlay_context = OverlayContext(
+                    current_date=current_date,
+                    portfolio_cash=portfolio.cash,
+                    portfolio_value=total_value,
+                    positions=portfolio.positions,
+                    current_prices=current_prices,
+                    benchmark_data=benchmark_data,
+                )
+                overlay_decision, _ = self.overlay_manager.evaluate(overlay_context)
+                if overlay_decision.force_exit:
+                    for ticker, position in portfolio.positions.items():
+                        if ticker not in pending_sell_signals:
+                            pending_sell_signals[ticker] = TradingSignal(
+                                action=SignalAction.SELL,
+                                confidence=1.0,
+                                reasons=["Overlay force exit"],
+                                metadata={"trigger": "OVERLAY_FORCE_EXIT"},
+                                strategy_name="Overlay",
+                            )
+                if overlay_decision.exit_overrides:
+                    for ticker, reason in overlay_decision.exit_overrides.items():
+                        if ticker in portfolio.positions:
+                            pending_sell_signals[ticker] = TradingSignal(
+                                action=SignalAction.SELL,
+                                confidence=1.0,
+                                reasons=[reason],
+                                metadata={"trigger": "OVERLAY_EXIT"},
+                                strategy_name="Overlay",
+                            )
 
             # ================================================================
             # STEP 1: 执行待执行的卖出订单（释放资金）
@@ -198,67 +239,90 @@ class PortfolioBacktestEngine:
             # STEP 2: 执行待执行的买入订单
             # ================================================================
             if pending_buy_signals:
-                # 对买入信号排序
-                market_data_dict = {
-                    ticker: self._build_market_data(
-                        ticker, all_data[ticker], current_date
+                if overlay_decision and overlay_decision.block_new_entries:
+                    pending_buy_signals.clear()
+                else:
+                    max_new_positions = (
+                        overlay_decision.max_new_positions
+                        if overlay_decision
+                        else None
                     )
-                    for ticker in pending_buy_signals.keys()
-                    if ticker in all_data
-                }
+                    new_positions_opened = 0
 
-                ranked_signals = self.signal_ranker.rank_buy_signals(
-                    pending_buy_signals, market_data_dict
-                )
+                    # 对买入信号排序
+                    market_data_dict = {
+                        ticker: self._build_market_data(
+                            ticker, all_data[ticker], current_date
+                        )
+                        for ticker in pending_buy_signals.keys()
+                        if ticker in all_data
+                    }
 
-                # 依次尝试买入
-                for ticker, buy_signal, priority in ranked_signals:
-                    # 检查是否已达持仓上限
-                    if not portfolio.can_open_new_position():
-                        if show_signal_ranking:
-                            print(
-                                f"  ⚠️  已达最大持仓数 {portfolio.max_positions}，跳过剩余信号"
-                            )
-                        break
-
-                    # 检查是否已持有
-                    if portfolio.has_position(ticker):
-                        continue
-
-                    # 获取买入价格（明天开盘价）
-                    entry_price = self._get_next_open_price(
-                        all_data[ticker], current_date
+                    ranked_signals = self.signal_ranker.rank_buy_signals(
+                        pending_buy_signals, market_data_dict
                     )
 
-                    if entry_price is None:
-                        continue
+                    # 依次尝试买入
+                    for ticker, buy_signal, priority in ranked_signals:
+                        if max_new_positions is not None:
+                            if new_positions_opened >= max_new_positions:
+                                break
+                        # 检查是否已达持仓上限
+                        if not portfolio.can_open_new_position():
+                            if show_signal_ranking:
+                                print(
+                                    f"  ⚠️  已达最大持仓数 {portfolio.max_positions}，跳过剩余信号"
+                                )
+                            break
 
-                    # 计算可用资金
-                    max_cash = portfolio.calculate_max_position_size(current_prices)
+                        # 检查是否已持有
+                        if portfolio.has_position(ticker):
+                            continue
 
-                    # 计算可购买股数（考虑lot size）
-                    shares = LotSizeManager.calculate_buyable_shares(
-                        ticker, max_cash, entry_price
-                    )
-
-                    if shares > 0:
-                        # 创建持仓
-                        position = Position(
-                            ticker=ticker,
-                            quantity=shares,
-                            entry_price=entry_price,
-                            entry_date=current_date,
-                            entry_signal=buy_signal,
-                            peak_price_since_entry=entry_price,
+                        # 获取买入价格（明天开盘价）
+                        entry_price = self._get_next_open_price(
+                            all_data[ticker], current_date
                         )
 
-                        # 添加到组合
-                        if portfolio.add_position(position):
-                            score_display = buy_signal.metadata.get("score", "N/A")
-                            executed_buys.append(
-                                f"📊 BUY  {current_date.date()} {ticker}: {shares:,} shares @ ¥{entry_price:,.2f} "
-                                f"(Score: {score_display})"
+                        if entry_price is None:
+                            continue
+
+                        # 计算可用资金
+                        max_cash = portfolio.calculate_max_position_size(current_prices)
+                        if overlay_decision and overlay_decision.position_scale is not None:
+                            max_cash *= overlay_decision.position_scale
+
+                        if overlay_decision and overlay_decision.target_exposure is not None:
+                            total_value = portfolio.get_total_value(current_prices)
+                            invested = total_value - portfolio.cash
+                            max_invested = total_value * overlay_decision.target_exposure
+                            available_exposure = max(0.0, max_invested - invested)
+                            max_cash = min(max_cash, available_exposure)
+
+                        # 计算可购买股数（考虑lot size）
+                        shares = LotSizeManager.calculate_buyable_shares(
+                            ticker, max_cash, entry_price
+                        )
+
+                        if shares > 0:
+                            # 创建持仓
+                            position = Position(
+                                ticker=ticker,
+                                quantity=shares,
+                                entry_price=entry_price,
+                                entry_date=current_date,
+                                entry_signal=buy_signal,
+                                peak_price_since_entry=entry_price,
                             )
+
+                            # 添加到组合
+                            if portfolio.add_position(position):
+                                score_display = buy_signal.metadata.get("score", "N/A")
+                                executed_buys.append(
+                                    f"📊 BUY  {current_date.date()} {ticker}: {shares:,} shares @ ¥{entry_price:,.2f} "
+                                    f"(Score: {score_display})"
+                                )
+                                new_positions_opened += 1
 
                 pending_buy_signals.clear()
 

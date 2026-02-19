@@ -17,6 +17,7 @@ from src.signal_generator import generate_signal_v2
 from src.backtest.models import Trade, BacktestResult
 from src.backtest.lot_size_manager import LotSizeManager
 from src.data.market_data_builder import MarketDataBuilder
+from src.overlays import OverlayContext, OverlayManager
 from src.backtest.metrics import (
     calculate_sharpe_ratio,
     calculate_max_drawdown,
@@ -46,7 +47,8 @@ class BacktestEngine:
         self,
         starting_capital_jpy: float = 5_000_000,  # ¥5M default
         buy_threshold: float = 65.0,               # Score >= 65 to buy
-        data_root: str = './data'
+        data_root: str = './data',
+        overlay_manager: Optional[OverlayManager] = None
     ):
         """
         Initialize backtest engine.
@@ -59,6 +61,7 @@ class BacktestEngine:
         self.starting_capital = starting_capital_jpy
         self.buy_threshold = buy_threshold
         self.data_root = Path(data_root)
+        self.overlay_manager = overlay_manager
     
     def _load_data(self, ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
         """
@@ -156,6 +159,11 @@ class BacktestEngine:
         # Daily equity tracking (for Beta & IR calculation)
         daily_equity = {}
         
+        benchmark_data = None
+        if self.overlay_manager and self.overlay_manager.needs_benchmark_data:
+            manager = BenchmarkManager(client=None, data_root=str(self.data_root))
+            benchmark_data = manager.get_topix_data()
+
         # Day-by-day simulation
         trading_days = df_features.index.tolist()
         
@@ -170,33 +178,80 @@ class BacktestEngine:
             current_close = df_features.loc[current_date, 'Close']
             current_open = df_features.loc[current_date, 'Open']
             
+            overlay_decision = None
+            if self.overlay_manager:
+                total_value = cash
+                if position is not None:
+                    total_value += position.quantity * current_close
+                overlay_context = OverlayContext(
+                    current_date=current_date,
+                    portfolio_cash=cash,
+                    portfolio_value=total_value,
+                    positions={position.ticker: position} if position else {},
+                    current_prices={ticker: current_close},
+                    benchmark_data=benchmark_data,
+                )
+                overlay_decision, _ = self.overlay_manager.evaluate(overlay_context)
+                if overlay_decision.force_exit and position is not None:
+                    pending_sell_signal = TradingSignal(
+                        action=SignalAction.SELL,
+                        confidence=1.0,
+                        reasons=["Overlay force exit"],
+                        metadata={"trigger": "OVERLAY_FORCE_EXIT"},
+                        strategy_name="Overlay",
+                    )
+                if (
+                    overlay_decision.exit_overrides
+                    and position is not None
+                    and position.ticker in overlay_decision.exit_overrides
+                ):
+                    reason = overlay_decision.exit_overrides[position.ticker]
+                    pending_sell_signal = TradingSignal(
+                        action=SignalAction.SELL,
+                        confidence=1.0,
+                        reasons=[reason],
+                        metadata={"trigger": "OVERLAY_EXIT"},
+                        strategy_name="Overlay",
+                    )
+
             # =====================================================================
             # STEP 1: EXECUTE PENDING ORDERS (from yesterday's signals)
             # =====================================================================
             
             if pending_buy_signal and position is None:
-                # Execute BUY at today's open price (signal was generated yesterday)
-                entry_price = current_open
-                shares = LotSizeManager.calculate_buyable_shares(ticker, cash, entry_price)
-                
-                if shares > 0:
-                    # Create new Position with entry signal
-                    position = Position(
-                        ticker=ticker,
-                        entry_price=entry_price,
-                        entry_date=current_date,
-                        quantity=shares,
-                        entry_signal=pending_buy_signal,
-                        peak_price_since_entry=entry_price
+                if overlay_decision and overlay_decision.block_new_entries:
+                    pending_buy_signal = None
+                else:
+                    # Execute BUY at today's open price (signal was generated yesterday)
+                    entry_price = current_open
+                    max_cash = cash
+                    if overlay_decision and overlay_decision.position_scale is not None:
+                        max_cash *= overlay_decision.position_scale
+                    if overlay_decision and overlay_decision.target_exposure is not None:
+                        max_cash = min(max_cash, cash * overlay_decision.target_exposure)
+
+                    shares = LotSizeManager.calculate_buyable_shares(
+                        ticker, max_cash, entry_price
                     )
-                    cash -= shares * entry_price
-                    
-                    score_display = pending_buy_signal.metadata.get('score', 'N/A')
-                    print(f"  📊 BUY  {current_date.date()}: {shares:,} shares @ ¥{entry_price:,.2f} "
-                          f"({pending_buy_signal.strategy_name}, Score: {score_display})")
-                    logger.info(f"BUY executed: {shares} shares @ ¥{entry_price:.2f}")
                 
-                pending_buy_signal = None
+                    if shares > 0:
+                        # Create new Position with entry signal
+                        position = Position(
+                            ticker=ticker,
+                            entry_price=entry_price,
+                            entry_date=current_date,
+                            quantity=shares,
+                            entry_signal=pending_buy_signal,
+                            peak_price_since_entry=entry_price
+                        )
+                        cash -= shares * entry_price
+                        
+                        score_display = pending_buy_signal.metadata.get('score', 'N/A')
+                        print(f"  📊 BUY  {current_date.date()}: {shares:,} shares @ ¥{entry_price:,.2f} "
+                              f"({pending_buy_signal.strategy_name}, Score: {score_display})")
+                        logger.info(f"BUY executed: {shares} shares @ ¥{entry_price:.2f}")
+                    
+                    pending_buy_signal = None
             
             if pending_sell_signal and position is not None:
                 # Execute SELL at today's open price
@@ -473,7 +528,8 @@ def backtest_strategy(
     exit_strategy: BaseExitStrategy,
     start_date: str = "2021-01-01",
     end_date: str = "2026-01-08",
-    starting_capital_jpy: float = 5_000_000
+    starting_capital_jpy: float = 5_000_000,
+    overlay_manager: Optional[OverlayManager] = None,
 ) -> BacktestResult:
     """
     Convenience function: Backtest single strategy on single ticker.
@@ -489,7 +545,10 @@ def backtest_strategy(
     Returns:
         BacktestResult
     """
-    engine = BacktestEngine(starting_capital_jpy=starting_capital_jpy)
+    engine = BacktestEngine(
+        starting_capital_jpy=starting_capital_jpy,
+        overlay_manager=overlay_manager,
+    )
     return engine.backtest_strategy(ticker, entry_strategy, exit_strategy, start_date, end_date)
 
 
@@ -500,7 +559,8 @@ def backtest_strategies(
     end_date: str = "2026-01-08",
     starting_capital_jpy: float = 5_000_000,
     include_benchmark: bool = True,
-    data_root: str = './data'
+    data_root: str = './data',
+    overlay_manager: Optional[OverlayManager] = None,
 ) -> pd.DataFrame:
     """
     Backtest multiple strategies on multiple tickers.
@@ -517,7 +577,11 @@ def backtest_strategies(
     Returns:
         DataFrame with results for all combinations
     """
-    engine = BacktestEngine(starting_capital_jpy=starting_capital_jpy, data_root=data_root)
+    engine = BacktestEngine(
+        starting_capital_jpy=starting_capital_jpy,
+        data_root=data_root,
+        overlay_manager=overlay_manager,
+    )
     
     # Fetch benchmark once (from local cache)
     benchmark_return = None

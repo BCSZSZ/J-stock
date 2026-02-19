@@ -60,6 +60,7 @@ class ReportBuilder:
         execution_results: Optional[List[ExecutionResult]] = None,
         report_date: Optional[str] = None,
         comprehensive_evaluations: Dict = None,  # New: Complete evaluation table
+        overlay_summary: Optional[List[Dict]] = None,
     ) -> str:
         """
         Generate complete Markdown trading report.
@@ -82,7 +83,11 @@ class ReportBuilder:
         # Use comprehensive evaluations if provided, otherwise fall back to signals
         if comprehensive_evaluations:
             return self._generate_comprehensive_report(
-                comprehensive_evaluations, signals, execution_results, report_date
+                comprehensive_evaluations,
+                signals,
+                execution_results,
+                report_date,
+                overlay_summary,
             )
 
         # Legacy path: signals-only report
@@ -93,6 +98,8 @@ class ReportBuilder:
         sections = []
         sections.append(self._build_header(report_date))
         sections.append(self._build_market_summary(report_date))
+        if overlay_summary:
+            sections.append(self._build_overlay_summary_section(overlay_summary))
         sections.append(self._build_buy_signals_section(buy_signals))
         sections.append(self._build_sell_signals_section(sell_signals))
         sections.append(self._build_portfolio_status_section())
@@ -110,6 +117,7 @@ class ReportBuilder:
         signals: List[Signal],
         execution_results: Optional[List[ExecutionResult]],
         report_date: str,
+        overlay_summary: Optional[List[Dict]],
     ) -> str:
         """
         Generate new comprehensive report with complete evaluation table.
@@ -125,6 +133,8 @@ class ReportBuilder:
         sections = []
         sections.append(self._build_header(report_date))
         sections.append(self._build_market_summary(report_date))
+        if overlay_summary:
+            sections.append(self._build_overlay_summary_section(overlay_summary))
 
         # NEW: Complete evaluation table (all 61 stocks × strategies)
         sections.append(
@@ -146,6 +156,36 @@ class ReportBuilder:
         sections.append(self._build_footer())
 
         return "\n\n".join(sections)
+
+    def _build_overlay_summary_section(self, overlay_summary: List[Dict]) -> str:
+        lines = ["## 🧭 Overlay Summary", ""]
+        for item in overlay_summary:
+            group_id = item.get("group_id", "N/A")
+            group_name = item.get("group_name", "N/A")
+            combined = item.get("combined", {})
+            metadata = combined.get("metadata", {})
+            regime = None
+            for overlay_meta in metadata.values():
+                if isinstance(overlay_meta, dict) and "regime" in overlay_meta:
+                    regime = overlay_meta.get("regime")
+                    break
+            parts = [f"{group_name} ({group_id})"]
+            if regime:
+                parts.append(f"Regime: {regime}")
+            if combined.get("target_exposure") is not None:
+                parts.append(f"Target Exposure: {combined.get('target_exposure')}")
+            if combined.get("position_scale") is not None:
+                parts.append(f"Position Scale: {combined.get('position_scale')}")
+            if combined.get("max_new_positions") is not None:
+                parts.append(f"Max New Positions: {combined.get('max_new_positions')}")
+            if combined.get("block_new_entries"):
+                parts.append("New Entries: BLOCKED")
+            if combined.get("force_exit"):
+                parts.append("Force Exit: ENABLED")
+            if combined.get("exit_overrides"):
+                parts.append("Exit Overrides: yes")
+            lines.append("- " + " | ".join(parts))
+        return "\n".join(lines).strip()
 
     def _build_comprehensive_evaluation_section(
         self, evaluations: Dict, signals: List[Signal]

@@ -13,6 +13,7 @@ def cmd_portfolio(args):
     from src.backtest.portfolio_engine import PortfolioBacktestEngine
     from src.backtest.lot_size_manager import LotSizeManager
     from src.data.stock_data_manager import StockDataManager
+    from src.overlays import OverlayManager
     from src.utils.output_logger import create_logger
     import pandas as pd
 
@@ -115,9 +116,11 @@ def cmd_portfolio(args):
             entry_strategy = load_entry_strategy(entry_name)
             exit_strategy = load_exit_strategy(exit_name)
 
+            overlay_manager = OverlayManager.from_config(config)
             engine = PortfolioBacktestEngine(
                 starting_capital=capital,
                 max_positions=config["portfolio"]["max_positions"],
+                overlay_manager=overlay_manager,
             )
 
             result = engine.backtest_portfolio_strategy(

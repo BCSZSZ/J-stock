@@ -8,6 +8,7 @@ def cmd_evaluate(args):
         create_monthly_periods,
         create_quarterly_periods,
     )
+    from .common import load_config
 
     def resolve_output_dir(user_output_dir):
         local_fallback = Path("strategy_evaluation")
@@ -95,10 +96,13 @@ def cmd_evaluate(args):
 
     output_dir = resolve_output_dir(args.output_dir)
 
+    config = load_config()
+
     evaluator = StrategyEvaluator(
         data_root="data",
         output_dir=output_dir,
         verbose=args.verbose,
+        overlay_config=config,
     )
 
     print("\n🚀 开始策略评估...")

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+from src.overlays import OverlayManager
 
 
 @dataclass
@@ -79,12 +80,18 @@ class StrategyEvaluator:
         data_root: str = "data",
         output_dir: str = "strategy_evaluation",
         verbose: bool = False,
+        overlay_config: Optional[Dict] = None,
     ):
         self.data_root = data_root
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.results: List[AnnualStrategyResult] = []
         self.verbose = verbose  # 详细输出模式
+
+        self.overlay_manager = OverlayManager.from_config(
+            overlay_config or {},
+            data_root=self.data_root,
+        )
 
         # 缓存层（单次运行内有效）
         self._monitor_list_cache = None  # Monitor list 缓存
@@ -243,7 +250,10 @@ class StrategyEvaluator:
 
         # 运行回测（调用现有功能，不做任何修改）
         engine = PortfolioBacktestEngine(
-            data_root=self.data_root, starting_capital=5_000_000, max_positions=5
+            data_root=self.data_root,
+            starting_capital=5_000_000,
+            max_positions=5,
+            overlay_manager=self.overlay_manager,
         )
 
         result = engine.backtest_portfolio_strategy(

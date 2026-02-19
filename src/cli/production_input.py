@@ -1,4 +1,6 @@
+import csv
 from datetime import datetime
+from pathlib import Path
 
 from src.cli.production_utils import (
     find_latest_signal_file,
@@ -19,8 +21,151 @@ def _parse_sell_action_to_pct(action: str) -> float:
     return 1.0
 
 
+def _load_manual_trades_csv(file_path: str) -> list[dict]:
+    path = Path(file_path)
+    if not path.exists():
+        print(f"[ERROR] Manual CSV not found: {file_path}")
+        return []
+
+    rows = []
+    with open(path, "r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        for raw in reader:
+            if not raw or all(not cell.strip() for cell in raw):
+                continue
+
+            normalized = [cell.strip() for cell in raw]
+            header_tokens = {c.lower() for c in normalized}
+            if {"ticker", "action", "qty", "quantity", "price"} & header_tokens:
+                continue
+
+            rows.append(normalized)
+
+    return rows
+
+
+def _resolve_manual_group(groups: dict):
+    if "group_main" in groups:
+        return groups["group_main"]
+    if len(groups) == 1:
+        return next(iter(groups.values()))
+    print("[WARN] Multiple groups detected; cannot resolve manual target group.")
+    return None
+
+
 def run_input_workflow(args, prod_cfg, state) -> None:
     from src.production import TradeHistoryManager
+
+    history = TradeHistoryManager(history_file=prod_cfg.history_file)
+    groups = {g.id: g for g in state.get_all_groups()}
+    recorded = 0
+
+    if args.manual:
+        if not args.manual_file:
+            print("[ERROR] --manual requires --manual-file")
+            return
+
+        trade_date = args.trade_date or datetime.now().strftime("%Y-%m-%d")
+        print(f"\n[Manual Input] CSV: {args.manual_file}")
+        print(f"  Trade date: {trade_date}")
+
+        if not args.yes:
+            confirm = input("Continue manual CSV input? [y/N]: ").strip().lower()
+            if confirm != "y":
+                print("Cancelled.")
+                return
+
+        manual_rows = _load_manual_trades_csv(args.manual_file)
+        if not manual_rows:
+            print("[Manual Input] No valid rows found")
+            return
+
+        target_group = _resolve_manual_group(groups)
+        if target_group is None:
+            print("[Manual Input] Skipped: group resolution failed")
+            return
+
+        for row in manual_rows:
+            if len(row) < 4:
+                print(f"  ⚠️ invalid row (need 4 columns): {row}")
+                continue
+
+            ticker = row[0]
+            action = row[1].upper()
+            qty_raw = row[2]
+            price_raw = row[3]
+            date_raw = row[4] if len(row) > 4 else ""
+
+            try:
+                qty = int(qty_raw)
+                price = float(price_raw)
+            except ValueError:
+                print(f"  ⚠️ invalid qty/price: {row}")
+                continue
+
+            if qty <= 0 or price <= 0:
+                print(f"  ⚠️ invalid qty/price: {row}")
+                continue
+
+            effective_date = date_raw or trade_date
+
+            if action == "BUY":
+                target_group.add_position(
+                    ticker=ticker,
+                    quantity=qty,
+                    entry_price=price,
+                    entry_date=effective_date,
+                    entry_score=0.0,
+                )
+                history.record_trade(
+                    date=effective_date,
+                    group_id=target_group.id,
+                    ticker=ticker,
+                    action="BUY",
+                    quantity=qty,
+                    price=price,
+                    entry_score=0.0,
+                )
+                recorded += 1
+                print(f"  ✅ BUY recorded: {ticker} {qty} @ {price}")
+            elif action == "SELL":
+                positions = target_group.get_positions_by_ticker(ticker)
+                held_qty = sum(p.quantity for p in positions)
+                if held_qty <= 0:
+                    print(f"  ⚠️ no holdings for {ticker}, skipped")
+                    continue
+                if qty > held_qty:
+                    print(
+                        f"  ⚠️ quantity > held ({held_qty}) for {ticker}, skipped"
+                    )
+                    continue
+
+                target_group.partial_sell(
+                    ticker=ticker,
+                    quantity=qty,
+                    exit_price=price,
+                )
+                history.record_trade(
+                    date=effective_date,
+                    group_id=target_group.id,
+                    ticker=ticker,
+                    action="SELL",
+                    quantity=qty,
+                    price=price,
+                    exit_reason="Manual input",
+                    exit_score=0.0,
+                )
+                recorded += 1
+                print(f"  ✅ SELL recorded: {ticker} {qty} @ {price}")
+            else:
+                print(f"  ⚠️ invalid action '{action}' (use BUY/SELL): {row}")
+
+        state.save()
+        history.save()
+        print(f"\n✅ Manual input completed. Recorded trades: {recorded}")
+        print(f"  State saved: {prod_cfg.state_file}")
+        print(f"  History saved: {prod_cfg.history_file}")
+        return
 
     signal_path = find_latest_signal_file(
         prod_cfg.signal_file_pattern, args.signal_date
@@ -39,9 +184,6 @@ def run_input_workflow(args, prod_cfg, state) -> None:
         print("  No signals found in file.")
         return
 
-    history = TradeHistoryManager(history_file=prod_cfg.history_file)
-    groups = {g.id: g for g in state.get_all_groups()}
-
     buy_signals = [s for s in signals if s.get("signal_type") == "BUY"]
     sell_signals = [s for s in signals if s.get("signal_type") in ["SELL", "EXIT"]]
     print(f"  Signals loaded: {len(buy_signals)} BUY, {len(sell_signals)} SELL")
@@ -51,8 +193,6 @@ def run_input_workflow(args, prod_cfg, state) -> None:
         if confirm != "y":
             print("Cancelled.")
             return
-
-    recorded = 0
 
     print("\n[BUY Input]")
     for sig in buy_signals:
