@@ -231,6 +231,48 @@ print(features.tail(1))
 print(metadata)
 ```
 
+## 🧪 校验与参数扫描脚本（本次研究）
+
+以下脚本统一放在 `tools/`，用于 MVX 出场策略的参数校验与 A/B 对照：
+
+- `tools/eval_n10r36_check_ab.py`
+    - 用途：固定 `N=10,R=3.6,T=2.2`，对比「原始 MVX」与「带 fast negative check」
+    - 输出：`strategy_evaluation/n10r36_check_ab_*_{timestamp}.csv`
+    - 示例：
+        ```bash
+        python tools/eval_n10r36_check_ab.py
+        ```
+
+- `tools/eval_custom_nr_5y.py`
+    - 用途：固定 `T/D/B`，扫描 `N,R`（5年分年结果）
+    - 输出：`strategy_evaluation/custom_nr_4x5_*_{timestamp}.csv`
+    - 示例：
+        ```bash
+        python tools/eval_custom_nr_5y.py --n-values 9 --r-values 3.2,3.4,3.6 --t 1.6
+        ```
+
+- `tools/eval_custom_nrt_5y.py`
+    - 用途：扫描 `N,R,T` 网格（5年分年结果 + trigger 统计）
+    - 输出：`strategy_evaluation/custom_{tag}_*_{timestamp}.csv`
+    - 关键参数：`--tag` 可自定义本次实验文件前缀
+    - 示例（你当前重点口径）：
+        ```bash
+        python tools/eval_custom_nrt_5y.py --n-values 9 --r-values 3.2,3.3,3.4,3.5,3.6 --t-values 1.6,1.7,1.8,1.9,2.0 --tag n9_r32_36_t16_20
+        ```
+
+- `tools/analyze_phaseA_params.py`
+    - 用途：解析 PhaseA 导出的 raw 结果，做参数主效应/透视表
+
+- `tools/analyze_sell_timing.py`
+    - 用途：按交易明细统计卖出结构（胜负、持仓、退出不对称）
+
+### 本轮结论快照
+
+- 当前优先参数可先采用：`N=9, R=3.5, T=1.6`（后续可继续细扫）
+- 与校验直接相关的策略实现位置：
+    - `src/analysis/strategies/exit/multiview_grid_exit.py`
+    - `tools/eval_n10r36_check_ab.py` 中 `MultiViewCompositeExitWithFastNegCheck`
+
 ## 当前实现（源码对齐）
 
 ### 数据抓取与更新

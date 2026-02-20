@@ -226,6 +226,7 @@ class PortfolioBacktestEngine:
                         return_jpy = (exit_price - entry_price) * qty_to_sell
 
                         trade = Trade(
+                            ticker=ticker,
                             entry_date=entry_date.strftime("%Y-%m-%d"),
                             entry_price=entry_price,
                             entry_score=entry_score,

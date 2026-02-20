@@ -278,6 +278,7 @@ class BacktestEngine:
                 entry_score = position.entry_signal.metadata.get('score', 0.0)
                 
                 trade = Trade(
+                    ticker=ticker,
                     entry_date=entry_date.strftime('%Y-%m-%d') if hasattr(entry_date, 'strftime') else str(entry_date),
                     entry_price=position.entry_price,
                     entry_score=entry_score,

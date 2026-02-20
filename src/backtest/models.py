@@ -11,6 +11,7 @@ import pandas as pd
 @dataclass
 class Trade:
     """Record of a single buy/sell cycle."""
+    ticker: str
     entry_date: str
     entry_price: float
     entry_score: float
