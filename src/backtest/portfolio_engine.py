@@ -4,6 +4,7 @@ Backtests portfolio strategies with multiple concurrent positions
 """
 
 import logging
+import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -195,23 +196,39 @@ class PortfolioBacktestEngine:
                     if exit_price is None:
                         continue
 
+                    # 支持部分卖出：默认全卖
+                    sell_pct = float(sell_signal.metadata.get("sell_percentage", 1.0))
+                    qty_to_sell = self._calculate_sell_quantity(
+                        ticker=ticker,
+                        total_qty=position.quantity,
+                        sell_pct=sell_pct,
+                    )
+
+                    if qty_to_sell <= 0:
+                        continue
+
+                    entry_price = position.entry_price
+                    entry_date = position.entry_date
+                    peak_price = position.peak_price_since_entry
+                    entry_score = position.entry_signal.metadata.get("score", 0.0)
+
                     # 执行卖出
-                    proceeds = portfolio.close_position(ticker, exit_price)
+                    proceeds = portfolio.close_partial_position(
+                        ticker=ticker,
+                        quantity=qty_to_sell,
+                        exit_price=exit_price,
+                    )
 
                     if proceeds is not None:
                         # 记录交易
-                        holding_days = (current_date - position.entry_date).days
-                        return_pct = ((exit_price / position.entry_price) - 1) * 100
-                        return_jpy = (
-                            exit_price - position.entry_price
-                        ) * position.quantity
+                        holding_days = (current_date - entry_date).days
+                        return_pct = ((exit_price / entry_price) - 1) * 100
+                        return_jpy = (exit_price - entry_price) * qty_to_sell
 
                         trade = Trade(
-                            entry_date=position.entry_date.strftime("%Y-%m-%d"),
-                            entry_price=position.entry_price,
-                            entry_score=position.entry_signal.metadata.get(
-                                "score", 0.0
-                            ),
+                            entry_date=entry_date.strftime("%Y-%m-%d"),
+                            entry_price=entry_price,
+                            entry_score=entry_score,
                             exit_date=current_date.strftime("%Y-%m-%d"),
                             exit_price=exit_price,
                             exit_reason=sell_signal.reasons[0]
@@ -219,17 +236,17 @@ class PortfolioBacktestEngine:
                             else "Unknown",
                             exit_urgency=sell_signal.metadata.get("trigger", "Unknown"),
                             holding_days=holding_days,
-                            shares=position.quantity,
+                            shares=qty_to_sell,
                             return_pct=return_pct,
                             return_jpy=return_jpy,
-                            peak_price=position.peak_price_since_entry,
+                            peak_price=peak_price,
                         )
                         trades.append(trade)
 
                         profit_icon = "📈" if return_pct > 0 else "📉"
                         trigger = sell_signal.metadata.get("trigger", "N/A")
                         executed_sells.append(
-                            f"{profit_icon} SELL {current_date.date()} {ticker}: {position.quantity:,} shares @ ¥{exit_price:,.2f} "
+                            f"{profit_icon} SELL {current_date.date()} {ticker}: {qty_to_sell:,} shares @ ¥{exit_price:,.2f} "
                             f"({return_pct:+.2f}%, ¥{return_jpy:+,.0f}) - {trigger}"
                         )
 
@@ -448,6 +465,24 @@ class PortfolioBacktestEngine:
             current_prices=current_prices,
         )
 
+    def _calculate_sell_quantity(self, ticker: str, total_qty: int, sell_pct: float) -> int:
+        """Calculate sell quantity with lot-size-aware upward rounding."""
+        if total_qty <= 0:
+            return 0
+
+        if sell_pct >= 0.999:
+            return total_qty
+
+        lot_size = LotSizeManager.get_lot_size(ticker)
+        raw_qty = total_qty * max(sell_pct, 0.0)
+        rounded_qty = int(math.ceil(raw_qty / lot_size) * lot_size)
+        rounded_qty = min(total_qty, rounded_qty)
+
+        if rounded_qty <= 0:
+            rounded_qty = min(total_qty, lot_size)
+
+        return rounded_qty
+
     def _load_stock_data(self, ticker: str) -> Dict:
         """加载单只股票的数据"""
         features_path = Path(self.data_root) / "features" / f"{ticker}_features.parquet"
@@ -638,6 +673,7 @@ class PortfolioBacktestEngine:
             benchmark_return_pct=benchmark_return_pct,
             alpha=alpha,
             beat_benchmark=beat_benchmark,
+            trades=trades,
         )
 
     def _empty_result(
@@ -664,6 +700,7 @@ class PortfolioBacktestEngine:
             avg_loss_pct=0.0,
             avg_holding_days=0.0,
             profit_factor=0.0,
+            trades=[],
         )
 
     def _calculate_max_drawdown(self, daily_equity: Dict) -> float:

@@ -196,13 +196,43 @@ class Portfolio:
         """
         if ticker not in self.positions:
             return None
-        
+
+        quantity = self.positions[ticker].quantity
+        return self.close_partial_position(ticker=ticker, quantity=quantity, exit_price=exit_price)
+
+    def close_partial_position(
+        self,
+        ticker: str,
+        quantity: int,
+        exit_price: float,
+    ) -> Optional[float]:
+        """
+        部分平仓
+
+        Args:
+            ticker: 股票代码
+            quantity: 卖出股数
+            exit_price: 卖出价格
+
+        Returns:
+            卖出金额，如果没有持仓则返回None
+        """
+        if ticker not in self.positions:
+            return None
+
+        if quantity <= 0:
+            return 0.0
+
         position = self.positions[ticker]
-        proceeds = position.quantity * exit_price
-        
+        sell_qty = min(quantity, position.quantity)
+        proceeds = sell_qty * exit_price
+
         self.cash += proceeds
-        del self.positions[ticker]
-        
+        position.quantity -= sell_qty
+
+        if position.quantity <= 0:
+            del self.positions[ticker]
+
         return proceeds
     
     def update_peak_prices(self, current_prices: Dict[str, float]):

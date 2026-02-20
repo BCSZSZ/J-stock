@@ -21,13 +21,25 @@ ENTRY_STRATEGIES = {
 EXIT_STRATEGIES = {
     "ATRExitStrategy": "src.analysis.strategies.exit.atr_exit.ATRExitStrategy",
     "ScoreBasedExitStrategy": "src.analysis.strategies.exit.score_based_exit.ScoreBasedExitStrategy",
+    "ScoreBasedExitTight": "src.analysis.strategies.exit.score_based_exit.ScoreBasedExitTight",
+    "ScoreBasedExitLoose": "src.analysis.strategies.exit.score_based_exit.ScoreBasedExitLoose",
     "LayeredExitStrategy": "src.analysis.strategies.exit.layered_exit.LayeredExitStrategy",
     "BollingerDynamicExit": "src.analysis.strategies.exit.bollinger_dynamic_exit.BollingerDynamicExit",
     "ADXTrendExhaustionExit": "src.analysis.strategies.exit.adx_trend_exhaustion.ADXTrendExhaustionExit",
     "MACDKDJRuleExit": "src.analysis.strategies.exit.macd_kdj_rule_exit.MACDKDJRuleExit",
     "MACDKDJRuleExitA": "src.analysis.strategies.exit.macd_kdj_rule_exit.MACDKDJRuleExitA",
     "MACDKDJRuleExitB": "src.analysis.strategies.exit.macd_kdj_rule_exit.MACDKDJRuleExitB",
+    "DonchianBreakExit": "src.analysis.strategies.exit.donchian_break_exit.DonchianBreakExit",
+    "GapPanicExit": "src.analysis.strategies.exit.gap_panic_exit.GapPanicExit",
 }
+
+try:
+    from src.analysis.strategies.exit.multiview_grid_exit import GRID_EXIT_STRATEGY_MAP
+
+    EXIT_STRATEGIES.update(GRID_EXIT_STRATEGY_MAP)
+except Exception:
+    # Keep loader resilient if grid module has runtime issues
+    pass
 
 
 # ==================== 策略加载函数 ====================

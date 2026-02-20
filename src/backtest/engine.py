@@ -4,6 +4,7 @@ Core simulation logic for testing strategies on historical data.
 """
 import logging
 import json
+import math
 from pathlib import Path
 from typing import List, Tuple, Optional
 from datetime import datetime, timedelta
@@ -257,11 +258,21 @@ class BacktestEngine:
                 # Execute SELL at today's open price
                 exit_price = current_open
                 entry_date = position.entry_date
+                sell_pct = float(pending_sell_signal.metadata.get('sell_percentage', 1.0))
+                qty_to_sell = self._calculate_sell_quantity(
+                    ticker=ticker,
+                    total_qty=position.quantity,
+                    sell_pct=sell_pct,
+                )
+
+                if qty_to_sell <= 0:
+                    pending_sell_signal = None
+                    continue
                 
-                cash += position.quantity * exit_price
+                cash += qty_to_sell * exit_price
                 holding_days = (current_date - entry_date).days
                 return_pct = ((exit_price / position.entry_price) - 1) * 100
-                return_jpy = (exit_price - position.entry_price) * position.quantity
+                return_jpy = (exit_price - position.entry_price) * qty_to_sell
                 
                 # Get entry score from signal metadata
                 entry_score = position.entry_signal.metadata.get('score', 0.0)
@@ -275,7 +286,7 @@ class BacktestEngine:
                     exit_reason=pending_sell_signal.reasons[0] if pending_sell_signal.reasons else "Unknown",
                     exit_urgency=pending_sell_signal.metadata.get('trigger', 'Unknown'),
                     holding_days=holding_days,
-                    shares=position.quantity,
+                    shares=qty_to_sell,
                     return_pct=return_pct,
                     return_jpy=return_jpy,
                     peak_price=position.peak_price_since_entry
@@ -284,11 +295,13 @@ class BacktestEngine:
                 
                 profit_icon = "📈" if return_pct > 0 else "📉"
                 trigger = pending_sell_signal.metadata.get('trigger', 'N/A')
-                print(f"  {profit_icon} SELL {current_date.date()}: {position.quantity:,} shares @ ¥{exit_price:,.2f} "
+                print(f"  {profit_icon} SELL {current_date.date()}: {qty_to_sell:,} shares @ ¥{exit_price:,.2f} "
                       f"({return_pct:+.2f}%, ¥{return_jpy:+,.0f}) - {trigger}")
-                logger.info(f"SELL executed: {position.quantity} shares @ ¥{exit_price:.2f} ({return_pct:+.2f}%)")
-                
-                position = None
+                logger.info(f"SELL executed: {qty_to_sell} shares @ ¥{exit_price:.2f} ({return_pct:+.2f}%)")
+
+                position.quantity -= qty_to_sell
+                if position.quantity <= 0:
+                    position = None
                 pending_sell_signal = None
             
             # =====================================================================
@@ -364,6 +377,25 @@ class BacktestEngine:
             final_cash=cash,
             daily_equity=daily_equity
         )
+
+    @staticmethod
+    def _calculate_sell_quantity(ticker: str, total_qty: int, sell_pct: float) -> int:
+        """Calculate sell quantity with lot-size-aware upward rounding."""
+        if total_qty <= 0:
+            return 0
+
+        if sell_pct >= 0.999:
+            return total_qty
+
+        lot_size = LotSizeManager.get_lot_size(ticker)
+        raw_qty = total_qty * max(sell_pct, 0.0)
+        rounded_qty = int(math.ceil(raw_qty / lot_size) * lot_size)
+        rounded_qty = min(total_qty, rounded_qty)
+
+        if rounded_qty <= 0:
+            rounded_qty = min(total_qty, lot_size)
+
+        return rounded_qty
     
     def _build_result(
         self,

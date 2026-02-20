@@ -9,9 +9,11 @@ Executes trading signals and updates portfolio state.
 """
 
 from dataclasses import dataclass
+import math
 from typing import Optional
 import pandas as pd
 
+from ..backtest.lot_size_manager import LotSizeManager
 from .signal_generator import Signal
 from .state_manager import ProductionState, TradeHistoryManager, StrategyGroupState
 
@@ -226,7 +228,11 @@ class TradeExecutor:
             )
         
         total_qty = sum(p.quantity for p in positions)
-        qty_to_sell = int(total_qty * sell_pct)
+        qty_to_sell = self._calculate_sell_quantity(
+            ticker=signal.ticker,
+            total_qty=total_qty,
+            sell_pct=sell_pct,
+        )
         
         if qty_to_sell <= 0:
             return ExecutionResult(
@@ -310,6 +316,24 @@ class TradeExecutor:
             return 0.25
         else:
             return 1.0  # Default to full sell
+
+    def _calculate_sell_quantity(self, ticker: str, total_qty: int, sell_pct: float) -> int:
+        """Calculate sell quantity with lot-size-aware upward rounding."""
+        if total_qty <= 0:
+            return 0
+
+        if sell_pct >= 0.999:
+            return total_qty
+
+        lot_size = LotSizeManager.get_lot_size(ticker)
+        raw_qty = total_qty * max(sell_pct, 0.0)
+        rounded_qty = int(math.ceil(raw_qty / lot_size) * lot_size)
+        rounded_qty = min(total_qty, rounded_qty)
+
+        if rounded_qty <= 0:
+            rounded_qty = min(total_qty, lot_size)
+
+        return rounded_qty
     
     def save_all(self):
         """Save state and history"""

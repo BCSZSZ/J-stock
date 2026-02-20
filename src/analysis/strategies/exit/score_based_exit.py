@@ -102,3 +102,19 @@ class ScoreBasedExitStrategy(BaseExitStrategy):
             },
             strategy_name=self.strategy_name
         )
+
+
+class ScoreBasedExitTight(ScoreBasedExitStrategy):
+    """参数敏感变体：更紧的分数衰减阈值。"""
+
+    def __init__(self):
+        super().__init__(score_buffer=10.0)
+        self.strategy_name = "ScoreBasedExitTight"
+
+
+class ScoreBasedExitLoose(ScoreBasedExitStrategy):
+    """参数敏感变体：更宽的分数衰减阈值。"""
+
+    def __init__(self):
+        super().__init__(score_buffer=20.0)
+        self.strategy_name = "ScoreBasedExitLoose"
