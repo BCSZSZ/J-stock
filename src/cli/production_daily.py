@@ -14,11 +14,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.analysis.signals import Position, SignalAction
     from src.data.market_data_builder import MarketDataBuilder
     from src.data.stock_data_manager import StockDataManager
+    from src.overlays import OverlayContext, OverlayManager
     from src.production import ReportBuilder
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
     from src.production.signal_generator import Signal
     from src.utils.strategy_loader import load_exit_strategy
-    from src.overlays import OverlayContext, OverlayManager
 
     load_dotenv()
     api_key = os.getenv("JQUANTS_API_KEY")
@@ -239,7 +239,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             strategy_eval = eval_obj.evaluations.get(entry_strategy_name)
             if not strategy_eval or strategy_eval.signal_action != "BUY":
                 continue
-            if max_new_positions is not None and new_positions_opened >= max_new_positions:
+            if (
+                max_new_positions is not None
+                and new_positions_opened >= max_new_positions
+            ):
                 break
 
             max_position_pct = float(prod_cfg.max_position_pct)
@@ -374,17 +377,32 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     market_data=market_data,
                 )
 
-                if exit_signal.action == SignalAction.HOLD:
-                    continue
+                # Get evaluation details for reporting (for both SELL and HOLD)
+                evaluation_details = None
+                if hasattr(exit_strategy, "get_evaluation_details"):
+                    try:
+                        evaluation_details = exit_strategy.get_evaluation_details(
+                            signals_position, market_data
+                        )
+                    except Exception as e:
+                        if args.verbose:
+                            print(f"        Evaluation details error for {ticker}: {e}")
 
+                # Process SELL signals
                 if exit_signal.action == SignalAction.SELL:
                     action_str = "SELL"
+                    signal_type = "SELL"
+                elif exit_signal.action == SignalAction.HOLD:
+                    # Generate HOLD signal for reporting
+                    action_str = "HOLD"
+                    signal_type = "HOLD"
                 else:
                     action_str = (
                         exit_signal.action.value
                         if hasattr(exit_signal.action, "value")
                         else str(exit_signal.action)
                     )
+                    signal_type = "SELL"
 
                 holding_days = (pd.Timestamp(signal_date) - entry_date_ts).days
                 unrealized_pl = (
@@ -396,7 +414,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     group_id=group.id,
                     ticker=ticker,
                     ticker_name=md.get("company_name", ticker) if md else ticker,
-                    signal_type="SELL",
+                    signal_type=signal_type,
                     action=action_str,
                     confidence=exit_signal.confidence,
                     score=0,
@@ -412,10 +430,14 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     holding_days=holding_days,
                     unrealized_pl_pct=float(unrealized_pl),
                     strategy_name=exit_strategy_name,
+                    evaluation_details=evaluation_details,
                 )
                 all_signals.append(signal)
-                sell_count += 1
-                total_sell_signals += 1
+
+                # Count only SELL signals for statistics
+                if signal_type == "SELL":
+                    sell_count += 1
+                    total_sell_signals += 1
             except Exception:
                 continue
 
@@ -423,8 +445,31 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
     signal_file = prod_cfg.signal_file_pattern.replace("{date}", signal_date)
     Path(signal_file).parent.mkdir(parents=True, exist_ok=True)
+
+    # Custom JSON encoder to handle numpy/pandas types
+    class CustomJSONEncoder(json.JSONEncoder):
+        def default(self, obj):
+            import numpy as np
+            import pandas as pd
+
+            if isinstance(obj, (np.integer, np.floating)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, (pd.Timestamp, datetime)):
+                return obj.isoformat()
+            elif isinstance(obj, np.bool_):
+                return bool(obj)
+            return super().default(obj)
+
     with open(signal_file, "w", encoding="utf-8") as f:
-        json.dump([s.__dict__ for s in all_signals], f, indent=2, ensure_ascii=False)
+        json.dump(
+            [s.__dict__ for s in all_signals],
+            f,
+            indent=2,
+            ensure_ascii=False,
+            cls=CustomJSONEncoder,
+        )
 
     print(f"\n[Output] Total signals: {len(all_signals)}")
     print(f"  BUY: {total_buy_signals}, SELL: {total_sell_signals}")

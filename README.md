@@ -268,7 +268,7 @@ print(metadata)
 
 ### 本轮结论快照
 
-- 当前优先参数可先采用：`N=9, R=3.5, T=1.6`（后续可继续细扫）
+- 当前默认参数：`MVX_N9_R3p5_T1p6_D20_B15`（D=20, B=15；已停止使用 243 网格参数集）
 - 与校验直接相关的策略实现位置：
     - `src/analysis/strategies/exit/multiview_grid_exit.py`
     - `tools/eval_n10r36_check_ab.py` 中 `MultiViewCompositeExitWithFastNegCheck`
@@ -284,8 +284,8 @@ print(metadata)
 ### 策略与回测矩阵
 
 - Entry 策略：`SimpleScorerStrategy` / `EnhancedScorerStrategy` / `MACDCrossoverStrategy` / `BollingerSqueezeStrategy` / `IchimokuStochStrategy`
-- Exit 策略：`ATRExitStrategy` / `ScoreBasedExitStrategy` / `LayeredExitStrategy` / `BollingerDynamicExit` / `ADXTrendExhaustionExit`
-- `--all-strategies` 为 5×5 共 25 组合（来自 `src/utils/strategy_loader.py`）
+- Exit 策略：`ATRExitStrategy` / `ScoreBasedExitStrategy` / `LayeredExitStrategy` / `BollingerDynamicExit` / `ADXTrendExhaustionExit` / `MVX_N9_R3p5_T1p6_D20_B15`
+- `--all-strategies` 为 entry × exit 组合（来自 `src/utils/strategy_loader.py`）
 
 ### 落盘文件（实际命名）
 

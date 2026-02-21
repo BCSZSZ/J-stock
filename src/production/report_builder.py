@@ -418,16 +418,18 @@ class ReportBuilder:
         lines.append("### 🔴 SELL (Holdings-Based)")
         lines.append("")
 
-        sell_by_key = {}
-        for sig in sell_signals:
-            key = (sig.group_id, sig.ticker)
-            sell_by_key[key] = sig
+        # Collect all position-related signals (SELL and HOLD)
+        signal_by_key = {}
+        for sig in signals:
+            if sig.signal_type in ["SELL", "HOLD"]:
+                key = (sig.group_id, sig.ticker)
+                signal_by_key[key] = sig
 
         lines.append(
-            "| Group | Ticker | Shares | Current Price | P&L (%) | Recommend | Action | Reason |"
+            "| Group | Ticker | Shares | Current Price | P&L (%) | Recommend | Action | Exit Evaluation |"
         )
         lines.append(
-            "|-------|--------|--------|---------------|---------|-----------|--------|--------|"
+            "|-------|--------|--------|---------------|---------|-----------|--------|-----------------|"
         )
 
         holdings_found = False
@@ -437,12 +439,19 @@ class ReportBuilder:
                     continue
                 holdings_found = True
                 key = (group.id, pos.ticker)
-                sig = sell_by_key.get(key)
+                sig = signal_by_key.get(key)
+
+                # Get current price from signal or fallback to position data
                 current_price = (
                     sig.current_price
                     if sig is not None and sig.current_price
-                    else (pos.peak_price if pos.peak_price > pos.entry_price else pos.entry_price)
+                    else (
+                        pos.peak_price
+                        if pos.peak_price > pos.entry_price
+                        else pos.entry_price
+                    )
                 )
+
                 cost_basis = pos.entry_price
                 pnl_pct = (
                     ((current_price - cost_basis) / cost_basis) * 100
@@ -450,16 +459,89 @@ class ReportBuilder:
                     else 0
                 )
                 pnl_pct_str = f"{pnl_pct:+.2f}%"
-                recommend = "YES" if sig is not None else "NO"
-                action = sig.action if sig is not None else "HOLD"
-                reason = (sig.reason if sig is not None else "No SELL signal").replace(
-                    "|", "/"
+
+                # Determine recommendation and action
+                recommend = (
+                    "YES" if (sig is not None and sig.signal_type == "SELL") else "NO"
                 )
+                action = sig.action if sig is not None else "HOLD"
+
+                # Format evaluation details
+                if (
+                    sig is not None
+                    and hasattr(sig, "evaluation_details")
+                    and sig.evaluation_details is not None
+                ):
+                    eval_text = self._format_evaluation_details(sig.evaluation_details)
+                else:
+                    eval_text = (
+                        sig.reason if sig is not None else "No evaluation available"
+                    ).replace("|", "/")
 
                 lines.append(
                     f"| {group.id} | {pos.ticker} | {pos.quantity} | "
-                    f"¥{current_price:,.0f} | {pnl_pct_str} | {recommend} | {action} | {reason} |"
+                    f"¥{current_price:,.0f} | {pnl_pct_str} | {recommend} | {action} | {eval_text} |"
                 )
+
+        if not holdings_found:
+            lines.append("| - | - | - | - | - | - | - | No holdings |")
+
+        return "\n".join(lines)
+
+    def _format_evaluation_details(self, details: Dict) -> str:
+        """
+        Format exit strategy evaluation details for display in report.
+
+        Returns a compact string showing all layer statuses.
+        """
+        if not details or "layers" not in details:
+            return "No details"
+
+        layers = details["layers"]
+        triggered = [layer for layer in layers if layer.get("triggered")]
+
+        # Build comprehensive layer-by-layer display
+        parts = []
+
+        # If any triggered, show them prominently first
+        if triggered:
+            trigger_strs = []
+            for layer in triggered:
+                name = layer["name"].replace("_", " ")
+                value = layer.get("value", "")
+                threshold = layer.get("threshold", "")
+                trigger_strs.append(f"🔴{name}: {value} vs {threshold}")
+            parts.append("<br>".join(trigger_strs))
+
+        # Show all non-triggered layers with appropriate icons
+        non_triggered = [layer for layer in layers if not layer.get("triggered")]
+        if non_triggered:
+            layer_strs = []
+            for layer in non_triggered:
+                status = layer.get("status", "")
+                name = layer["name"].replace("_", " ")
+                value = layer.get("value", "")
+                threshold = layer.get("threshold", "")
+
+                # Choose icon based on status
+                if status == "SAFE":
+                    icon = "✅"
+                elif status == "PENDING":
+                    icon = "⏳"
+                elif status == "PASS":
+                    icon = "✓"
+                else:
+                    icon = "○"
+
+                layer_strs.append(f"{icon}{name}: {value} vs {threshold}")
+
+            parts.append("<br>".join(layer_strs))
+
+        # Add summary line
+        if "summary" in details:
+            parts.append(f"[{details['summary']}]")
+
+        return "<br>".join(parts)
 
         if not holdings_found:
             lines.append("| - | - | - | - | - | - | - | No holdings |")
@@ -581,7 +663,9 @@ class ReportBuilder:
         lines.append(
             "| Rank | Ticker | Price | Score | Qty | Capital (¥) | RSI | ATR% | Reasons |"
         )
-        lines.append("|------|--------|-------|-------|-----|-------------|-----|------|---------|")
+        lines.append(
+            "|------|--------|-------|-------|-----|-------------|-----|------|---------|"
+        )
 
         for rank, item in enumerate(candidates[:8], 1):
             eval_obj = item["eval"]
@@ -591,9 +675,7 @@ class ReportBuilder:
             capital_str = (
                 f"{sig.required_capital:,.0f}" if sig.required_capital else "0"
             )
-            reason = (
-                f"EMA20>EMA50>EMA200; RSI={rsi:.0f}; ATR%={atr_pct:.2f}"
-            )
+            reason = f"EMA20>EMA50>EMA200; RSI={rsi:.0f}; ATR%={atr_pct:.2f}"
             lines.append(
                 f"| {rank} | {eval_obj.ticker} | ¥{eval_obj.current_price:,.0f} | "
                 f"{sig.score:.1f} | {sig.suggested_qty} | {capital_str} | "
@@ -871,10 +953,19 @@ class ReportBuilder:
 
         Shows all positions across all strategy groups with P&L.
         """
+        current_prices: Dict[str, float] = {}
+        for group in self.state_manager.get_all_groups():
+            for pos in group.positions:
+                if pos.quantity <= 0 or pos.ticker in current_prices:
+                    continue
+                latest_close = self._get_latest_close(pos.ticker)
+                if latest_close is not None:
+                    current_prices[pos.ticker] = latest_close
+
         lines = ["## 💼 Current Portfolio Status", ""]
 
         # Overall status
-        status = self.state_manager.get_portfolio_status()
+        status = self.state_manager.get_portfolio_status(current_prices)
         total_value = status["total_value"]
 
         lines.append(f"**Total Portfolio Value:** ¥{total_value:,.0f}")
@@ -902,13 +993,7 @@ class ReportBuilder:
                 )
 
                 for pos in group_obj.positions:
-                    # Use peak_price as proxy for current price (or entry_price if not updated)
-                    # In production, you'd pass current_prices dict to get_portfolio_status()
-                    current_price = (
-                        pos.peak_price
-                        if pos.peak_price > pos.entry_price
-                        else pos.entry_price
-                    )
+                    current_price = current_prices.get(pos.ticker, pos.entry_price)
                     current_value = pos.quantity * current_price
                     cost_basis = pos.quantity * pos.entry_price
                     pnl_jpy = current_value - cost_basis
@@ -929,6 +1014,23 @@ class ReportBuilder:
                 lines.append("")
 
         return "\n".join(lines)
+
+    def _get_latest_close(self, ticker: str) -> Optional[float]:
+        df = self.data_manager.load_stock_features(ticker)
+        if df is None or df.empty:
+            return None
+
+        if "Date" in df.columns:
+            dt = df["Date"]
+        else:
+            dt = df.index
+
+        last_idx = dt.idxmax()
+        last_row = df.loc[last_idx]
+        close_val = last_row.get("Close")
+        if close_val is None:
+            return None
+        return float(close_val)
 
     def _build_execution_summary_section(
         self, execution_results: List[ExecutionResult]

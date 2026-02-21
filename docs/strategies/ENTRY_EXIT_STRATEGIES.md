@@ -15,7 +15,7 @@ Entry（8）：
 - `BollingerSqueezeStrategy`
 - `IchimokuStochStrategy`
 
-Exit（8）：
+Exit（9）：
 
 - `ATRExitStrategy`
 - `ScoreBasedExitStrategy`
@@ -25,6 +25,7 @@ Exit（8）：
 - `MACDKDJRuleExit`
 - `MACDKDJRuleExitA`
 - `MACDKDJRuleExitB`
+- `MVX_N9_R3p5_T1p6_D20_B15`
 
 ---
 
@@ -225,3 +226,15 @@ MACD_Hist\_{t-1}<0\land MACD_Hist_t>0
 
 - A：`stop_loss_pct=0.04`
 - B：`stop_loss_pct=0.06`, `kd_overbought_threshold=85`
+
+## 4.7 `MultiViewCompositeExit`（MVX 默认参数）
+
+默认策略名：`MVX_N9_R3p5_T1p6_D20_B15`
+
+参数映射：
+
+- `N=9` -> `hist_shrink_n`
+- `R=3.5` -> `r_mult`
+- `T=1.6` -> `trail_mult`
+- `D=20` -> `time_stop_days`
+- `B=15` -> `bias_exit_threshold_pct`

@@ -55,6 +55,9 @@ class Signal:
     strategy_name: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
+    # Exit strategy evaluation details (for report display)
+    evaluation_details: Optional[Dict] = None
+
 
 class SignalGenerator:
     """
@@ -272,6 +275,17 @@ class SignalGenerator:
                 position=signals_position,
             )
 
+            # Get evaluation details (for all cases, SELL or HOLD)
+            evaluation_details = None
+            if hasattr(exit_strategy, "get_evaluation_details"):
+                try:
+                    evaluation_details = exit_strategy.get_evaluation_details(
+                        signals_position, market_data
+                    )
+                except Exception as e:
+                    if verbose:
+                        print(f"   ⚠️  {ticker} evaluation details error: {e}")
+
             # Convert to Production Signal
             if trading_signal.action == SignalAction.SELL:
                 # Parse sell percentage from metadata
@@ -306,10 +320,34 @@ class SignalGenerator:
                     holding_days=holding_days,
                     unrealized_pl_pct=signals_position.current_pnl_pct(current_price),
                     strategy_name=exit_strategy.strategy_name,
+                    evaluation_details=evaluation_details,
                 )
             else:
-                # HOLD - no signal needed
-                return None
+                # HOLD - return hold signal with evaluation details for reporting
+                holding_days = (
+                    pd.Timestamp(current_date) - pd.Timestamp(position.entry_date)
+                ).days
+
+                return Signal(
+                    group_id=group_id,
+                    ticker=ticker,
+                    ticker_name=ticker,
+                    signal_type="HOLD",
+                    action="HOLD",
+                    confidence=0.0,
+                    score=0.0,
+                    reason=", ".join(trading_signal.reasons)
+                    if trading_signal.reasons
+                    else "No exit condition met",
+                    current_price=current_price,
+                    position_qty=position.quantity,
+                    entry_price=position.entry_price,
+                    entry_date=position.entry_date,
+                    holding_days=holding_days,
+                    unrealized_pl_pct=signals_position.current_pnl_pct(current_price),
+                    strategy_name=exit_strategy.strategy_name,
+                    evaluation_details=evaluation_details,
+                )
 
         except Exception as e:
             if verbose:
