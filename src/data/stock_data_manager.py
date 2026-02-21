@@ -34,6 +34,7 @@ REQUIRED_FEATURE_COLUMNS = {
     "EMA_50",
     "EMA_200",
     "SMA_20",
+    "SMA_25",
     "ADX_14",
     "Ichi_Tenkan",
     "Ichi_Kijun",
@@ -347,8 +348,11 @@ class StockDataManager:
         df["EMA_50"] = ema_50.ema_indicator()
         df["EMA_200"] = ema_200.ema_indicator()
 
-        # SMA20 (for strategies that require simple moving average)
+        # SMA20 (for trend following and early signal detection)
         df["SMA_20"] = df["Close"].rolling(window=20).mean()
+
+        # SMA25 (for mean reversion and bias calculation - Japanese market standard)
+        df["SMA_25"] = df["Close"].rolling(window=25).mean()
 
         # ADX (趋势强度)
         adx = ADXIndicator(high=df["High"], low=df["Low"], close=df["Close"], window=14)

@@ -96,6 +96,33 @@ class StrategyEvaluator:
         # 缓存层（单次运行内有效）
         self._monitor_list_cache = None  # Monitor list 缓存
         self._topix_cache: Dict[Tuple[str, str], Optional[float]] = {}  # TOPIX 缓存
+        self._portfolio_limits_cache: Optional[Tuple[int, float]] = None
+
+    def _get_portfolio_limits(self) -> Tuple[int, float]:
+        """
+        Load portfolio limits from config.json once.
+
+        Returns:
+            (max_positions, max_position_pct)
+        """
+        if self._portfolio_limits_cache is not None:
+            return self._portfolio_limits_cache
+
+        try:
+            config_path = Path("config.json")
+            if config_path.exists():
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                portfolio_cfg = config.get("portfolio", {})
+                max_positions = int(portfolio_cfg.get("max_positions", 7))
+                max_position_pct = float(portfolio_cfg.get("max_position_pct", 0.18))
+                self._portfolio_limits_cache = (max_positions, max_position_pct)
+                return self._portfolio_limits_cache
+        except Exception:
+            pass
+
+        self._portfolio_limits_cache = (7, 0.18)
+        return self._portfolio_limits_cache
 
     def run_evaluation(
         self,
@@ -249,10 +276,12 @@ class StrategyEvaluator:
         tickers = self._load_monitor_list()
 
         # 运行回测（调用现有功能，不做任何修改）
+        max_positions, max_position_pct = self._get_portfolio_limits()
         engine = PortfolioBacktestEngine(
             data_root=self.data_root,
             starting_capital=5_000_000,
-            max_positions=5,
+            max_positions=max_positions,
+            max_position_pct=max_position_pct,
             overlay_manager=self.overlay_manager,
         )
 

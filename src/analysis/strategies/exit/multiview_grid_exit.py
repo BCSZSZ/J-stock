@@ -314,9 +314,13 @@ class MultiViewCompositeExit(BaseExitStrategy):
 
     @staticmethod
     def _calc_bias_pct(latest_row: pd.Series):
-        if "SMA_20" not in latest_row.index:
+        # Use SMA_25 for bias calculation (Japanese market standard for mean reversion)
+        # SMA_25 is the statistical reference for 乖離率 (deviation rate) in JP market
+        sma_col = "SMA_25" if "SMA_25" in latest_row.index else "SMA_20"
+        
+        if sma_col not in latest_row.index:
             return None
-        sma = latest_row["SMA_20"]
+        sma = latest_row[sma_col]
         close = latest_row["Close"]
         if pd.isna(sma) or sma == 0 or pd.isna(close):
             return None
