@@ -18,9 +18,11 @@
 import pandas as pd
 import numpy as np
 from typing import Optional, Tuple
+from datetime import datetime, timedelta
 from ..base_entry_strategy import BaseEntryStrategy
 from ...signals import TradingSignal, SignalAction, MarketData
 from ...signals import Position
+from src.data.benchmark_manager import BenchmarkManager
 
 
 class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
@@ -188,33 +190,83 @@ class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
     # ===== 维度2：相对强度 RS > TOPIX =====
     def _score_relative_strength(self, df: pd.DataFrame, current_date) -> float:
         """
-        相对强度评分：个股 20日表现 vs TOPIX
+        相对强度评分：个股 20日收益 vs TOPIX 20日收益
         
         日本市场特性：
         - 板块联动强（半导体、商社、银行等）
         - 弱势板块中的MACD金叉往往是"假突破"
-        - 此处简化：比较个股20日收益 vs 历史平均
+        - 只有相对强于TOPIX的个股才值得买入
         
-        NOTE: 完整版本需要实时TOPIX数据，目前用价格强度代替
+        完整实现：
+        1. 计算个股 20日收益率
+        2. 获取 TOPIX 20日收益率
+        3. 若个股收益 > TOPIX收益，则相对强势（返回1.0）
+        4. 若获取TOPIX失败，保守返回0.0
         """
         try:
             if len(df) < 20:
                 return 0.0
             
-            # 计算个股20日收益率
+            # ===== 步骤1：计算个股20日收益率 =====
             price_20d_ago = df.iloc[-20]['Close']
             price_now = df.iloc[-1]['Close']
             
-            if pd.isna(price_20d_ago) or price_20d_ago <= 0:
+            if pd.isna(price_20d_ago) or price_20d_ago <= 0 or pd.isna(price_now):
                 return 0.0
             
             stock_return_20d = (price_now - price_20d_ago) / price_20d_ago
             
-            # 简化RS逻辑：若近期上涨趋势（>0），则视为相对强势
-            # 完整实现应该与TOPIX做对标
-            if stock_return_20d > 0:
-                return 1.0
-            else:
+            # ===== 步骤2：获取TOPIX 20日收益率 =====
+            try:
+                # 获取当前日期对应的数据行（从df的Date列）
+                current_row = df.iloc[-1]
+                if 'Date' in current_row.index:
+                    entry_date = pd.to_datetime(current_row['Date'])
+                elif hasattr(df, 'index') and df.index.name == 'Date':
+                    entry_date = pd.to_datetime(df.index[-1])
+                else:
+                    entry_date = pd.to_datetime(current_date) if current_date else pd.Timestamp.now()
+                
+                # 计算20天前的日期（交易日约为日历日的70%，留些buffer）
+                lookback_date = entry_date - pd.Timedelta(days=28)
+                
+                # 从 BenchmarkManager 获取 TOPIX 数据
+                manager = BenchmarkManager(client=None, data_root='data')
+                topix_df = manager.get_topix_data()
+                
+                if topix_df is None or topix_df.empty:
+                    # TOPIX 数据不可用，保守返回0（无法确认相对强度）
+                    return 0.0
+                
+                # 过滤 TOPIX 数据到指定日期范围
+                topix_df['Date'] = pd.to_datetime(topix_df['Date'])
+                topix_recent = topix_df[
+                    (topix_df['Date'] >= lookback_date) & 
+                    (topix_df['Date'] <= entry_date)
+                ].copy().sort_values('Date')
+                
+                if len(topix_recent) < 2:
+                    # 数据不足，保守返回0
+                    return 0.0
+                
+                # 获取TOPIX 20日首尾价格
+                topix_price_start = topix_recent.iloc[0]['Close']
+                topix_price_end = topix_recent.iloc[-1]['Close']
+                
+                if pd.isna(topix_price_start) or topix_price_start <= 0:
+                    return 0.0
+                
+                topix_return_20d = (topix_price_end - topix_price_start) / topix_price_start
+                
+                # ===== 步骤3：比较相对强度 =====
+                # 如果个股超过TOPIX，则为相对强势
+                if stock_return_20d > topix_return_20d:
+                    return 1.0
+                else:
+                    return 0.0
+            
+            except Exception as e:
+                # TOPIX 获取失败时，保守返回0（无法确认相对强度，则不赋分）
                 return 0.0
         
         except Exception:
