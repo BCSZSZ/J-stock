@@ -9,11 +9,12 @@ Options:
     --sample N  Only process first N stocks from monitor list (default: all)
 """
 
-import json
-import sys
 import argparse
+import json
 import logging
+import sys
 from pathlib import Path
+
 from src.data.stock_data_manager import StockDataManager
 
 # Setup logging
@@ -73,7 +74,7 @@ def main():
         stocks = stocks[: args.sample]
 
     logger.info(f"Recomputing features for {len(stocks)} stocks (force_recompute=True)")
-    logger.info(f"This will add SMA_25 and update all indicators")
+    logger.info("This will add SMA_25 and update all indicators")
 
     # Initialize manager (read-only, no API key needed for recompute)
     manager = StockDataManager(api_key=None, data_root="data")
@@ -99,11 +100,9 @@ def main():
             logger.error(f"[{code}] ✗ Failed: {e}")
             error_count += 1
 
-    logger.info(
-        f"\n{'='*60}"
-    )
+    logger.info(f"\n{'=' * 60}")
     logger.info(f"Recompute Summary: {success_count} succeeded, {error_count} failed")
-    logger.info(f"{'='*60}")
+    logger.info(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

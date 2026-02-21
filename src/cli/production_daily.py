@@ -233,21 +233,24 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         max_new_positions = (
             overlay_decision.max_new_positions if overlay_decision else None
         )
-        
+
         # Calculate current position count (for max_positions_per_group enforcement)
         current_position_count = len(current_tickers)
-        
+
         for ticker, eval_obj in comprehensive_evals.items():
             if ticker in current_tickers:
                 continue
             strategy_eval = eval_obj.evaluations.get(entry_strategy_name)
             if not strategy_eval or strategy_eval.signal_action != "BUY":
                 continue
-            
+
             # Check if adding new position would exceed max_positions_per_group
-            if current_position_count + new_positions_opened >= prod_cfg.max_positions_per_group:
+            if (
+                current_position_count + new_positions_opened
+                >= prod_cfg.max_positions_per_group
+            ):
                 break
-            
+
             if (
                 max_new_positions is not None
                 and new_positions_opened >= max_new_positions

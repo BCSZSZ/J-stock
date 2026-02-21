@@ -317,7 +317,7 @@ class MultiViewCompositeExit(BaseExitStrategy):
         # Use SMA_25 for bias calculation (Japanese market standard for mean reversion)
         # SMA_25 is the statistical reference for 乖離率 (deviation rate) in JP market
         sma_col = "SMA_25" if "SMA_25" in latest_row.index else "SMA_20"
-        
+
         if sma_col not in latest_row.index:
             return None
         sma = latest_row[sma_col]

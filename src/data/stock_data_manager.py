@@ -23,6 +23,10 @@ from src.client.jquants_client import JQuantsV2Client
 logger = logging.getLogger(__name__)
 
 
+SPLIT_RATIO_CANDIDATES = [0.5, 0.3333, 0.25, 0.2, 0.1]
+SPLIT_TOLERANCE = 0.05
+
+
 REQUIRED_FEATURE_COLUMNS = {
     "Date",
     "Open",
@@ -281,6 +285,135 @@ class StockDataManager:
 
         return df[available_columns]
 
+    def _load_metadata_file(self, ticker: str) -> Dict[str, Any]:
+        metadata_path = self.dirs["metadata"] / f"{ticker}_metadata.json"
+        if not metadata_path.exists():
+            return {}
+        try:
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"[{ticker}] Failed to load metadata: {e}")
+            return {}
+
+    def _save_metadata_file(self, ticker: str, metadata: Dict[str, Any]) -> None:
+        metadata_path = self.dirs["metadata"] / f"{ticker}_metadata.json"
+        try:
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, ensure_ascii=True, indent=2)
+        except Exception as e:
+            logger.warning(f"[{ticker}] Failed to save metadata: {e}")
+
+    def _ensure_sorted_prices(self, df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
+        if "Date" in df.columns:
+            df = df.copy()
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.sort_values("Date").reset_index(drop=True)
+        else:
+            df = df.sort_index()
+        return df
+
+    def _detect_split_events(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        if df.empty or len(df) < 2:
+            return []
+
+        df = self._ensure_sorted_prices(df)
+        events: List[Dict[str, Any]] = []
+
+        for i in range(1, len(df)):
+            prev = df.iloc[i - 1]
+            curr = df.iloc[i]
+
+            prev_close = prev.get("Close")
+            curr_close = curr.get("Close")
+            if pd.isna(prev_close) or pd.isna(curr_close) or prev_close <= 0:
+                continue
+
+            ratio = curr_close / prev_close
+            matched_ratio = None
+            for candidate in SPLIT_RATIO_CANDIDATES:
+                if abs(ratio - candidate) <= candidate * SPLIT_TOLERANCE:
+                    matched_ratio = candidate
+                    break
+
+            if matched_ratio is None:
+                continue
+
+            matches = 0
+            fields_checked = 0
+            for col in ["Open", "High", "Low", "Close"]:
+                if col not in df.columns:
+                    continue
+                prev_val = prev.get(col)
+                curr_val = curr.get(col)
+                if pd.isna(prev_val) or pd.isna(curr_val) or prev_val <= 0:
+                    continue
+                fields_checked += 1
+                field_ratio = curr_val / prev_val
+                if abs(field_ratio - matched_ratio) <= matched_ratio * SPLIT_TOLERANCE:
+                    matches += 1
+
+            volume_match = None
+            if "Volume" in df.columns:
+                prev_vol = prev.get("Volume")
+                curr_vol = curr.get("Volume")
+                if pd.notna(prev_vol) and pd.notna(curr_vol) and prev_vol > 0:
+                    expected_vol_ratio = 1 / matched_ratio
+                    vol_ratio = curr_vol / prev_vol
+                    volume_match = abs(vol_ratio - expected_vol_ratio) <= expected_vol_ratio * SPLIT_TOLERANCE * 2
+
+            if fields_checked == 0:
+                continue
+
+            if matches >= 3:
+                confidence = (matches / max(fields_checked, 1))
+                if volume_match is True:
+                    confidence = min(1.0, confidence + 0.1)
+
+                events.append(
+                    {
+                        "date": str(curr.get("Date"))[:10],
+                        "ratio": matched_ratio,
+                        "confidence": round(confidence, 3),
+                        "matches": matches,
+                        "fields_checked": fields_checked,
+                        "volume_confirmed": bool(volume_match),
+                    }
+                )
+
+        return events
+
+    def _apply_split_adjustments(
+        self, df: pd.DataFrame, events: List[Dict[str, Any]]
+    ) -> pd.DataFrame:
+        if df.empty or not events:
+            return df
+
+        df = self._ensure_sorted_prices(df)
+        df_adj = df.copy()
+
+        for event in sorted(events, key=lambda x: x.get("date", "")):
+            event_date = pd.to_datetime(event.get("date"))
+            ratio = float(event.get("ratio", 1.0))
+            if ratio <= 0:
+                continue
+
+            if "Date" in df_adj.columns:
+                mask = df_adj["Date"] < event_date
+            else:
+                mask = df_adj.index < event_date
+
+            for col in ["Open", "High", "Low", "Close"]:
+                if col in df_adj.columns:
+                    df_adj.loc[mask, col] = df_adj.loc[mask, col] * ratio
+
+            if "Volume" in df_adj.columns:
+                df_adj.loc[mask, "Volume"] = df_adj.loc[mask, "Volume"] / ratio
+
+        return df_adj
+
     # ==================== TECHNICAL INDICATORS (TRANSFORM) ====================
 
     def compute_features(
@@ -300,6 +433,7 @@ class StockDataManager:
         # Load raw price data
         raw_path = self.dirs["raw_prices"] / f"{code}.parquet"
         features_path = self.dirs["features"] / f"{code}_features.parquet"
+        metadata = self._load_metadata_file(code)
 
         if not raw_path.exists():
             logger.warning(
@@ -321,13 +455,22 @@ class StockDataManager:
                     raw_mtime = raw_path.stat().st_mtime
                     features_mtime = features_path.stat().st_mtime
 
-                    if features_mtime >= raw_mtime:
+                    split_version = metadata.get("split_adjusted_version")
+                    split_adjusted = metadata.get("split_adjusted") is True
+
+                    if features_mtime >= raw_mtime and split_version == 1 and split_adjusted:
                         logger.info(f"[{code}] Features up-to-date, skip recompute")
                         return existing_features
             except Exception as e:
                 logger.warning(f"[{code}] Failed to load features for check: {e}")
 
         df = pd.read_parquet(raw_path)
+        df = self._ensure_sorted_prices(df)
+
+        split_events = self._detect_split_events(df)
+        if split_events:
+            logger.info(f"[{code}] Detected {len(split_events)} split events")
+        df = self._apply_split_adjustments(df, split_events)
 
         if df.empty or len(df) < 200:
             logger.warning(
@@ -464,6 +607,12 @@ class StockDataManager:
         logger.info(
             f"[{code}] Features saved: {len(df)} rows with {len(df.columns)} columns"
         )
+
+        metadata["split_adjusted"] = True
+        metadata["split_adjusted_version"] = 1
+        metadata["split_events"] = split_events
+        metadata["split_last_checked"] = datetime.now().strftime("%Y-%m-%d")
+        self._save_metadata_file(code, metadata)
 
         return df
 
@@ -741,6 +890,14 @@ class StockDataManager:
 
         try:
             df = pd.read_parquet(features_path)
+            metadata = self._load_metadata_file(ticker)
+            split_version = metadata.get("split_adjusted_version")
+            split_adjusted = metadata.get("split_adjusted") is True
+            if split_version != 1 or not split_adjusted:
+                logger.info(
+                    f"[{ticker}] Features missing split adjustment, recomputing"
+                )
+                df = self.compute_features(ticker, force_recompute=True)
             logger.debug(f"Loaded {len(df)} rows for {ticker}")
             return df
         except Exception as e:

@@ -15,12 +15,13 @@ from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
 from ..data.benchmark_manager import BenchmarkManager
 from ..data.market_data_builder import MarketDataBuilder
+from ..data.stock_data_manager import StockDataManager
+from ..overlays import OverlayContext, OverlayManager
 from ..signal_generator import generate_signal_v2
 from .lot_size_manager import LotSizeManager
 from .models import BacktestResult, Trade
 from .portfolio import Portfolio, Position
 from .signal_ranker import SignalRanker
-from ..overlays import OverlayContext, OverlayManager
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +212,8 @@ class PortfolioBacktestEngine:
                     entry_date = position.entry_date
                     peak_price = position.peak_price_since_entry
                     entry_score = position.entry_signal.metadata.get("score", 0.0)
+                    entry_confidence = position.entry_signal.confidence
+                    entry_metadata = position.entry_signal.metadata
 
                     # 执行卖出
                     proceeds = portfolio.close_partial_position(
@@ -230,6 +233,8 @@ class PortfolioBacktestEngine:
                             entry_date=entry_date.strftime("%Y-%m-%d"),
                             entry_price=entry_price,
                             entry_score=entry_score,
+                            entry_confidence=entry_confidence,
+                            entry_metadata=entry_metadata,
                             exit_date=current_date.strftime("%Y-%m-%d"),
                             exit_price=exit_price,
                             exit_reason=sell_signal.reasons[0]
@@ -261,9 +266,7 @@ class PortfolioBacktestEngine:
                     pending_buy_signals.clear()
                 else:
                     max_new_positions = (
-                        overlay_decision.max_new_positions
-                        if overlay_decision
-                        else None
+                        overlay_decision.max_new_positions if overlay_decision else None
                     )
                     new_positions_opened = 0
 
@@ -307,13 +310,21 @@ class PortfolioBacktestEngine:
 
                         # 计算可用资金
                         max_cash = portfolio.calculate_max_position_size(current_prices)
-                        if overlay_decision and overlay_decision.position_scale is not None:
+                        if (
+                            overlay_decision
+                            and overlay_decision.position_scale is not None
+                        ):
                             max_cash *= overlay_decision.position_scale
 
-                        if overlay_decision and overlay_decision.target_exposure is not None:
+                        if (
+                            overlay_decision
+                            and overlay_decision.target_exposure is not None
+                        ):
                             total_value = portfolio.get_total_value(current_prices)
                             invested = total_value - portfolio.cash
-                            max_invested = total_value * overlay_decision.target_exposure
+                            max_invested = (
+                                total_value * overlay_decision.target_exposure
+                            )
                             available_exposure = max(0.0, max_invested - invested)
                             max_cash = min(max_cash, available_exposure)
 
@@ -466,7 +477,9 @@ class PortfolioBacktestEngine:
             current_prices=current_prices,
         )
 
-    def _calculate_sell_quantity(self, ticker: str, total_qty: int, sell_pct: float) -> int:
+    def _calculate_sell_quantity(
+        self, ticker: str, total_qty: int, sell_pct: float
+    ) -> int:
         """Calculate sell quantity with lot-size-aware upward rounding."""
         if total_qty <= 0:
             return 0
@@ -496,7 +509,10 @@ class PortfolioBacktestEngine:
         if not features_path.exists():
             raise FileNotFoundError(f"Features file not found: {features_path}")
 
-        df_features = pd.read_parquet(features_path)
+        data_manager = StockDataManager(api_key=None, data_root=self.data_root)
+        df_features = data_manager.load_stock_features(ticker)
+        if df_features.empty:
+            raise FileNotFoundError(f"Features file empty: {features_path}")
         df_features["Date"] = pd.to_datetime(df_features["Date"])
         df_features.set_index("Date", inplace=True)
 
@@ -509,13 +525,7 @@ class PortfolioBacktestEngine:
             else pd.DataFrame()
         )
 
-        import json
-
-        metadata = (
-            json.load(open(metadata_path, "r", encoding="utf-8"))
-            if metadata_path.exists()
-            else {}
-        )
+        metadata = data_manager.load_metadata(ticker)
 
         return {
             "features": df_features,
