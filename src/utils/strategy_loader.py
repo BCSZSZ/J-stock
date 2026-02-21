@@ -11,6 +11,7 @@ ENTRY_STRATEGIES = {
     "SimpleScorerStrategy": "src.analysis.strategies.entry.scorer_strategy.SimpleScorerStrategy",
     "EnhancedScorerStrategy": "src.analysis.strategies.entry.scorer_strategy.EnhancedScorerStrategy",
     "MACDCrossoverStrategy": "src.analysis.strategies.entry.macd_crossover.MACDCrossoverStrategy",
+    "MACDEnhancedFundamental": "src.analysis.strategies.entry.macd_enhanced_fundamental.MACDEnhancedFundamentalStrategy",
     "MACDKDJThreeStageEntry": "src.analysis.strategies.entry.macd_kdj_three_stage_entry.MACDKDJThreeStageEntry",
     "MACDKDJThreeStageEntryA": "src.analysis.strategies.entry.macd_kdj_three_stage_entry.MACDKDJThreeStageEntryA",
     "MACDKDJThreeStageEntryB": "src.analysis.strategies.entry.macd_kdj_three_stage_entry.MACDKDJThreeStageEntryB",

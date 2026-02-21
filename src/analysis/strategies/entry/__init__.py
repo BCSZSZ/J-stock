@@ -6,9 +6,11 @@ Entry策略实现
 
 from .scorer_strategy import SimpleScorerStrategy, EnhancedScorerStrategy
 from .macd_crossover import MACDCrossoverStrategy
+from .macd_enhanced_fundamental import MACDEnhancedFundamentalStrategy
 
 __all__ = [
     'SimpleScorerStrategy',
     'EnhancedScorerStrategy',
     'MACDCrossoverStrategy',
+    'MACDEnhancedFundamentalStrategy',
 ]
