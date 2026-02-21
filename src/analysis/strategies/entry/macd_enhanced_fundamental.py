@@ -1,18 +1,24 @@
 """
-增强型MACD Entry策略 - 与MACD正交的多维评分模型
+增强型MACD Entry策略 - RS + Bias 连续评分模型
 
 核心逻辑：
 - MACD 金叉是触发信号（Trigger）
-- 评分制（Scoring Model）：≥2分时执行入场
+- 连续评分制（Continuous Scoring Model）
   * MACD 金叉：触发条件（必需）
-  * PBR < 1.0：+1 分（估值锚点）
-  * RS > TOPIX：+1 分（板块轮动）
-  * Bias < -10%（过往）且正在收窄：+1 分（均值回归）
+  * RS（相对强度）：连续 [0.0-1.0]，权重 0.10（10%）
+  * Bias（乖离率）：连续 [0.0-1.0]，权重 0.35（35%）
+  
+- 置信度计算：confidence = 0.55 + RS_score×0.10 + Bias_score×0.35
+  * 范围 [0.55, 1.0]（0.55 = MACD金叉基础，1.0 = 完美信号）
+  
+- 进场规则：MACD金叉 AND (RS_score > 0.3 OR Bias_score > 0.2)
+  * RS > 0.3：相对强度达中上（超额收益 > 6%）
+  * Bias > 0.2：从超卖谷底恢复 20%（从-10% → -8% 或更高）
 
 日本市场特性优化：
-- 利用日本市场对 PBR / 25日均线 / 机构回购的关注
+- Bias（超卖反弹）权重 3.5× RS（板块强势）
 - 超跌后的MACD金叉胜率远高于高位震荡的金叉
-- 板块联动强，需要RS过滤掉弱势板块中的"假突破"
+- 板块联动强，RS用于过滤弱势板块中的"假突破"
 """
 
 import pandas as pd
@@ -27,36 +33,63 @@ from src.data.benchmark_manager import BenchmarkManager
 
 class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
     """
-    增强型 MACD 入场策略（PBR + RS + Bias 评分制）
+    增强型 MACD 入场策略（RS + Bias 连续评分）
     
     Args:
-        min_score: 最小评分（默认2，即需要至少2个维度确认）
-        pbr_threshold: PBR上限（默认1.0）
-        bias_lookback: 乖离率回溯天数检查超卖（默认10）
-        bias_oversold_threshold: 超卖乖离率下限（默认-15%）
-        bias_recovery_threshold: 收窄到的上限（默认-5%）
+        base_confidence: MACD金叉基础置信度（默认 0.55）
+        rs_weight: RS权重（默认 0.10，占10%）
+        bias_weight: Bias权重（默认 0.35，占35%）
+        rs_threshold: 进场时RS最小值（默认 0.3）
+        bias_threshold: 进场时Bias最小值（默认 0.2）
+        
+        # RS 参数（20日收益对标）
+        rs_excess_threshold: RS 断点阈值（默认 ±20%）
+        
+        # Bias 参数（阿离率的恢复进度）
+        bias_lookback: 乖离率回溯天数检查超卖（默认 10）
+        bias_oversold_threshold: 超卖乖离率下限（默认 -10%）
+        bias_recovery_threshold: 收窄到的上限（默认 -5%）
     """
     
     def __init__(
         self,
-        min_score: float = 2.0,
-        pbr_threshold: float = 1.0,
+        base_confidence: float = 0.55,
+        rs_weight: float = 0.10,
+        bias_weight: float = 0.35,
+        rs_threshold: float = 0.3,
+        bias_threshold: float = 0.2,
+        # RS 参数
+        rs_excess_threshold: float = 0.20,
+        # Bias 参数
         bias_lookback: int = 10,
-        bias_oversold_threshold: float = -15.0,
+        bias_oversold_threshold: float = -10.0,
         bias_recovery_threshold: float = -5.0,
     ):
         super().__init__(strategy_name="MACDEnhancedFundamental")
-        self.min_score = min_score
-        self.pbr_threshold = pbr_threshold
+        self.base_confidence = base_confidence
+        self.rs_weight = rs_weight
+        self.bias_weight = bias_weight
+        self.rs_threshold = rs_threshold
+        self.bias_threshold = bias_threshold
+        
+        self.rs_excess_threshold = rs_excess_threshold
         self.bias_lookback = bias_lookback
         self.bias_oversold_threshold = bias_oversold_threshold
         self.bias_recovery_threshold = bias_recovery_threshold
     
     def generate_entry_signal(self, market_data: MarketData) -> TradingSignal:
-        """生成入场信号（基于评分制）"""
+        """
+        生成入场信号（基于连续评分制）
+        
+        流程：
+        1. 检查MACD金叉（触发条件）
+        2. 计算RS连续评分 [0.0-1.0]
+        3. 计算Bias连续评分 [0.0-1.0]
+        4. 检查进场门槛：RS > 0.3 OR Bias > 0.2
+        5. 计算加权置信度：0.55 + RS×0.10 + Bias×0.35
+        """
         
         df = market_data.df_features
-        metadata = market_data.metadata
         current_date = market_data.current_date
         
         if len(df) < max(self.bias_lookback + 1, 50):
@@ -67,7 +100,7 @@ class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
                 strategy_name=self.strategy_name
             )
         
-        # ===== 条件0：MACD 金叉（触发条件，必需）=====
+        # ===== 步骤1：MACD 金叉（触发条件，必需）=====
         golden_cross = self._check_macd_golden_cross(df)
         
         if not golden_cross:
@@ -78,69 +111,53 @@ class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
                 strategy_name=self.strategy_name
             )
         
-        scores = []
-        breakdown = {}
+        # ===== 步骤2：计算RS连续评分 =====
+        rs_score = self._score_relative_strength_continuous(df, current_date)
         
-        # ===== 维度1：PBR < 1.0（估值锚点）=====
-        pbr_score = self._score_pbr(metadata)
-        scores.append(pbr_score)
-        breakdown["pbr"] = pbr_score
+        # ===== 步骤3：计算Bias连续评分 =====
+        bias_score = self._score_bias_recovery_continuous(df)
         
-        # ===== 维度2：RS > TOPIX（相对强度）=====
-        rs_score = self._score_relative_strength(df, current_date)
-        scores.append(rs_score)
-        breakdown["rs"] = rs_score
+        # ===== 步骤4：检查进场门槛 =====
+        # 至少一个维度达标：RS > 0.3 或 Bias > 0.2
+        entry_gate = rs_score > self.rs_threshold or bias_score > self.bias_threshold
         
-        # ===== 维度3：Bias 乖离率筑底（均值回归）=====
-        bias_score = self._score_bias_recovery(df)
-        scores.append(bias_score)
-        breakdown["bias"] = bias_score
-        
-        # ===== 评分合成 =====
-        total_score = sum(scores)  # 0-3 分（不含MACD触发本身）
-        
-        # 基础置信度 = MACD金叉提供 0.7
-        base_confidence = 0.7
-        
-        # 每个维度加0.1
-        confidence = base_confidence + total_score * 0.1
+        # ===== 步骤5：计算加权置信度 =====
+        confidence = self.base_confidence + rs_score * self.rs_weight + bias_score * self.bias_weight
         confidence = np.clip(confidence, 0.0, 1.0)
+        
+        breakdown = {
+            "rs_score": round(rs_score, 3),
+            "bias_score": round(bias_score, 3),
+            "base_confidence": self.base_confidence,
+            "rs_contribution": round(rs_score * self.rs_weight, 3),
+            "bias_contribution": round(bias_score * self.bias_weight, 3),
+        }
         
         reasons = [
             f"MACD golden cross (trigger)",
-            f"Score: {total_score:.0f}/3 (PBR:{pbr_score:.0f}, RS:{rs_score:.0f}, Bias:{bias_score:.0f})"
+            f"RS score: {rs_score:.3f} (weight: {self.rs_weight}, contributions: {rs_score * self.rs_weight:.3f})",
+            f"Bias score: {bias_score:.3f} (weight: {self.bias_weight}, contributions: {bias_score * self.bias_weight:.3f})",
+            f"Confidence: {self.base_confidence} + {rs_score * self.rs_weight:.3f} + {bias_score * self.bias_weight:.3f} = {confidence:.3f}",
         ]
         
-        if total_score >= self.min_score:
-            # 满足条件，买入
-            reasons.append(f"✓ Score {total_score:.0f} >= {self.min_score}")
+        if entry_gate:
+            # 满足进场条件
+            reasons.append(f"✓ Entry gate passed (RS > {self.rs_threshold} OR Bias > {self.bias_threshold})")
             return TradingSignal(
                 action=SignalAction.BUY,
                 confidence=confidence,
                 reasons=reasons,
-                metadata={
-                    "score": total_score,
-                    "breakdown": breakdown,
-                    "macd_golden_cross": True,
-                    "pbr_confirmed": pbr_score > 0,
-                    "rs_confirmed": rs_score > 0,
-                    "bias_confirmed": bias_score > 0,
-                },
+                metadata=breakdown,
                 strategy_name=self.strategy_name
             )
         else:
-            # 金叉但评分不足
-            reasons.append(f"✗ Score {total_score:.0f} < {self.min_score} (wait for more confirmation)")
+            # 金叉但未通过进场门槛
+            reasons.append(f"✗ Entry gate failed (RS={rs_score:.3f} <= {self.rs_threshold}, Bias={bias_score:.3f} <= {self.bias_threshold})")
             return TradingSignal(
                 action=SignalAction.HOLD,
                 confidence=confidence,
                 reasons=reasons,
-                metadata={
-                    "score": total_score,
-                    "breakdown": breakdown,
-                    "macd_golden_cross": True,
-                    "low_score": True,
-                },
+                metadata=breakdown,
                 strategy_name=self.strategy_name
             )
     
@@ -160,48 +177,21 @@ class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
         
         return macd_hist_prev < 0 and macd_hist_now > 0
     
-    # ===== 维度1：PBR < 1.0 =====
-    def _score_pbr(self, metadata: dict) -> float:
+    # ===== 维度1：相对强度（RS）连续评分 =====
+    def _score_relative_strength_continuous(self, df: pd.DataFrame, current_date) -> float:
         """
-        PBR 评分：低于阈值得1分，否则得0分
+        相对强度连续评分：个股 20日收益 vs TOPIX 20日收益
         
-        日本市场特性：
-        - 东证(TSE)推动PBR改革（目标：PBR > 1.0）
-        - PBR < 1.0 意味着市净率折价，有安全边际
-        - metadata 中应包含最近的 BookValuePerShare 和 Close
-        """
-        try:
-            # 尝试从metadata读取PBR
-            pbr = metadata.get('pbr')
-            if pbr is not None:
-                if pbr < self.pbr_threshold:
-                    return 1.0  # 得1分
-                else:
-                    return 0.0
-            
-            # 如果没有直接PBR，尝试计算（假设metadata包含book_value相关数据）
-            # 这里是fallback逻辑，实际数据格式可能需要调整
-            return 0.0
-        
-        except Exception as e:
-            # 数据不可用时返回0
-            return 0.0
-    
-    # ===== 维度2：相对强度 RS > TOPIX =====
-    def _score_relative_strength(self, df: pd.DataFrame, current_date) -> float:
-        """
-        相对强度评分：个股 20日收益 vs TOPIX 20日收益
+        归一化公式（5分段线性）：
+        - 超额收益 <= -20%：0.0
+        - -20% < 超额收益 < 0%：线性 0.0 → 0.5
+        - 0% <= 超额收益 < +20%：线性 0.5 → 1.0
+        - 超额收益 >= +20%：1.0
         
         日本市场特性：
         - 板块联动强（半导体、商社、银行等）
         - 弱势板块中的MACD金叉往往是"假突破"
-        - 只有相对强于TOPIX的个股才值得买入
-        
-        完整实现：
-        1. 计算个股 20日收益率
-        2. 获取 TOPIX 20日收益率
-        3. 若个股收益 > TOPIX收益，则相对强势（返回1.0）
-        4. 若获取TOPIX失败，保守返回0.0
+        - 权重：0.10（RS是辅助，主要靠Bias）
         """
         try:
             if len(df) < 20:
@@ -218,7 +208,7 @@ class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
             
             # ===== 步骤2：获取TOPIX 20日收益率 =====
             try:
-                # 获取当前日期对应的数据行（从df的Date列）
+                # 获取当前日期对应的数据行
                 current_row = df.iloc[-1]
                 if 'Date' in current_row.index:
                     entry_date = pd.to_datetime(current_row['Date'])
@@ -235,8 +225,8 @@ class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
                 topix_df = manager.get_topix_data()
                 
                 if topix_df is None or topix_df.empty:
-                    # TOPIX 数据不可用，保守返回0（无法确认相对强度）
-                    return 0.0
+                    # TOPIX 数据不可用，保守返回0.5（中性）
+                    return 0.5
                 
                 # 过滤 TOPIX 数据到指定日期范围
                 topix_df['Date'] = pd.to_datetime(topix_df['Date'])
@@ -246,45 +236,78 @@ class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
                 ].copy().sort_values('Date')
                 
                 if len(topix_recent) < 2:
-                    # 数据不足，保守返回0
-                    return 0.0
+                    # 数据不足，保守返回0.5（中性）
+                    return 0.5
                 
                 # 获取TOPIX 20日首尾价格
                 topix_price_start = topix_recent.iloc[0]['Close']
                 topix_price_end = topix_recent.iloc[-1]['Close']
                 
                 if pd.isna(topix_price_start) or topix_price_start <= 0:
-                    return 0.0
+                    return 0.5
                 
                 topix_return_20d = (topix_price_end - topix_price_start) / topix_price_start
                 
-                # ===== 步骤3：比较相对强度 =====
-                # 如果个股超过TOPIX，则为相对强势
-                if stock_return_20d > topix_return_20d:
-                    return 1.0
-                else:
-                    return 0.0
+                # ===== 步骤3：计算超额收益 =====
+                excess_return = stock_return_20d - topix_return_20d
+                
+                # ===== 步骤4：应用归一化范围（±20% 断点） =====
+                return self._normalize_rs_score(excess_return)
             
             except Exception as e:
-                # TOPIX 获取失败时，保守返回0（无法确认相对强度，则不赋分）
-                return 0.0
+                # TOPIX 获取失败时，保守返回0.5（中性）
+                return 0.5
         
         except Exception:
-            return 0.0
+            return 0.5
     
-    # ===== 维度3：Bias 乖离率筑底 =====
-    def _score_bias_recovery(self, df: pd.DataFrame) -> float:
+    def _normalize_rs_score(self, excess_return: float) -> float:
         """
-        乖离率评分：检测超卖后收窄
+        RS 超额收益归一化：5分段线性
+        
+        Args:
+            excess_return: 超额收益率（小数，如 0.12 = +12%）
+        
+        Returns:
+            归一化评分 [0.0, 1.0]
+        """
+        threshold = self.rs_excess_threshold  # 默认 0.20（±20%）
+        
+        if excess_return <= -threshold:
+            return 0.0
+        elif excess_return < 0:
+            # [-20%, 0%) → [0.0, 0.5)
+            progress = (excess_return + threshold) / threshold
+            return 0.5 * progress
+        elif excess_return < threshold:
+            # [0%, +20%) → (0.5, 1.0)
+            progress = excess_return / threshold
+            return 0.5 + 0.5 * progress
+        else:
+            # >= +20%
+            return 1.0
+    
+    # ===== 维度2：Bias（乖离率）连续评分 =====
+    def _score_bias_recovery_continuous(self, df: pd.DataFrame) -> float:
+        """
+        Bias（乖离率）连续评分：超卖恢复进度
         
         逻辑：
-        1. 过去 bias_lookback 天内是否触及 < bias_oversold_threshold（如-15%）？
-        2. 当前乖离率是否正在收窄（回到 > bias_recovery_threshold，如-5%）？
-        3. 如果两者都满足，得1分
+        1. 过去 bias_lookback 天内是否触及超卖（< -10%）？
+        2. 当前乖离率是否正在恢复中？
+        3. 如果两者都满足，计算从超卖到恢复的进度百分比 [0.0-1.0]
+        
+        归一化公式：
+        - 当前Bias <= 超卖阈值（-10%）：0.0
+        - 当前Bias >= 恢复阈值（-5%）：1.0
+        - 在两者之间：线性插值 (current_bias - oversold) / (recovery - oversold)
+        
+        权重：0.35（35%，Bias是主要Alpha，权重比RS高3.5倍）
         
         日本市场特性：
         - 散户和机构对25日均线有偏执关注
         - 超跌后的第一个MACD金叉胜率远高于高位金叉
+        - 乖离率是日本市场最可靠的均值回归指标
         """
         try:
             if len(df) < self.bias_lookback + 1:
@@ -303,18 +326,28 @@ class MACDEnhancedFundamentalStrategy(BaseEntryStrategy):
             close = df['Close']
             bias = (close - ma25) / ma25 * 100  # 百分比
             
-            # 检查过去 bias_lookback 天内是否触及超卖
+            # 检查过去 bias_lookback 天内是否触及超卖阈值
             recent_bias = bias.iloc[-self.bias_lookback:]
             touched_oversold = (recent_bias < self.bias_oversold_threshold).any()
             
-            # 检查当前乖离率是否在恢复中（> recovery_threshold）
+            # 如果最近没有触及超卖，则返回0（不满足超卖反弹的条件）
+            if not touched_oversold:
+                return 0.0
+            
+            # 获取当前乖离率
             current_bias = bias.iloc[-1]
-            is_recovering = current_bias > self.bias_recovery_threshold
             
-            if touched_oversold and is_recovering:
+            # ===== 应用归一化范围 ===== 
+            # 从超卖阈值（-10%）到恢复阈值（-5%）的进度
+            if current_bias <= self.bias_oversold_threshold:
+                return 0.0
+            elif current_bias >= self.bias_recovery_threshold:
                 return 1.0
-            
-            return 0.0
+            else:
+                # 在两者之间：线性插值
+                progress = (current_bias - self.bias_oversold_threshold) / \
+                          (self.bias_recovery_threshold - self.bias_oversold_threshold)
+                return np.clip(progress, 0.0, 1.0)
         
         except Exception:
             return 0.0
