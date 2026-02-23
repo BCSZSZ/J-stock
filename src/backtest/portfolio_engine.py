@@ -46,6 +46,7 @@ class PortfolioBacktestEngine:
         signal_ranking_method: str = "simple_score",
         data_root: str = "./data",
         overlay_manager: Optional[OverlayManager] = None,
+        preloaded_cache: Optional["BacktestDataCache"] = None,
     ):
         """
         Args:
@@ -55,6 +56,8 @@ class PortfolioBacktestEngine:
             min_position_pct: 单股最小仓位
             signal_ranking_method: 信号排序方法
             data_root: 数据根目录
+            overlay_manager: Overlay管理器
+            preloaded_cache: 预加载的数据缓存（可选，用于性能优化）
         """
         self.starting_capital = starting_capital
         self.max_positions = max_positions
@@ -62,6 +65,7 @@ class PortfolioBacktestEngine:
         self.min_position_pct = min_position_pct
         self.data_root = data_root
         self.overlay_manager = overlay_manager
+        self.preloaded_cache = preloaded_cache
 
         # 创建信号排序器
         self.signal_ranker = SignalRanker(method=signal_ranking_method)
@@ -249,7 +253,7 @@ class PortfolioBacktestEngine:
                         )
                         trades.append(trade)
 
-                        profit_icon = "📈" if return_pct > 0 else "📉"
+                        profit_icon = "↑" if return_pct > 0 else "↓"
                         trigger = sell_signal.metadata.get("trigger", "N/A")
                         executed_sells.append(
                             f"{profit_icon} SELL {current_date.date()} {ticker}: {qty_to_sell:,} shares @ ¥{exit_price:,.2f} "
@@ -348,7 +352,7 @@ class PortfolioBacktestEngine:
                             if portfolio.add_position(position):
                                 score_display = buy_signal.metadata.get("score", "N/A")
                                 executed_buys.append(
-                                    f"📊 BUY  {current_date.date()} {ticker}: {shares:,} shares @ ¥{entry_price:,.2f} "
+                                    f"[BUY] {current_date.date()} {ticker}: {shares:,} shares @ {entry_price:,.2f}JPY "
                                     f"(Score: {score_display})"
                                 )
                                 new_positions_opened += 1
@@ -459,7 +463,7 @@ class PortfolioBacktestEngine:
             daily_equity[current_date] = total_value
 
             if show_daily_status and (i % 20 == 0 or i == len(trading_days) - 1):
-                print(f"\n  📊 组合状态 ({current_date.date()}):")
+                print(f"\n  [Portfolio] 组合状态 ({current_date.date()}):")
                 print(f"     {portfolio.get_portfolio_summary(current_prices)}")
 
         # ================================================================
@@ -498,7 +502,21 @@ class PortfolioBacktestEngine:
         return rounded_qty
 
     def _load_stock_data(self, ticker: str) -> Dict:
-        """加载单只股票的数据"""
+        """
+        加载单只股票的数据
+
+        优先从预加载缓存读取，缓存未命中时从磁盘加载。
+        """
+        # 优先使用预加载缓存（性能优化）
+        if self.preloaded_cache and self.preloaded_cache.has_ticker(ticker):
+            return {
+                "features": self.preloaded_cache.get_features(ticker),
+                "trades": self.preloaded_cache.get_trades(ticker),
+                "financials": self.preloaded_cache.get_financials(ticker),
+                "metadata": self.preloaded_cache.get_metadata(ticker),
+            }
+
+        # 缓存未命中，从磁盘加载（传统方式）
         features_path = Path(self.data_root) / "features" / f"{ticker}_features.parquet"
         trades_path = Path(self.data_root) / "raw_trades" / f"{ticker}_trades.parquet"
         financials_path = (

@@ -26,8 +26,14 @@
 
   "default_strategies": {
     "entry": "SimpleScorerStrategy",
-    "exit": "MVX_N9_R3p5_T1p6_D20_B15"
+    "exit": "MVX_N9_R3p4_T1p6_D18_B20p0"
   },
+
+  "entry_eval_exit_strategies": [
+    "MVX_N9_R3p4_T1p6_D18_B20p0",
+    "MVX_N9_R3p4_T1p5_D18_B20p0",
+    "MVX_N9_R3p4_T1p6_D18_B20p5"
+  ],
 
   "overlays": {
     "enabled": ["RegimeOverlay"],
@@ -57,7 +63,7 @@
         "name": "主策略组",
         "initial_capital": 3000000,
         "entry_strategy": "MACDCrossoverStrategy",
-        "exit_strategy": "MVX_N9_R3p5_T1p6_D20_B15"
+        "exit_strategy": "MVX_N9_R3p4_T1p6_D18_B20p0"
       }
     ]
   }

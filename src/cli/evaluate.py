@@ -2,12 +2,14 @@ def cmd_evaluate(args):
     """策略综合评价命令"""
     import json
     from pathlib import Path
+
     from src.evaluation import (
         StrategyEvaluator,
         create_annual_periods,
         create_monthly_periods,
         create_quarterly_periods,
     )
+
     from .common import load_config
 
     def resolve_output_dir(user_output_dir):
@@ -27,10 +29,7 @@ def cmd_evaluate(args):
             return str(cloud_default)
         except Exception as e:
             local_fallback.mkdir(parents=True, exist_ok=True)
-            print(
-                "⚠️ Google Drive输出目录不可写，已回退到本地目录: "
-                f"{local_fallback}"
-            )
+            print(f"⚠️ Google Drive输出目录不可写，已回退到本地目录: {local_fallback}")
             print(f"   原因: {e}")
             return str(local_fallback)
 
@@ -73,7 +72,9 @@ def cmd_evaluate(args):
         if not args.custom_periods:
             print("❌ 错误: custom模式需要指定--custom-periods参数")
             print('   格式: [["标签","开始日期","结束日期"], ...]')
-            print('   示例: [["2021-Q1","2021-01-01","2021-03-31"], ["2021-Q2","2021-04-01","2021-06-30"]]')
+            print(
+                '   示例: [["2021-Q1","2021-01-01","2021-03-31"], ["2021-Q2","2021-04-01","2021-06-30"]]'
+            )
             return
 
         try:
@@ -105,11 +106,25 @@ def cmd_evaluate(args):
         overlay_config=config,
     )
 
+    entry_strategies = args.entry_strategies
+    exit_strategies = args.exit_strategies
+
+    # 当没有显式指定出场策略时，优先使用配置文件中的默认出场策略
+    if not exit_strategies:
+        exit_strategies = config.get("entry_eval_exit_strategies")
+        if exit_strategies:
+            print("\n🧭 使用配置文件中的评估出场策略 (entry_eval_exit_strategies)")
+            print(f"   出场策略: {', '.join(exit_strategies)}")
+        else:
+            print(
+                "\n⚠️ 警告: 配置文件中未定义entry_eval_exit_strategies，将使用所有可用策略"
+            )
+
     print("\n🚀 开始策略评估...")
     df_results = evaluator.run_evaluation(
         periods=periods,
-        entry_strategies=args.entry_strategies,
-        exit_strategies=args.exit_strategies,
+        entry_strategies=entry_strategies,
+        exit_strategies=exit_strategies,
     )
 
     if df_results.empty:

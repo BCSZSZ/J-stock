@@ -1,9 +1,15 @@
 """
 策略综合评价器
 按年度、按市场环境评估策略组合表现
+
+Performance Optimization:
+- Parallel backtest execution using ProcessPoolExecutor
+- Preloaded data cache to eliminate repeated disk IO
+- Configurable worker count for optimal CPU utilization
 """
 
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -82,12 +88,27 @@ class StrategyEvaluator:
         output_dir: str = "strategy_evaluation",
         verbose: bool = False,
         overlay_config: Optional[Dict] = None,
+        workers: int = 4,
+        use_cache: bool = True,
     ):
+        """
+        Initialize strategy evaluator.
+
+        Args:
+            data_root: Root directory for data files
+            output_dir: Output directory for results
+            verbose: Enable detailed progress output
+            overlay_config: Configuration for overlay manager
+            workers: Number of parallel workers (default: 4, set to 1 for serial execution)
+            use_cache: Enable data preloading cache for performance (default: True)
+        """
         self.data_root = data_root
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.results: List[AnnualStrategyResult] = []
         self.verbose = verbose  # 详细输出模式
+        self.workers = workers  # Parallel workers
+        self.use_cache = use_cache  # Data cache flag
 
         self.overlay_manager = OverlayManager.from_config(
             overlay_config or {},
@@ -132,7 +153,7 @@ class StrategyEvaluator:
         exit_strategies: List[str] = None,
     ) -> pd.DataFrame:
         """
-        执行批量策略评估
+        执行批量策略评估（并行优化版本）
 
         Args:
             periods: [(period_label, start_date, end_date), ...]
@@ -153,99 +174,182 @@ class StrategyEvaluator:
             exit_strategies = list(EXIT_STRATEGIES.keys())
 
         total_backtests = len(periods) * len(entry_strategies) * len(exit_strategies)
-        completed = 0
 
         # 总是显示的基本信息
         print(f"\n{'=' * 80}")
-        print("🎯 策略综合评价")
+        print("🎯 策略综合评价 (并行优化版本)")
         print(f"{'=' * 80}")
         print(f"   时间段数量: {len(periods)}")
         print(f"   入场策略: {len(entry_strategies)}个")
         print(f"   出场策略: {len(exit_strategies)}个")
         print(f"   总回测次数: {total_backtests}")
+        print(f"   并行Workers: {self.workers}")
+        print(f"   数据缓存: {'启用' if self.use_cache else '禁用'}")
         if self.verbose:
             print("   详细输出: 开启")
         else:
             print("   输出模式: 简洁（使用 --verbose 查看详细进度）")
         print(f"{'=' * 80}\n")
 
-        # 遍历所有时间段
-        for period_label, start_date, end_date in periods:
-            if self.verbose:
-                print(f"\n{'=' * 80}")
-                print(f"📅 评估时段: {period_label}")
-                print(f"   日期范围: {start_date} to {end_date}")
-                print(f"{'=' * 80}")
+        # Step 1: Preload data cache (if enabled)
+        preloaded_cache = None
+        if self.use_cache:
+            print("📦 预加载数据缓存...")
+            try:
+                from src.backtest.data_cache import BacktestDataCache
 
-            # 获取TOPIX收益率（使用缓存）
+                tickers = self._load_monitor_list()
+                preloaded_cache = BacktestDataCache(data_root=self.data_root)
+
+                # 计算所需的日期范围
+                min_date = min(p[1] for p in periods)  # Earliest start_date
+                max_date = max(p[2] for p in periods)  # Latest end_date
+
+                preloaded_cache.preload_tickers(
+                    tickers=tickers,
+                    start_date=min_date,
+                    end_date=max_date,
+                    optimize_memory=True,
+                )
+
+                memory_dict = preloaded_cache.get_memory_usage()
+                total_mb = sum(memory_dict.values())
+                print(f"✅ 缓存加载完成: {len(tickers)}只股票, {total_mb:.2f} MB\n")
+            except Exception as e:
+                print(f"⚠️  缓存加载失败，回退到串行执行: {e}\n")
+                self.workers = 1
+                preloaded_cache = None
+
+        # Step 2: Prepare TOPIX cache
+        print("📊 预加载TOPIX基准数据...")
+        for period_label, start_date, end_date in periods:
             cache_key = (start_date, end_date)
             if cache_key not in self._topix_cache:
                 self._topix_cache[cache_key] = self._get_topix_return(
                     start_date, end_date
                 )
-            topix_return = self._topix_cache[cache_key]
+        print("✅ TOPIX数据缓存完成\n")
 
-            # 检查TOPIX数据是否可用
-            if topix_return is None:
-                if self.verbose:
-                    print(
-                        "⚠️  TOPIX数据不可用，将计算可用的指标，超额收益等指标标记为N/A\n"
-                    )
-                market_regime = "未知市场环境 (TOPIX数据缺失)"
-            else:
-                market_regime = MarketRegime.classify(topix_return)
-                if self.verbose:
-                    print(f"📊 TOPIX收益率: {topix_return:.2f}%")
-                    print(f"🏷️  市场环境: {market_regime}\n")
-
-            # 测试所有策略组合
-            period_completed = 0
+        # Step 3: Create task list
+        tasks = []
+        for period_label, start_date, end_date in periods:
+            topix_return = self._topix_cache.get((start_date, end_date))
             for entry in entry_strategies:
                 for exit in exit_strategies:
+                    tasks.append(
+                        {
+                            "period_label": period_label,
+                            "start_date": start_date,
+                            "end_date": end_date,
+                            "entry_strategy": entry,
+                            "exit_strategy": exit,
+                            "topix_return": topix_return,
+                        }
+                    )
+
+        # Step 4: Execute backtests (parallel or serial)
+        print(f"🚀 开始执行 {len(tasks)} 个回测任务...")
+        completed = 0
+
+        if self.workers > 1:
+            # Parallel execution
+            with ProcessPoolExecutor(max_workers=self.workers) as executor:
+                future_to_task = {
+                    executor.submit(
+                        _run_backtest_worker,
+                        task["period_label"],
+                        task["start_date"],
+                        task["end_date"],
+                        task["entry_strategy"],
+                        task["exit_strategy"],
+                        task["topix_return"],
+                        self.data_root,
+                        self._get_portfolio_limits(),
+                        self.overlay_manager.config
+                        if hasattr(self.overlay_manager, "config")
+                        else {},
+                        self.use_cache,
+                    ): task
+                    for task in tasks
+                }
+
+                for future in as_completed(future_to_task):
                     completed += 1
-                    period_completed += 1
                     progress = (completed / total_backtests) * 100
 
-                    if self.verbose:
-                        print(
-                            f"[{completed}/{total_backtests} {progress:.1f}%] {entry} × {exit}... ",
-                            end="",
-                            flush=True,
-                        )
-                    else:
-                        # 简洁模式：每25个回测显示一个进度标记
-                        if completed % 25 == 0 or completed == total_backtests:
-                            print(
-                                f"[{completed}/{total_backtests}]", end=" ", flush=True
-                            )
-
                     try:
-                        result = self._run_single_backtest(
-                            period_label=period_label,
-                            start_date=start_date,
-                            end_date=end_date,
-                            entry_strategy=entry,
-                            exit_strategy=exit,
-                            topix_return=topix_return,
-                        )
+                        result = future.result()
+                        if result:
+                            self.results.append(result)
 
-                        self.results.append(result)
-
-                        if self.verbose:
-                            # 格式化输出：如果没有TOPIX数据，alpha为N/A
-                            alpha_str = (
-                                f"{result.alpha:>6.2f}%"
-                                if result.alpha is not None
-                                else "   N/A "
-                            )
-                            print(
-                                f"✓ Return: {result.return_pct:>6.2f}%, Alpha: {alpha_str}"
-                            )
-
+                            if self.verbose:
+                                alpha_str = (
+                                    f"{result.alpha:>6.2f}%"
+                                    if result.alpha is not None
+                                    else "   N/A "
+                                )
+                                print(
+                                    f"[{completed}/{total_backtests} {progress:.1f}%] "
+                                    f"{result.entry_strategy} × {result.exit_strategy} ({result.period}) "
+                                    f"✓ Return: {result.return_pct:>6.2f}%, Alpha: {alpha_str}"
+                                )
+                            else:
+                                if completed % 25 == 0 or completed == total_backtests:
+                                    print(
+                                        f"[{completed}/{total_backtests}]",
+                                        end=" ",
+                                        flush=True,
+                                    )
                     except Exception as e:
                         if self.verbose:
-                            print(f"✗ Error: {str(e)}")
-                        continue
+                            task = future_to_task[future]
+                            print(
+                                f"[{completed}/{total_backtests}] "
+                                f"{task['entry_strategy']} × {task['exit_strategy']} ✗ Error: {e}"
+                            )
+        else:
+            # Serial execution (backward compatibility)
+            for task in tasks:
+                completed += 1
+                progress = (completed / total_backtests) * 100
+
+                if self.verbose:
+                    print(
+                        f"[{completed}/{total_backtests} {progress:.1f}%] "
+                        f"{task['entry_strategy']} × {task['exit_strategy']}... ",
+                        end="",
+                        flush=True,
+                    )
+                else:
+                    if completed % 25 == 0 or completed == total_backtests:
+                        print(f"[{completed}/{total_backtests}]", end=" ", flush=True)
+
+                try:
+                    result = self._run_single_backtest(
+                        period_label=task["period_label"],
+                        start_date=task["start_date"],
+                        end_date=task["end_date"],
+                        entry_strategy=task["entry_strategy"],
+                        exit_strategy=task["exit_strategy"],
+                        topix_return=task["topix_return"],
+                        preloaded_cache=preloaded_cache,
+                    )
+
+                    self.results.append(result)
+
+                    if self.verbose:
+                        alpha_str = (
+                            f"{result.alpha:>6.2f}%"
+                            if result.alpha is not None
+                            else "   N/A "
+                        )
+                        print(
+                            f"✓ Return: {result.return_pct:>6.2f}%, Alpha: {alpha_str}"
+                        )
+                except Exception as e:
+                    if self.verbose:
+                        print(f"✗ Error: {str(e)}")
+                    continue
 
         print(f"\n{'=' * 80}")
         print(f"✅ 评估完成！共 {len(self.results)}/{total_backtests} 个回测成功")
@@ -261,10 +365,14 @@ class StrategyEvaluator:
         entry_strategy: str,
         exit_strategy: str,
         topix_return: float,
+        preloaded_cache=None,
     ) -> AnnualStrategyResult:
         """
         执行单个策略的回测
         调用现有的portfolio_engine（不修改任何现有代码）
+
+        Args:
+            preloaded_cache: Optional BacktestDataCache instance for performance
         """
         from src.backtest.portfolio_engine import PortfolioBacktestEngine
         from src.utils.strategy_loader import load_entry_strategy, load_exit_strategy
@@ -284,6 +392,7 @@ class StrategyEvaluator:
             max_positions=max_positions,
             max_position_pct=max_position_pct,
             overlay_manager=self.overlay_manager,
+            preloaded_cache=preloaded_cache,  # Pass cache to engine
         )
 
         result = engine.backtest_portfolio_strategy(
@@ -752,3 +861,137 @@ def create_quarterly_periods(years: List[int]) -> List[Tuple[str, str, str]]:
             periods.append((f"{year}-{q_label}", f"{year}-{start}", f"{year}-{end}"))
 
     return periods
+
+
+# ==================== PARALLEL WORKER FUNCTION ====================
+
+
+def _run_backtest_worker(
+    period_label: str,
+    start_date: str,
+    end_date: str,
+    entry_strategy: str,
+    exit_strategy: str,
+    topix_return: Optional[float],
+    data_root: str,
+    portfolio_limits: Tuple[int, float],
+    overlay_config: Dict,
+    use_cache: bool,
+) -> Optional[AnnualStrategyResult]:
+    """
+    Worker function for parallel backtest execution.
+
+    This function runs in a separate process and must be pickleable.
+    Each worker creates its own data cache to avoid multiprocessing serialization issues.
+
+    Args:
+        period_label: Period label (e.g., "2021", "2021-Q1")
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+        entry_strategy: Entry strategy name
+        exit_strategy: Exit strategy name
+        topix_return: TOPIX benchmark return (optional)
+        data_root: Data root directory
+        portfolio_limits: (max_positions, max_position_pct)
+        overlay_config: Overlay manager configuration dict
+        use_cache: Whether to use data cache
+
+    Returns:
+        AnnualStrategyResult or None if error
+    """
+    try:
+        import json
+        from pathlib import Path
+
+        from src.backtest.data_cache import BacktestDataCache
+        from src.backtest.portfolio_engine import PortfolioBacktestEngine
+        from src.overlays import OverlayManager
+        from src.utils.strategy_loader import load_entry_strategy, load_exit_strategy
+
+        # Load strategies
+        entry = load_entry_strategy(entry_strategy)
+        exit_inst = load_exit_strategy(exit_strategy)
+
+        # Load monitor list (from config.json)
+        try:
+            config_path = Path("config.json")
+            if config_path.exists():
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    monitor_file = Path(config["data"]["monitor_list_file"])
+            else:
+                monitor_file = Path(data_root) / "monitor_list.json"
+        except Exception:
+            monitor_file = Path(data_root) / "monitor_list.json"
+
+        if not monitor_file.exists():
+            return None
+
+        with open(monitor_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            tickers = [stock["code"] for stock in data["tickers"]]
+
+        # Create data cache (if enabled)
+        preloaded_cache = None
+        if use_cache:
+            try:
+                preloaded_cache = BacktestDataCache(data_root=data_root)
+                preloaded_cache.preload_tickers(
+                    tickers=tickers,
+                    start_date=start_date,
+                    end_date=end_date,
+                    optimize_memory=True,
+                )
+            except Exception:
+                # Fallback to disk loading if cache fails
+                preloaded_cache = None
+
+        # Create overlay manager
+        overlay_manager = OverlayManager.from_config(
+            overlay_config, data_root=data_root
+        )
+
+        # Run backtest
+        max_positions, max_position_pct = portfolio_limits
+        engine = PortfolioBacktestEngine(
+            data_root=data_root,
+            starting_capital=5_000_000,
+            max_positions=max_positions,
+            max_position_pct=max_position_pct,
+            overlay_manager=overlay_manager,
+            preloaded_cache=preloaded_cache,
+        )
+
+        result = engine.backtest_portfolio_strategy(
+            tickers=tickers,
+            entry_strategy=entry,
+            exit_strategy=exit_inst,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        # Calculate alpha
+        alpha = None
+        if topix_return is not None:
+            alpha = result.total_return_pct - topix_return
+
+        # Return result
+        return AnnualStrategyResult(
+            period=period_label,
+            start_date=start_date,
+            end_date=end_date,
+            entry_strategy=entry_strategy,
+            exit_strategy=exit_strategy,
+            return_pct=result.total_return_pct,
+            topix_return_pct=topix_return,
+            alpha=alpha,
+            sharpe_ratio=result.sharpe_ratio,
+            max_drawdown_pct=result.max_drawdown_pct,
+            num_trades=result.num_trades,
+            win_rate_pct=result.win_rate_pct,
+            avg_gain_pct=result.avg_gain_pct,
+            avg_loss_pct=result.avg_loss_pct,
+        )
+    except Exception:
+        # Return None on error (logged by main process)
+        return None

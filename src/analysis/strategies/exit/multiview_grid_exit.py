@@ -27,10 +27,10 @@ class MultiViewCompositeExit(BaseExitStrategy):
     def __init__(
         self,
         hist_shrink_n: int = 9,
-        r_mult: float = 3.5,
+        r_mult: float = 3.4,
         trail_mult: float = 1.6,
-        time_stop_days: int = 20,
-        bias_exit_threshold_pct: float = 15.0,
+        time_stop_days: int = 18,
+        bias_exit_threshold_pct: float = 20.0,
         tp1_r: float = 1.0,
         tp2_r: float = 2.0,
     ):
@@ -375,11 +375,13 @@ def _float_token(value: float) -> str:
 
 GRID_EXIT_STRATEGY_MAP: Dict[str, str] = {}
 
-_N_VALUES = [9]
-_R_VALUES = [3.5]
-_T_VALUES = [1.6]
-_D_VALUES = [20]
-_B_VALUES = [15]
+# 固定参数 (来自最优参数D18_B20)
+_D_VALUES = [18]  # 固定D=18
+# 参数微调网格 (3^4 = 81个组合)
+_N_VALUES = [8, 9, 10]  # MACD直方图收缩周期: ±1步长
+_R_VALUES = [3.4, 3.5, 3.6]  # 回报倍数: ±0.1步长
+_T_VALUES = [1.5, 1.6, 1.7]  # 尾随倍数: ±0.1步长
+_B_VALUES = [19.5, 20.0, 20.5]  # 偏离度百分比: ±0.5步长
 
 
 def _build_variant_class(name: str, n: int, r: float, t: float, d: int, b: float):
@@ -402,7 +404,8 @@ for _n in _N_VALUES:
         for _t in _T_VALUES:
             for _d in _D_VALUES:
                 for _b in _B_VALUES:
-                    _name = f"MVX_N{_n}_R{_float_token(_r)}_T{_float_token(_t)}_D{_d}_B{int(_b)}"
+                    # B值支持浮点数，使用_float_token处理
+                    _name = f"MVX_N{_n}_R{_float_token(_r)}_T{_float_token(_t)}_D{_d}_B{_float_token(_b)}"
                     _cls = _build_variant_class(_name, _n, _r, _t, _d, _b)
                     globals()[_name] = _cls
                     GRID_EXIT_STRATEGY_MAP[_name] = (

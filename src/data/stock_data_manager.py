@@ -362,13 +362,16 @@ class StockDataManager:
                 if pd.notna(prev_vol) and pd.notna(curr_vol) and prev_vol > 0:
                     expected_vol_ratio = 1 / matched_ratio
                     vol_ratio = curr_vol / prev_vol
-                    volume_match = abs(vol_ratio - expected_vol_ratio) <= expected_vol_ratio * SPLIT_TOLERANCE * 2
+                    volume_match = (
+                        abs(vol_ratio - expected_vol_ratio)
+                        <= expected_vol_ratio * SPLIT_TOLERANCE * 2
+                    )
 
             if fields_checked == 0:
                 continue
 
             if matches >= 3:
-                confidence = (matches / max(fields_checked, 1))
+                confidence = matches / max(fields_checked, 1)
                 if volume_match is True:
                     confidence = min(1.0, confidence + 0.1)
 
@@ -458,7 +461,11 @@ class StockDataManager:
                     split_version = metadata.get("split_adjusted_version")
                     split_adjusted = metadata.get("split_adjusted") is True
 
-                    if features_mtime >= raw_mtime and split_version == 1 and split_adjusted:
+                    if (
+                        features_mtime >= raw_mtime
+                        and split_version == 1
+                        and split_adjusted
+                    ):
                         logger.info(f"[{code}] Features up-to-date, skip recompute")
                         return existing_features
             except Exception as e:
