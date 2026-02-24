@@ -14,7 +14,7 @@ from src.cli.fetch import cmd_fetch
 from src.cli.portfolio import cmd_portfolio
 from src.cli.production import cmd_production
 from src.cli.signal import cmd_signal
-from src.cli.universe import cmd_universe
+from src.cli.universe import cmd_universe, cmd_universe_sector
 from src.utils.strategy_loader import ENTRY_STRATEGIES, EXIT_STRATEGIES
 
 # Force UTF-8 output on Windows (一劳永逸解决 emoji 编码问题)
@@ -241,7 +241,104 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="跳过数据抓取，直接用现有features做归一化（快速重新评分）",
     )
+    universe_parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="并行worker数量（默认: 8）",
+    )
+    universe_parser.add_argument(
+        "--score-model",
+        choices=["v1", "v2"],
+        default="v1",
+        help="打分模型版本（默认: v1）",
+    )
+    universe_parser.add_argument(
+        "--output-dir",
+        default="data/universe",
+        help="输出目录（默认: data/universe）",
+    )
     universe_parser.set_defaults(func=cmd_universe)
+
+    universe_sector_parser = subparsers.add_parser(
+        "universe-sector", help="按33板块配额构建代表池（12-15支/板块）"
+    )
+    universe_sector_parser.add_argument(
+        "--csv-file", type=str, help="CSV文件路径 (默认: data/jpx_final_list.csv)"
+    )
+    universe_sector_parser.add_argument(
+        "--sector-col",
+        default="33業種区分",
+        help="板块列名（默认: 33業種区分）",
+    )
+    universe_sector_parser.add_argument(
+        "--size-col",
+        default="規模区分",
+        help="规模列名（默认: 規模区分）",
+    )
+    universe_sector_parser.add_argument(
+        "--min-per-sector",
+        type=int,
+        default=12,
+        help="每板块最少入选数（默认: 12）",
+    )
+    universe_sector_parser.add_argument(
+        "--max-per-sector",
+        type=int,
+        default=15,
+        help="每板块最多入选数（默认: 15）",
+    )
+    universe_sector_parser.add_argument(
+        "--candidate-multiplier",
+        type=int,
+        default=3,
+        help="板块内候选扩展倍数（默认: 3）",
+    )
+    universe_sector_parser.add_argument(
+        "--size-balance",
+        action="store_true",
+        help="启用规模分层平衡抽样",
+    )
+    universe_sector_parser.add_argument(
+        "--limit", type=int, help="仅处理前N支股票（调试用）"
+    )
+    universe_sector_parser.add_argument(
+        "--batch-size", type=int, default=100, help="批次大小（默认100）"
+    )
+    universe_sector_parser.add_argument(
+        "--resume", action="store_true", help="从checkpoint断点续传"
+    )
+    universe_sector_parser.add_argument(
+        "--checkpoint", type=str, help="指定checkpoint路径（默认自动生成）"
+    )
+    universe_sector_parser.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="跳过数据抓取，直接用现有features做归一化（快速重新评分）",
+    )
+    universe_sector_parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="并行worker数量（默认: 8）",
+    )
+    universe_sector_parser.add_argument(
+        "--score-model",
+        choices=["v1", "v2"],
+        default="v2",
+        help="打分模型版本（默认: v2）",
+    )
+    universe_sector_parser.add_argument(
+        "--output-dir",
+        default="data/universe",
+        help="输出目录（默认: data/universe）",
+    )
+    universe_sector_parser.add_argument(
+        "--write-monitor-list",
+        action="store_true",
+        help="额外导出monitor_list格式JSON",
+    )
+    universe_sector_parser.set_defaults(func=cmd_universe_sector)
 
     evaluate_parser = subparsers.add_parser(
         "evaluate", help="策略综合评价（按年度/市场环境）"

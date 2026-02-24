@@ -21,7 +21,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -60,22 +60,38 @@ class UniverseSelector:
     MIN_HISTORY_DAYS = 250  # Need at least 250 days for MA200
     LOOKBACK_DAYS = 250
 
-    def __init__(self, data_manager: StockDataManager, workers: int = 8):
+    def __init__(
+        self,
+        data_manager: StockDataManager,
+        workers: int = 8,
+        score_model: str = "v1",
+        output_dir: str = "data/universe",
+    ):
         """
         Initialize the Universe Selector.
 
         Args:
             data_manager: StockDataManager instance with API access.
             workers: Number of parallel workers for feature extraction (default: 8)
+            score_model: Scoring model version (v1 or v2)
+            output_dir: Directory for selection output artifacts
         """
         self.data_manager = data_manager
         self.client = data_manager.client
         self.workers = workers
+        self.score_model = score_model.lower()
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.score_model not in {"v1", "v2"}:
+            raise ValueError("score_model must be 'v1' or 'v2'")
 
         if not self.client:
             raise ValueError("StockDataManager must have API access (api_key required)")
 
-        logger.info(f"UniverseSelector initialized (workers={workers})")
+        logger.info(
+            f"UniverseSelector initialized (workers={workers}, score_model={self.score_model}, output_dir={self.output_dir})"
+        )
 
     # ==================== MAIN PIPELINE ====================
 
@@ -88,7 +104,7 @@ class UniverseSelector:
         apply_filters: bool = True,
         return_full: bool = False,
         no_fetch: bool = False,
-    ) -> pd.DataFrame:
+    ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame]]:
         """
         Execute the full selection pipeline.
 
@@ -179,6 +195,9 @@ class UniverseSelector:
             )
         else:
             # Option 2: Fetch from API
+            if self.client is None:
+                logger.error("Client is not initialized")
+                return pd.DataFrame()
             listed_stocks = self.client.get_listed_info()
 
             if not listed_stocks:
@@ -303,7 +322,6 @@ class UniverseSelector:
         if "MarketCode" in df_filtered.columns:
             # Typically exclude market codes for ETFs/REITs
             # Keep Prime, Standard, Growth
-            valid_markets = ["0111", "0113", "0114"]  # Common equity market codes
             # If market codes are different, this needs adjustment
             # For now, we'll be permissive
             pass
@@ -536,16 +554,29 @@ class UniverseSelector:
 
         df_scored = df.copy()
 
-        df_scored["TotalScore"] = (
-            self.WEIGHT_VOLATILITY * df_scored["Rank_Vol"]
-            + self.WEIGHT_LIQUIDITY * df_scored["Rank_Liq"]
-            + self.WEIGHT_TREND * df_scored["Rank_Trend"]
-            + self.WEIGHT_MOMENTUM * df_scored["Rank_Momentum"]
-            + self.WEIGHT_VOLUME_SURGE * df_scored["Rank_VolSurge"]
-        )
+        if self.score_model == "v1":
+            df_scored["TotalScore"] = (
+                self.WEIGHT_VOLATILITY * df_scored["Rank_Vol"]
+                + self.WEIGHT_LIQUIDITY * df_scored["Rank_Liq"]
+                + self.WEIGHT_TREND * df_scored["Rank_Trend"]
+                + self.WEIGHT_MOMENTUM * df_scored["Rank_Momentum"]
+                + self.WEIGHT_VOLUME_SURGE * df_scored["Rank_VolSurge"]
+            )
+        else:
+            # v2 emphasizes liquidity/trend quality and moderates pure volatility preference.
+            df_scored["TotalScore"] = (
+                0.30 * df_scored["Rank_Liq"]
+                + 0.25 * df_scored["Rank_Trend"]
+                + 0.20 * df_scored["Rank_Momentum"]
+                + 0.15 * (1 - (df_scored["Rank_Vol"] - 0.5).abs() * 2)
+                + 0.10 * df_scored["Rank_VolSurge"]
+            )
+
+            # Clamp after transformation to ensure stable [0,1] scoring range.
+            df_scored["TotalScore"] = df_scored["TotalScore"].clip(0.0, 1.0)
 
         logger.info(
-            f"  - Score range: {df_scored['TotalScore'].min():.3f} - {df_scored['TotalScore'].max():.3f}"
+            f"  - Score model: {self.score_model}, range: {df_scored['TotalScore'].min():.3f} - {df_scored['TotalScore'].max():.3f}"
         )
 
         return df_scored
@@ -575,7 +606,7 @@ class UniverseSelector:
     def _save_universe_snapshot(self, df: pd.DataFrame) -> None:
         """Save full universe snapshot for analysis."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        snapshot_path = Path("data/universe") / f"universe_snapshot_{timestamp}.parquet"
+        snapshot_path = self.output_dir / f"universe_snapshot_{timestamp}.parquet"
 
         df.to_parquet(snapshot_path, index=False)
         logger.info(f"Universe snapshot saved: {snapshot_path}")
@@ -594,14 +625,14 @@ class UniverseSelector:
             Tuple of (json_path, csv_path).
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_path = Path("data/universe")
+        base_path = self.output_dir
 
         json_path = None
         csv_path = None
 
         # JSON format (monitor_list compatible)
         if format in ["json", "both"]:
-            json_path = base_path / f"top50_selection_{timestamp}.json"
+            json_path = base_path / f"universe_selection_{timestamp}.json"
 
             # Convert to monitor_list.json format
             tickers_list = []
@@ -634,7 +665,8 @@ class UniverseSelector:
             output = {
                 "version": "2.0",
                 "selection_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "description": "Top 50 stocks selected by Universe Selector (5-dimension scoring)",
+                    "description": "Universe selection output",
+                    "score_model": self.score_model,
                 "selection_criteria": {
                     "min_price": self.MIN_PRICE,
                     "min_liquidity": self.MIN_LIQUIDITY,
@@ -657,7 +689,7 @@ class UniverseSelector:
 
         # CSV format (for analysis)
         if format in ["csv", "both"]:
-            csv_path = base_path / f"top50_selection_{timestamp}.csv"
+            csv_path = base_path / f"universe_selection_{timestamp}.csv"
 
             # Select key columns (include new metrics if available)
             output_columns = [
@@ -700,7 +732,7 @@ class UniverseSelector:
             Path to the saved TXT file.
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        txt_path = Path("data/universe") / f"universe_summary_{timestamp}.txt"
+        txt_path = self.output_dir / f"universe_summary_{timestamp}.txt"
 
         # Ensure sort by TotalScore desc for full list
         df_all_sorted = df_scored.sort_values("TotalScore", ascending=False).copy()
@@ -728,7 +760,7 @@ class UniverseSelector:
         lines.append("Rank,Code,CompanyName,TotalScore")
         for row in df_top.sort_values("Rank").itertuples(index=False):
             lines.append(
-                f"{int(row.Rank)},{row.Code},{row.CompanyName},{row.TotalScore:.4f}"
+                f"{row.Rank},{row.Code},{row.CompanyName},{row.TotalScore:.4f}"
             )
 
         txt_path.parent.mkdir(parents=True, exist_ok=True)

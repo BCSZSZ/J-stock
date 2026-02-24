@@ -118,12 +118,22 @@ class StockDataManager:
 
     # ==================== OHLC DATA MANAGEMENT ====================
 
-    def fetch_and_update_ohlc(self, code: str) -> tuple[pd.DataFrame, bool]:
+    def fetch_and_update_ohlc(
+        self,
+        code: str,
+        min_history_rows: Optional[int] = None,
+        initial_lookback_days: int = 1825,
+    ) -> tuple[pd.DataFrame, bool]:
         """
         Fetch and update OHLC data for a stock using incremental strategy.
 
         Args:
             code: Stock code (e.g., '6758').
+
+            min_history_rows: Optional minimum number of rows to guarantee
+                after update. If current data is shorter, fetch older history
+                and prepend until threshold is met or no older data exists.
+            initial_lookback_days: Lookback window for cold start fetch.
 
         Returns:
             Tuple of (Updated DataFrame, has_new_data flag)
@@ -132,13 +142,41 @@ class StockDataManager:
 
         if not file_path.exists():
             logger.info(f"[{code}] Cold start: Fetching 5 years of history")
-            result_df = self._fetch_initial_data(code, file_path)
-            return result_df, True  # New data fetched
+            result_df = self._fetch_initial_data(
+                code, file_path, lookback_days=initial_lookback_days
+            )
+            has_new_data = not result_df.empty
+            if min_history_rows and not result_df.empty:
+                before_len = len(result_df)
+                result_df = self._backfill_history_to_min_rows(
+                    code=code,
+                    existing_df=result_df,
+                    file_path=file_path,
+                    min_history_rows=min_history_rows,
+                )
+                has_new_data = has_new_data or len(result_df) > before_len
+            return result_df, has_new_data
         else:
             logger.info(f"[{code}] Incremental update mode")
-            return self._fetch_incremental_data(code, file_path)
+            result_df, has_new_data = self._fetch_incremental_data(code, file_path)
+            if (
+                min_history_rows
+                and not result_df.empty
+                and len(result_df) < min_history_rows
+            ):
+                before_len = len(result_df)
+                result_df = self._backfill_history_to_min_rows(
+                    code=code,
+                    existing_df=result_df,
+                    file_path=file_path,
+                    min_history_rows=min_history_rows,
+                )
+                has_new_data = has_new_data or len(result_df) > before_len
+            return result_df, has_new_data
 
-    def _fetch_initial_data(self, code: str, file_path: Path) -> pd.DataFrame:
+    def _fetch_initial_data(
+        self, code: str, file_path: Path, lookback_days: int = 1825
+    ) -> pd.DataFrame:
         """
         Fetch the last 5 years of daily quotes (cold start).
 
@@ -150,7 +188,7 @@ class StockDataManager:
             DataFrame with OHLC data.
         """
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=1825)  # 5 years
+        start_date = end_date - timedelta(days=lookback_days)
 
         from_str = start_date.strftime("%Y-%m-%d")
         to_str = end_date.strftime("%Y-%m-%d")
@@ -165,6 +203,55 @@ class StockDataManager:
         self._atomic_save(df, file_path)
         logger.info(f"[{code}] Saved {len(df)} rows (initial fetch)")
 
+        return df
+
+    def _backfill_history_to_min_rows(
+        self,
+        code: str,
+        existing_df: pd.DataFrame,
+        file_path: Path,
+        min_history_rows: int,
+    ) -> pd.DataFrame:
+        """Backfill older bars so total rows reach at least min_history_rows."""
+        if existing_df.empty or len(existing_df) >= min_history_rows:
+            return existing_df
+
+        df = self._ensure_sorted_prices(existing_df)
+        attempts = 0
+        max_attempts = 6
+        window_days = 365
+
+        while len(df) < min_history_rows and attempts < max_attempts:
+            earliest_date = pd.to_datetime(df["Date"]).min()
+            if pd.isna(earliest_date):
+                break
+
+            fetch_end = earliest_date - timedelta(days=1)
+            fetch_start = fetch_end - timedelta(days=window_days)
+            attempts += 1
+
+            bars = self.client.get_daily_bars(
+                code,
+                fetch_start.strftime("%Y-%m-%d"),
+                fetch_end.strftime("%Y-%m-%d"),
+            )
+
+            if not bars:
+                logger.info(f"[{code}] No older bars returned during backfill")
+                break
+
+            older_df = self._normalize_ohlc_data(bars)
+            if older_df.empty:
+                break
+
+            df = pd.concat([older_df, df], ignore_index=True)
+            df = df.drop_duplicates(subset=["Date"], keep="last")
+            df = self._ensure_sorted_prices(df)
+
+        self._atomic_save(df, file_path)
+        logger.info(
+            f"[{code}] Backfill complete: {len(df)} rows (target: {min_history_rows})"
+        )
         return df
 
     def _fetch_incremental_data(
@@ -314,6 +401,35 @@ class StockDataManager:
         else:
             df = df.sort_index()
         return df
+
+    def _sanitize_ohlcv_for_indicators(self, df: pd.DataFrame, code: str) -> pd.DataFrame:
+        """Drop malformed OHLCV rows so technical indicators remain stable."""
+        if df.empty:
+            return df
+
+        required_cols = ["Date", "Open", "High", "Low", "Close", "Volume"]
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            logger.warning(f"[{code}] Missing OHLCV columns: {missing}")
+            return pd.DataFrame()
+
+        clean = df.copy()
+        clean["Date"] = pd.to_datetime(clean["Date"], errors="coerce")
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            clean[col] = pd.to_numeric(clean[col], errors="coerce")
+
+        before = len(clean)
+        clean = clean.dropna(subset=required_cols)
+        clean = clean[(clean["Open"] > 0) & (clean["High"] > 0) & (clean["Low"] > 0) & (clean["Close"] > 0)]
+        clean = clean[clean["Volume"] >= 0]
+        clean = clean.drop_duplicates(subset=["Date"], keep="last")
+        clean = clean.sort_values("Date").reset_index(drop=True)
+
+        dropped = before - len(clean)
+        if dropped > 0:
+            logger.warning(f"[{code}] Dropped {dropped} malformed OHLCV rows before indicators")
+
+        return clean
 
     def _detect_split_events(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
         if df.empty or len(df) < 2:
@@ -473,6 +589,10 @@ class StockDataManager:
 
         df = pd.read_parquet(raw_path)
         df = self._ensure_sorted_prices(df)
+        df = self._sanitize_ohlcv_for_indicators(df, code)
+        if df.empty:
+            logger.warning(f"[{code}] No valid OHLCV rows after sanitization")
+            return df
 
         split_events = self._detect_split_events(df)
         if split_events:
@@ -826,7 +946,13 @@ class StockDataManager:
 
     # ==================== COMPLETE ETL WORKFLOW ====================
 
-    def run_full_etl(self, code: str, force_recompute: bool = False) -> Dict[str, Any]:
+    def run_full_etl(
+        self,
+        code: str,
+        force_recompute: bool = False,
+        min_history_rows: Optional[int] = None,
+        initial_lookback_days: int = 1825,
+    ) -> Dict[str, Any]:
         """
         Run complete ETL pipeline for a single stock.
 
@@ -840,7 +966,11 @@ class StockDataManager:
 
         try:
             # Step 1: Fetch/Update OHLC (增量)
-            df_prices, has_new_data = self.fetch_and_update_ohlc(code)
+            df_prices, has_new_data = self.fetch_and_update_ohlc(
+                code,
+                min_history_rows=min_history_rows,
+                initial_lookback_days=initial_lookback_days,
+            )
             result["price_rows"] = len(df_prices)
             result["has_new_data"] = has_new_data
 

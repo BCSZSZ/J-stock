@@ -21,4 +21,30 @@
 	- 入场策略参数版：`MACDCrossoverEnhancedA2_V11` / `MACDCrossoverEnhancedA2_V12` / `MACDCrossoverEnhancedA2_V13`
 	- 出场策略参数版：`MVX_N9_R3p4_T1p6_D18_B20p0`
 
+## Task 2: 板块代表池构建（33板块）
+
+### 目标
+基于全市场打分结果，构建 33 板块代表池（每板块 12-15 支）。
+
+### 首次全量运行（标准命令，无 `--no-fetch`）
+```powershell
+.venv/Scripts/python.exe main.py universe-sector --score-model v2 --size-balance --min-per-sector 12 --max-per-sector 15 --batch-size 100 --workers 8 --output-dir data/universe
+```
+
+说明: 首次运行会先执行批量 ETL 预处理（抓取 OHLC + 计算特征），再进入板块打分与选股。
+
+### 增量运行（本地数据已齐全时）
+```powershell
+.venv/Scripts/python.exe main.py universe-sector --score-model v2 --size-balance --min-per-sector 12 --max-per-sector 15 --no-fetch --resume
+```
+
+### 输出位置
+- 评分中间文件: `data/universe/scoring/`
+- 板块池结果: `data/universe/sector_pool/`
+
+### 失败排查
+1. 若提示 `JQUANTS_API_KEY` 缺失: 先加载 `.env` 或设置环境变量。
+2. 若首次运行且用了 `--no-fetch`: 去掉 `--no-fetch` 重新执行。
+3. 若中断: 加 `--resume` 并保持相同 `--checkpoint`。
+
 

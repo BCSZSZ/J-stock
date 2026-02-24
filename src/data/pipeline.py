@@ -38,6 +38,8 @@ class StockETLPipeline:
         tickers: List[str],
         fetch_aux_data: bool = True,
         recompute_features: bool = False,
+        min_history_rows: int = 0,
+        initial_lookback_days: int = 1825,
     ) -> Dict[str, Any]:
         """
         Run ETL pipeline for a batch of tickers.
@@ -46,6 +48,8 @@ class StockETLPipeline:
             tickers: List of stock codes (e.g., ['6758', '7203']).
             fetch_aux_data: Whether to fetch financial/trading data.
             recompute_features: If True, recompute features only (no fetching).
+            min_history_rows: Ensure at least this many OHLC rows when fetching.
+            initial_lookback_days: Lookback window for cold start fetch.
 
         Returns:
             Summary dictionary with success/failure counts.
@@ -62,10 +66,20 @@ class StockETLPipeline:
                 if recompute_features:
                     result = self._run_features_recompute(code)
                 elif fetch_aux_data:
-                    result = self.manager.run_full_etl(code, force_recompute=False)
+                    result = self.manager.run_full_etl(
+                        code,
+                        force_recompute=False,
+                        min_history_rows=min_history_rows,
+                        initial_lookback_days=initial_lookback_days,
+                    )
                 else:
                     # Just OHLC and features
-                    result = self._run_basic_etl(code, force_recompute=False)
+                    result = self._run_basic_etl(
+                        code,
+                        force_recompute=False,
+                        min_history_rows=min_history_rows,
+                        initial_lookback_days=initial_lookback_days,
+                    )
 
                 self.results.append(result)
 
@@ -102,7 +116,11 @@ class StockETLPipeline:
         return summary
 
     def _run_basic_etl(
-        self, code: str, force_recompute: bool = False
+        self,
+        code: str,
+        force_recompute: bool = False,
+        min_history_rows: int = 0,
+        initial_lookback_days: int = 1825,
     ) -> Dict[str, Any]:
         """
         Run basic ETL (OHLC + Features only).
@@ -116,7 +134,11 @@ class StockETLPipeline:
         result = {"code": code, "success": False, "errors": [], "has_new_data": False}
 
         try:
-            df_prices, has_new_data = self.manager.fetch_and_update_ohlc(code)
+            df_prices, has_new_data = self.manager.fetch_and_update_ohlc(
+                code,
+                min_history_rows=min_history_rows if min_history_rows > 0 else None,
+                initial_lookback_days=initial_lookback_days,
+            )
             result["price_rows"] = len(df_prices)
             result["has_new_data"] = has_new_data
 
