@@ -123,7 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="配合 --input --manual 使用：CSV文件路径",
     )
     production_parser.add_argument(
-        "--skip-fetch", action="store_true", help="跳过数据抓取步骤"
+        "--skip-fetch",
+        "--no-fetch",
+        dest="skip_fetch",
+        action="store_true",
+        help="跳过数据抓取步骤（兼容参数: --no-fetch）",
     )
     production_parser.set_defaults(func=cmd_production)
 
