@@ -29,7 +29,9 @@ def cmd_fetch(args):
         )
 
         summary = run_fetch(
-            monitor_list_file=output_file, recompute_features=args.recompute
+            monitor_list_file=output_file,
+            recompute_features=args.recompute,
+            fix_gaps=args.fix_gaps,
         )
         if summary:
             print(
@@ -61,7 +63,10 @@ def cmd_fetch(args):
 
         pipeline = StockETLPipeline(api_key)
         summary = pipeline.run_batch(
-            args.tickers, fetch_aux_data=True, recompute_features=args.recompute
+            args.tickers,
+            fetch_aux_data=True,
+            recompute_features=args.recompute,
+            fix_gaps=args.fix_gaps,
         )
 
         print(

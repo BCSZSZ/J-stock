@@ -33,26 +33,32 @@
 
 ### 目标
 
-基于全市场打分结果，构建 33 板块代表池（每板块 12-15 支）。
+基于全市场打分结果，构建 33 板块代表池（默认每板块 9-12 支）。
 
-### 首次全量运行（标准命令，无 `--no-fetch`）
+### 标准命令（推荐）
 
 ```powershell
-.venv/Scripts/python.exe main.py universe-sector --score-model v2 --size-balance --min-per-sector 12 --max-per-sector 15 --batch-size 100 --workers 8 --output-dir data/universe
+.venv/Scripts/python.exe main.py universe-sector --score-model v2 --size-balance
 ```
 
-说明: 首次运行会先执行批量 ETL 预处理（抓取 OHLC + 计算特征），再进入板块打分与选股。
+### 参数说明（必要）
 
-### 增量运行（本地数据已齐全时）
+- `--score-model v2`：使用 v2 打分模型。
+- `--size-balance`：板块内按规模分层抽样，降低样本偏斜。
+- `--min-per-sector` / `--max-per-sector`：控制每板块入选区间（默认 9/12）。
+- `--no-fetch`：仅使用本地数据，不抓取增量。
+- `--resume --checkpoint <path>`：中断后断点续跑。
+
+### 本地数据齐全时（可选）
 
 ```powershell
-.venv/Scripts/python.exe main.py universe-sector --score-model v2 --size-balance --min-per-sector 12 --max-per-sector 15 --no-fetch --resume
+.venv/Scripts/python.exe main.py universe-sector --score-model v2 --size-balance --no-fetch --resume
 ```
 
 ### 输出位置
 
-- 评分中间文件: `data/universe/scoring/`
-- 板块池结果: `data/universe/sector_pool/`
+- 评分中间文件: `G:/My Drive/AI-Stock-Sync/universe/scoring/`
+- 板块池结果: `G:/My Drive/AI-Stock-Sync/universe/sector_pool/`
 
 ### 失败排查
 
@@ -70,6 +76,25 @@
 
 ```powershell
 .venv/Scripts/python.exe main.py production --daily
+```
+
+### 外部文件导入成交（production --input）
+
+```powershell
+.venv/Scripts/python.exe main.py production --input --manual --manual-file today.csv --yes
+```
+
+CSV 必填列（顺序）：
+
+- `ticker,action,qty,price`（第5列 `date` 可选）
+- `action` 仅支持 `BUY` / `SELL`
+- `qty` 必须为正整数，`price` 必须为正数
+
+示例：
+
+```csv
+ticker,action,qty,price,date
+4530,SELL,200,6030,2026-02-25
 ```
 
 ### 输出位置

@@ -38,6 +38,7 @@ class StockETLPipeline:
         tickers: List[str],
         fetch_aux_data: bool = True,
         recompute_features: bool = False,
+        fix_gaps: bool = False,
         min_history_rows: int = 0,
         initial_lookback_days: int = 1825,
     ) -> Dict[str, Any]:
@@ -48,6 +49,7 @@ class StockETLPipeline:
             tickers: List of stock codes (e.g., ['6758', '7203']).
             fetch_aux_data: Whether to fetch financial/trading data.
             recompute_features: If True, recompute features only (no fetching).
+            fix_gaps: If True, refill OHLC gaps with a full lookback window merge.
             min_history_rows: Ensure at least this many OHLC rows when fetching.
             initial_lookback_days: Lookback window for cold start fetch.
 
@@ -69,6 +71,7 @@ class StockETLPipeline:
                     result = self.manager.run_full_etl(
                         code,
                         force_recompute=False,
+                        fix_gaps=fix_gaps,
                         min_history_rows=min_history_rows,
                         initial_lookback_days=initial_lookback_days,
                     )
@@ -77,6 +80,7 @@ class StockETLPipeline:
                     result = self._run_basic_etl(
                         code,
                         force_recompute=False,
+                        fix_gaps=fix_gaps,
                         min_history_rows=min_history_rows,
                         initial_lookback_days=initial_lookback_days,
                     )
@@ -119,6 +123,7 @@ class StockETLPipeline:
         self,
         code: str,
         force_recompute: bool = False,
+        fix_gaps: bool = False,
         min_history_rows: int = 0,
         initial_lookback_days: int = 1825,
     ) -> Dict[str, Any]:
@@ -136,6 +141,7 @@ class StockETLPipeline:
         try:
             df_prices, has_new_data = self.manager.fetch_and_update_ohlc(
                 code,
+                fix_gaps=fix_gaps,
                 min_history_rows=min_history_rows if min_history_rows > 0 else None,
                 initial_lookback_days=initial_lookback_days,
             )

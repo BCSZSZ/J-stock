@@ -185,7 +185,7 @@ def _run_universe_scoring(
                 test_mode=False,
                 test_limit=10,
                 ticker_list=batch_codes,
-                apply_filters=False,
+                apply_filters=True,
                 return_full=True,
                 no_fetch=True,
             )

@@ -162,13 +162,15 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         ticker: str,
         current_price: float,
         available_cash: float,
+        total_portfolio_value: float,
         max_position_pct: float,
     ):
         lot_size = int(lot_sizes.get(ticker, default_lot_size) or default_lot_size)
         if current_price <= 0 or lot_size <= 0:
             return 0, 0.0, lot_size
 
-        max_position_value = available_cash * max_position_pct
+        target_position_value = total_portfolio_value * max_position_pct
+        max_position_value = min(target_position_value, available_cash)
         lot_value = current_price * lot_size
         lots = int(max_position_value // lot_value)
         qty = lots * lot_size
@@ -287,6 +289,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 ticker=ticker,
                 current_price=float(eval_obj.current_price),
                 available_cash=available_cash,
+                total_portfolio_value=total_value,
                 max_position_pct=max_position_pct,
             )
 

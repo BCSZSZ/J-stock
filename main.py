@@ -142,6 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="强制重算特征层（仅重算features，不重复抓取原始数据）",
     )
+    fetch_parser.add_argument(
+        "--fix-gaps",
+        action="store_true",
+        help="补齐历史缺口：按约5年窗口重抓OHLC并合并去重（非仅增量）",
+    )
     fetch_parser.set_defaults(func=cmd_fetch)
 
     signal_parser = subparsers.add_parser("signal", help="生成交易信号")
@@ -283,14 +288,14 @@ def build_parser() -> argparse.ArgumentParser:
     universe_sector_parser.add_argument(
         "--min-per-sector",
         type=int,
-        default=12,
-        help="每板块最少入选数（默认: 12）",
+        default=9,
+        help="每板块最少入选数（默认: 9）",
     )
     universe_sector_parser.add_argument(
         "--max-per-sector",
         type=int,
-        default=15,
-        help="每板块最多入选数（默认: 15）",
+        default=12,
+        help="每板块最多入选数（默认: 12）",
     )
     universe_sector_parser.add_argument(
         "--candidate-multiplier",

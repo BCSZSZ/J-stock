@@ -123,6 +123,7 @@ class StockDataManager:
     def fetch_and_update_ohlc(
         self,
         code: str,
+        fix_gaps: bool = False,
         min_history_rows: Optional[int] = None,
         initial_lookback_days: int = 1825,
     ) -> tuple[pd.DataFrame, bool]:
@@ -159,8 +160,16 @@ class StockDataManager:
                 has_new_data = has_new_data or len(result_df) > before_len
             return result_df, has_new_data
         else:
-            logger.info(f"[{code}] Incremental update mode")
-            result_df, has_new_data = self._fetch_incremental_data(code, file_path)
+            if fix_gaps:
+                logger.info(
+                    f"[{code}] Gap-fix mode: merging full lookback window ({initial_lookback_days} days)"
+                )
+                result_df, has_new_data = self._fetch_full_window_merge(
+                    code, file_path, lookback_days=initial_lookback_days
+                )
+            else:
+                logger.info(f"[{code}] Incremental update mode")
+                result_df, has_new_data = self._fetch_incremental_data(code, file_path)
             if (
                 min_history_rows
                 and not result_df.empty
@@ -175,6 +184,64 @@ class StockDataManager:
                 )
                 has_new_data = has_new_data or len(result_df) > before_len
             return result_df, has_new_data
+
+    def _fetch_full_window_merge(
+        self, code: str, file_path: Path, lookback_days: int = 1825
+    ) -> tuple[pd.DataFrame, bool]:
+        """
+        Fetch a full lookback window and merge with existing OHLC data.
+
+        This mode is used to fix historical gaps without dropping existing data.
+        """
+        existing_df = pd.read_parquet(file_path) if file_path.exists() else pd.DataFrame()
+        if not existing_df.empty and "Date" in existing_df.columns:
+            existing_df["Date"] = pd.to_datetime(existing_df["Date"])
+            existing_df = existing_df.sort_values("Date").reset_index(drop=True)
+
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=lookback_days)
+
+        bars = self.client.get_daily_bars(
+            code,
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+        )
+
+        if not bars:
+            logger.info(f"[{code}] Gap-fix fetch returned no data")
+            return existing_df, False
+
+        full_df = self._normalize_ohlc_data(bars)
+        if full_df.empty:
+            return existing_df, False
+
+        if existing_df.empty:
+            self._atomic_save(full_df, file_path)
+            logger.info(f"[{code}] Gap-fix saved {len(full_df)} rows (initial from full window)")
+            return full_df, True
+
+        merged_df = pd.concat([existing_df, full_df], ignore_index=True)
+        merged_df = merged_df.drop_duplicates(subset=["Date"], keep="last")
+        merged_df = merged_df.sort_values("Date").reset_index(drop=True)
+
+        changed = False
+        if len(merged_df) != len(existing_df):
+            changed = True
+        elif not merged_df.empty and not existing_df.empty:
+            changed = (
+                merged_df["Date"].min() != existing_df["Date"].min()
+                or merged_df["Date"].max() != existing_df["Date"].max()
+            )
+
+        if changed:
+            self._atomic_save(merged_df, file_path)
+            logger.info(
+                f"[{code}] Gap-fix merged rows: {len(existing_df)} -> {len(merged_df)}"
+            )
+        else:
+            logger.info(f"[{code}] Gap-fix found no missing OHLC rows")
+
+        return merged_df, changed
 
     def _fetch_initial_data(
         self, code: str, file_path: Path, lookback_days: int = 1825
@@ -976,6 +1043,7 @@ class StockDataManager:
         self,
         code: str,
         force_recompute: bool = False,
+        fix_gaps: bool = False,
         min_history_rows: Optional[int] = None,
         initial_lookback_days: int = 1825,
     ) -> Dict[str, Any]:
@@ -994,6 +1062,7 @@ class StockDataManager:
             # Step 1: Fetch/Update OHLC (增量)
             df_prices, has_new_data = self.fetch_and_update_ohlc(
                 code,
+                fix_gaps=fix_gaps,
                 min_history_rows=min_history_rows,
                 initial_lookback_days=initial_lookback_days,
             )

@@ -68,7 +68,7 @@ class BenchmarkManager:
             logger.info(f"TOPIX incremental update: last={last_date.date()}, fetching from {start_date.date()}")
             
             # Check if already up-to-date
-            if start_date.date() >= end_date.date():
+            if start_date.date() > end_date.date():
                 logger.info(f"TOPIX up-to-date (last: {last_date.date()})")
                 return existing_df
         else:

@@ -80,7 +80,9 @@ def load_monitor_list(file_path: str = "data/monitor_list.json") -> List[str]:
 
 
 def run_fetch(
-    monitor_list_file: str = "data/monitor_list.json", recompute_features: bool = False
+    monitor_list_file: str = "data/monitor_list.json",
+    recompute_features: bool = False,
+    fix_gaps: bool = False,
 ):
     """Run the ETL pipeline for a monitor list file."""
     # Load environment variables
@@ -126,6 +128,7 @@ def run_fetch(
         tickers,
         fetch_aux_data=not recompute_features,
         recompute_features=recompute_features,
+        fix_gaps=fix_gaps,
     )
 
     # Step 4: Print summary
