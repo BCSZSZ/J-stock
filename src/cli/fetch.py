@@ -11,9 +11,11 @@ def cmd_fetch(args):
     if args.all:
         print("📥 抓取监视列表中的所有股票数据...")
         production_cfg = config.get("production", {})
-        monitor_list_file = config["data"]["monitor_list_file"]
+        monitor_list_file = production_cfg.get(
+            "monitor_list_file", config["data"]["monitor_list_file"]
+        )
         fetch_universe_file = production_cfg.get(
-            "fetch_universe_file", "data/fetch_universe.json"
+            "fetch_universe_file", r"G:\My Drive\AI-Stock-Sync\state\fetch_universe.json"
         )
 
         output_file, merged_count, sector_count = build_fetch_universe_file(

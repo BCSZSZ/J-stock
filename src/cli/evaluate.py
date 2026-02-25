@@ -13,25 +13,17 @@ def cmd_evaluate(args):
     from .common import load_config
 
     def resolve_output_dir(user_output_dir):
-        local_fallback = Path("strategy_evaluation")
-
         if user_output_dir:
             return user_output_dir
 
         cloud_default = Path(r"G:\My Drive\AI-Stock-Sync\strategy_evaluation")
-        try:
-            cloud_default.mkdir(parents=True, exist_ok=True)
-            probe = cloud_default / ".write_probe.tmp"
-            with open(probe, "w", encoding="utf-8") as f:
-                f.write("ok")
-            probe.unlink(missing_ok=True)
-            print(f"📁 输出目录: {cloud_default} (Google Drive)")
-            return str(cloud_default)
-        except Exception as e:
-            local_fallback.mkdir(parents=True, exist_ok=True)
-            print(f"⚠️ Google Drive输出目录不可写，已回退到本地目录: {local_fallback}")
-            print(f"   原因: {e}")
-            return str(local_fallback)
+        cloud_default.mkdir(parents=True, exist_ok=True)
+        probe = cloud_default / ".write_probe.tmp"
+        with open(probe, "w", encoding="utf-8") as f:
+            f.write("ok")
+        probe.unlink(missing_ok=True)
+        print(f"📁 输出目录: {cloud_default} (Google Drive)")
+        return str(cloud_default)
 
     print("\n" + "=" * 80)
     print("🔬 策略综合评价系统")

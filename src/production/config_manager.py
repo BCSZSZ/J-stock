@@ -63,12 +63,14 @@ class ConfigManager:
         "default_strategies": ["entry", "exit"],
     }
 
-    # 默认值（G盘优先，本地回退）
+    # 默认值（严格G盘）
     DEFAULTS = {
         "state_file": r"G:\My Drive\AI-Stock-Sync\state\production_state.json",
         "signal_file_pattern": r"G:\My Drive\AI-Stock-Sync\signals\{date}.json",
         "report_file_pattern": r"G:\My Drive\AI-Stock-Sync\reports\{date}.md",
         "history_file": r"G:\My Drive\AI-Stock-Sync\state\trade_history.json",
+        "fetch_universe_file": r"G:\My Drive\AI-Stock-Sync\state\fetch_universe.json",
+        "sector_pool_file": r"G:\My Drive\AI-Stock-Sync\universe\sector_pool",
         "buy_threshold": 65.0,
     }
 
@@ -105,46 +107,33 @@ class ConfigManager:
                 if field not in self.raw_config[section]:
                     raise ValueError(f"Missing required field: {section}.{field}")
 
-    def _resolve_path_with_fallback(self, cloud_path: str, local_fallback: str) -> str:
+    def _ensure_path_ready(self, path_value: str) -> str:
         """
-        智能路径解析：G盘优先，本地回退
+        严格路径检查：仅允许按配置路径写入，不做本地回退。
 
         Args:
-            cloud_path: G盘路径
-            local_fallback: 本地回退路径
+            path_value: 文件路径（可含 {date} 占位符）
 
         Returns:
-            可用的文件路径
+            原路径
         """
-        # 如果不是 G 盘路径，直接返回
-        if not cloud_path.startswith("G:\\"):
-            return cloud_path
+        if not path_value.startswith("G:\\"):
+            raise ValueError(f"Strict G-drive mode requires G:\\ path, got: {path_value}")
 
-        try:
-            # 提取目录部分（处理带 {date} 的 pattern）
-            path_obj = Path(cloud_path)
-            if "{date}" in cloud_path:
-                # 对于 pattern，测试父目录
-                test_dir = path_obj.parent
-            else:
-                # 对于文件，测试父目录
-                test_dir = path_obj.parent
+        path_obj = Path(path_value)
+        test_dir = path_obj.parent
+        test_dir.mkdir(parents=True, exist_ok=True)
+        probe = test_dir / ".write_probe.tmp"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return path_value
 
-            # 确保目录存在
-            test_dir.mkdir(parents=True, exist_ok=True)
-
-            # 测试写入权限
-            probe = test_dir / ".write_probe.tmp"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink()
-
-            return cloud_path  # G盘可用
-
-        except Exception as e:
-            # G盘不可用，回退到本地
-            print(f"⚠️  G盘路径不可用，回退到本地: {local_fallback}")
-            print(f"   原因: {e}")
-            return local_fallback
+    def _ensure_gdrive_dir_ready(self, path_value: str) -> str:
+        if not path_value.startswith("G:\\"):
+            raise ValueError(f"Strict G-drive mode requires G:\\ path, got: {path_value}")
+        path_obj = Path(path_value)
+        path_obj.mkdir(parents=True, exist_ok=True)
+        return path_value
 
     def get_production_config(self) -> ProductionConfig:
         """
@@ -169,31 +158,33 @@ class ConfigManager:
             "report_file_pattern", self.DEFAULTS["report_file_pattern"]
         )
 
-        # 应用智能回退
-        state_file = self._resolve_path_with_fallback(
-            state_file_raw, "production_state.json"
+        state_file = self._ensure_path_ready(state_file_raw)
+        history_file = self._ensure_path_ready(history_file_raw)
+        signal_pattern = self._ensure_path_ready(signal_pattern_raw)
+        report_pattern = self._ensure_path_ready(report_pattern_raw)
+
+        monitor_list_file_raw = prod_cfg.get(
+            "monitor_list_file", data_cfg.get("monitor_list_file")
         )
-        history_file = self._resolve_path_with_fallback(
-            history_file_raw, "trade_history.json"
+        monitor_list_file = self._ensure_path_ready(monitor_list_file_raw)
+
+        fetch_universe_file_raw = prod_cfg.get(
+            "fetch_universe_file", self.DEFAULTS["fetch_universe_file"]
         )
-        signal_pattern = self._resolve_path_with_fallback(
-            signal_pattern_raw, "output/signals/{date}.json"
+        fetch_universe_file = self._ensure_path_ready(fetch_universe_file_raw)
+
+        sector_pool_file_raw = prod_cfg.get(
+            "sector_pool_file", self.DEFAULTS["sector_pool_file"]
         )
-        report_pattern = self._resolve_path_with_fallback(
-            report_pattern_raw, "output/report/{date}.md"
-        )
+        sector_pool_file = self._ensure_gdrive_dir_ready(sector_pool_file_raw)
 
         return ProductionConfig(
             # Data paths
-            monitor_list_file=prod_cfg.get(
-                "monitor_list_file", data_cfg.get("monitor_list_file")
-            ),
-            fetch_universe_file=prod_cfg.get(
-                "fetch_universe_file", "data/fetch_universe.json"
-            ),
-            sector_pool_file=prod_cfg.get("sector_pool_file"),
+            monitor_list_file=monitor_list_file,
+            fetch_universe_file=fetch_universe_file,
+            sector_pool_file=sector_pool_file,
             data_dir=data_cfg.get("data_dir"),
-            # Production settings (使用回退后的路径)
+            # Production settings
             state_file=state_file,
             signal_file_pattern=signal_pattern,
             report_file_pattern=report_pattern,

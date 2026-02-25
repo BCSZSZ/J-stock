@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 SPLIT_RATIO_CANDIDATES = [0.5, 0.3333, 0.25, 0.2, 0.1]
 SPLIT_TOLERANCE = 0.05
+SPLIT_ADJUSTED_VERSION = 1
+FEATURE_SCHEMA_VERSION = 1
 
 
 REQUIRED_FEATURE_COLUMNS = {
@@ -576,11 +578,13 @@ class StockDataManager:
 
                     split_version = metadata.get("split_adjusted_version")
                     split_adjusted = metadata.get("split_adjusted") is True
+                    feature_schema_version = metadata.get("feature_schema_version")
 
                     if (
                         features_mtime >= raw_mtime
-                        and split_version == 1
+                        and split_version == SPLIT_ADJUSTED_VERSION
                         and split_adjusted
+                        and feature_schema_version == FEATURE_SCHEMA_VERSION
                     ):
                         logger.info(f"[{code}] Features up-to-date, skip recompute")
                         return existing_features
@@ -736,9 +740,10 @@ class StockDataManager:
         )
 
         metadata["split_adjusted"] = True
-        metadata["split_adjusted_version"] = 1
+        metadata["split_adjusted_version"] = SPLIT_ADJUSTED_VERSION
         metadata["split_events"] = split_events
         metadata["split_last_checked"] = datetime.now().strftime("%Y-%m-%d")
+        metadata["feature_schema_version"] = FEATURE_SCHEMA_VERSION
         self._save_metadata_file(code, metadata)
 
         return df
@@ -756,6 +761,19 @@ class StockDataManager:
             DataFrame with financial data or None.
         """
         output_path = self.dirs["raw_financials"] / f"{code}_financials.parquet"
+
+        def _pick_dedup_subset(df: pd.DataFrame) -> Optional[List[str]]:
+            candidates = [
+                ["DisclosedUnixTime"],
+                ["DisclosedDate", "TypeOfDocument", "CurrentPeriodEndDate"],
+                ["DiscDate", "TypeOfDocument", "CurrentPeriodEndDate"],
+                ["DiscDate", "Quarter"],
+                ["DiscDate"],
+            ]
+            for cols in candidates:
+                if all(col in df.columns for col in cols):
+                    return cols
+            return None
 
         # 获取新数据
         financials = self.client.get_financial_summary(code)
@@ -779,11 +797,12 @@ class StockDataManager:
             # 合并：保留旧数据 + 追加新数据
             merged_df = pd.concat([existing_df, new_df], ignore_index=True)
 
-            # 去重（根据DiscDate和Quarter去重，保留最新的）
-            if "DiscDate" in merged_df.columns and "Quarter" in merged_df.columns:
-                merged_df = merged_df.drop_duplicates(
-                    subset=["DiscDate", "Quarter"], keep="last"
-                )
+            # 去重（优先使用稳定主键；若字段不足则回退）
+            dedup_subset = _pick_dedup_subset(merged_df)
+            if dedup_subset:
+                merged_df = merged_df.drop_duplicates(subset=dedup_subset, keep="last")
+            else:
+                merged_df = merged_df.drop_duplicates(keep="last")
 
             # 排序
             if "DiscDate" in merged_df.columns:
@@ -907,8 +926,17 @@ class StockDataManager:
         """
         output_path = self.dirs["metadata"] / f"{code}_metadata.json"
 
-        # 获取新的元数据
-        new_metadata = {}
+        existing_metadata: Dict[str, Any] = {}
+        if output_path.exists():
+            try:
+                with open(output_path, "r", encoding="utf-8") as f:
+                    existing_metadata = json.load(f)
+            except Exception as e:
+                logger.warning(f"[{code}] Failed to load existing metadata: {e}")
+                existing_metadata = {}
+
+        # 获取新的元数据（只更新动态字段，保留其他字段）
+        merged_metadata = dict(existing_metadata)
 
         # Earnings calendar
         today = datetime.now()
@@ -919,30 +947,28 @@ class StockDataManager:
         )
 
         if earnings:
-            new_metadata["earnings_calendar"] = earnings
+            merged_metadata["earnings_calendar"] = earnings
+            merged_metadata["earnings_last_updated"] = datetime.now().strftime(
+                "%Y-%m-%d"
+            )
 
         # 如果没有新数据，跳过
-        if not new_metadata:
+        if not earnings:
             logger.info(f"[{code}] No metadata to update")
             return
 
-        # 检查是否有历史数据
-        if output_path.exists():
-            with open(output_path, "r", encoding="utf-8") as f:
-                existing_metadata = json.load(f)
+        if existing_metadata == merged_metadata:
+            logger.info(f"[{code}] Metadata unchanged, skip save")
+            return
 
-            # 比较是否有变化
-            if existing_metadata == new_metadata:
-                logger.info(f"[{code}] Metadata unchanged, skip save")
-                return
-            else:
-                logger.info(f"[{code}] Metadata updated ({len(earnings)} events)")
+        if existing_metadata:
+            logger.info(f"[{code}] Metadata updated ({len(earnings)} events)")
         else:
             logger.info(f"[{code}] Saved {len(earnings)} earnings events (initial)")
 
         # 保存
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(new_metadata, f, indent=2, ensure_ascii=False)
+            json.dump(merged_metadata, f, indent=2, ensure_ascii=False)
 
     # ==================== COMPLETE ETL WORKFLOW ====================
 
@@ -1030,9 +1056,17 @@ class StockDataManager:
             metadata = self._load_metadata_file(ticker)
             split_version = metadata.get("split_adjusted_version")
             split_adjusted = metadata.get("split_adjusted") is True
-            if split_version != 1 or not split_adjusted:
+            feature_schema_version = metadata.get("feature_schema_version")
+
+            if split_version != SPLIT_ADJUSTED_VERSION or not split_adjusted:
                 logger.info(
                     f"[{ticker}] Features missing split adjustment, recomputing"
+                )
+                df = self.compute_features(ticker, force_recompute=True)
+            elif feature_schema_version != FEATURE_SCHEMA_VERSION:
+                logger.info(
+                    f"[{ticker}] Features schema version mismatch "
+                    f"(have={feature_schema_version}, need={FEATURE_SCHEMA_VERSION}), recomputing"
                 )
                 df = self.compute_features(ticker, force_recompute=True)
             logger.debug(f"Loaded {len(df)} rows for {ticker}")

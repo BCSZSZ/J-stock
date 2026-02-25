@@ -334,8 +334,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     universe_sector_parser.add_argument(
         "--output-dir",
-        default="data/universe",
-        help="输出目录（默认: data/universe）",
+        default=r"G:\My Drive\AI-Stock-Sync\universe",
+        help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\universe）",
     )
     universe_sector_parser.add_argument(
         "--write-monitor-list",
@@ -373,7 +373,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument(
         "--output-dir",
         default=None,
-        help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation，失败回退到本地strategy_evaluation）",
+        help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation）",
     )
     evaluate_parser.add_argument(
         "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"

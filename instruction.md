@@ -80,3 +80,25 @@
 ### 完成判定
 
 - 终端出现 `Report saved:` 且无报错即视为成功。
+
+## Task 4: 财报数据去重（raw_financials）
+
+### 目标
+
+清理 `data/raw_financials/*.parquet` 的历史重复记录（仅处理财报层）。
+
+### 标准 CLI（必须使用）
+
+```powershell
+.venv/Scripts/python.exe tools/dedup_raw_financials.py
+```
+
+### 预检查（可选）
+
+```powershell
+.venv/Scripts/python.exe tools/dedup_raw_financials.py --dry-run
+```
+
+### 完成判定
+
+- 终端输出 `Summary`，且 `rows_removed` 为去重删除行数。

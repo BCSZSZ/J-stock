@@ -18,10 +18,10 @@ def run_sync_positions(prod_cfg, state) -> None:
     
     Steps:
     1. Collect all tickers from positions across all groups
-    2. Load existing monitor lists (production + local)
+    2. Load production monitor list
     3. Find missing tickers
     4. Fetch data for missing tickers (5 years)
-    5. Update all 3 monitor list files
+    5. Update production monitor list (G Drive)
     
     Args:
         prod_cfg: Production configuration
@@ -42,18 +42,11 @@ def run_sync_positions(prod_cfg, state) -> None:
     for ticker in sorted(position_tickers):
         print(f"  - {ticker}")
     
-    # Step 2: Load existing monitor lists
+    # Step 2: Load production monitor list
     prod_monitor_tickers = _load_monitor_list_simple(prod_cfg.monitor_list_file)
-    local_prod_monitor_path = Path("data/production_monitor_list.json")
-    local_monitor_path = Path("data/monitor_list.json")
-    
-    local_prod_tickers = _load_monitor_list_simple(str(local_prod_monitor_path))
-    local_tickers = _load_monitor_list_detailed(local_monitor_path)
     
     print(f"\n[2/5] Current monitor list sizes:")
     print(f"  - Production (G Drive): {len(prod_monitor_tickers)} tickers")
-    print(f"  - Production (Local):   {len(local_prod_tickers)} tickers")
-    print(f"  - Monitor (Local):      {len(local_tickers)} tickers")
     
     # Step 3: Find missing tickers
     missing_tickers = position_tickers - prod_monitor_tickers
@@ -71,8 +64,8 @@ def run_sync_positions(prod_cfg, state) -> None:
     success_count = _fetch_missing_data(list(missing_tickers))
     print(f"  ✅ Successfully fetched {success_count}/{len(missing_tickers)} ticker(s)")
     
-    # Step 5: Update all monitor lists
-    print(f"\n[5/5] Updating monitor lists...")
+    # Step 5: Update production monitor list
+    print(f"\n[5/5] Updating production monitor list...")
     
     # Update production monitor list (G Drive)
     _update_simple_monitor_list(
@@ -81,22 +74,6 @@ def run_sync_positions(prod_cfg, state) -> None:
         "Production trading monitor list (Auto-synced from positions)"
     )
     print(f"  ✅ Updated: {prod_cfg.monitor_list_file}")
-    
-    # Update production monitor list (Local)
-    _update_simple_monitor_list(
-        str(local_prod_monitor_path),
-        local_prod_tickers | missing_tickers,
-        "Production trading monitor list (Local backup)"
-    )
-    print(f"  ✅ Updated: {local_prod_monitor_path}")
-    
-    # Update normal monitor list (Local - detailed format)
-    _update_detailed_monitor_list(
-        local_monitor_path,
-        local_tickers | missing_tickers,
-        missing_tickers
-    )
-    print(f"  ✅ Updated: {local_monitor_path}")
     
     print("\n" + "=" * 70)
     print(f"SYNC COMPLETE: Added {len(missing_tickers)} ticker(s) to monitor lists")
@@ -134,25 +111,6 @@ def _load_monitor_list_simple(file_path: str) -> Set[str]:
             else:
                 tickers.append(str(item))
         
-        return set(t for t in tickers if t)
-    
-    except Exception as e:
-        logger.error(f"Failed to load monitor list {file_path}: {e}")
-        return set()
-
-
-def _load_monitor_list_detailed(file_path: Path) -> Set[str]:
-    """Load detailed monitor list (local format: array of dicts with metadata)."""
-    if not file_path.exists():
-        logger.warning(f"Monitor list not found: {file_path}")
-        return set()
-    
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        
-        raw = data.get("tickers", [])
-        tickers = [item.get("code") for item in raw if isinstance(item, dict)]
         return set(t for t in tickers if t)
     
     except Exception as e:
@@ -217,43 +175,3 @@ def _update_simple_monitor_list(
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def _update_detailed_monitor_list(
-    file_path: Path,
-    existing_tickers: Set[str],
-    new_tickers: Set[str]
-) -> None:
-    """Update detailed monitor list (local format with metadata)."""
-    # Load existing data to preserve metadata
-    if file_path.exists():
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    else:
-        data = {
-            "version": "1.1",
-            "description": "Stocks actively monitored by the analyzer.",
-            "tickers": []
-        }
-    
-    existing_entries = data.get("tickers", [])
-    existing_codes = {entry["code"] for entry in existing_entries if isinstance(entry, dict)}
-    
-    # Add new tickers with basic metadata
-    today = datetime.now().strftime("%Y-%m-%d")
-    for ticker in sorted(new_tickers):
-        if ticker not in existing_codes:
-            existing_entries.append({
-                "code": ticker,
-                "name": f"Stock_{ticker}",
-                "sector": "Unknown",
-                "added_date": today,
-                "reason": "Auto-synced from production positions"
-            })
-    
-    # Sort by code
-    existing_entries.sort(key=lambda x: x.get("code", ""))
-    
-    data["tickers"] = existing_entries
-    data["last_updated"] = today
-    
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)

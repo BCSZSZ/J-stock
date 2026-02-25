@@ -8,6 +8,9 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 
+DEFAULT_SECTOR_POOL_DIR = Path(r"G:\My Drive\AI-Stock-Sync\universe\sector_pool")
+
+
 def _load_tickers_from_json(path: Path) -> List[str]:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -44,7 +47,7 @@ def find_latest_sector_pool_csv(sector_pool_dir: Path) -> Optional[Path]:
 
 def build_fetch_universe_file(
     monitor_list_file: str,
-    output_file: str = "data/fetch_universe.json",
+    output_file: str = r"G:\My Drive\AI-Stock-Sync\state\fetch_universe.json",
     sector_pool_file: Optional[str] = None,
 ) -> Tuple[str, int, int]:
     """
@@ -64,9 +67,13 @@ def build_fetch_universe_file(
     source_sector_pool = None
 
     if sector_pool_file:
-        pool_path = Path(sector_pool_file)
+        candidate = Path(sector_pool_file)
+        if candidate.exists() and candidate.is_dir():
+            pool_path = find_latest_sector_pool_csv(candidate)
+        else:
+            pool_path = candidate
     else:
-        pool_path = find_latest_sector_pool_csv(Path("data/universe/sector_pool"))
+        pool_path = find_latest_sector_pool_csv(DEFAULT_SECTOR_POOL_DIR)
 
     if pool_path and pool_path.exists():
         sector_tickers = _load_sector_pool_tickers(pool_path)
