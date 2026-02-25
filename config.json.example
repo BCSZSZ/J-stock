@@ -35,6 +35,17 @@
     "MVX_N9_R3p4_T1p6_D18_B20p5"
   ],
 
+  "evaluation": {
+    "entry_filter": {
+      "enabled": false,
+      "require_ema_bull_stack": true,
+      "rsi_min": 55,
+      "rsi_max": 75,
+      "atr_price_max": 0.04,
+      "min_price": 1000
+    }
+  },
+
   "overlays": {
     "enabled": ["RegimeOverlay"],
     "RegimeOverlay": {

@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from ..analysis.signals import MarketData, SignalAction, TradingSignal
+from ..analysis.filters import EntrySecondaryFilter
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
 from ..data.benchmark_manager import BenchmarkManager
@@ -47,6 +48,7 @@ class PortfolioBacktestEngine:
         data_root: str = "./data",
         overlay_manager: Optional[OverlayManager] = None,
         preloaded_cache: Optional["BacktestDataCache"] = None,
+        entry_filter_config: Optional[Dict] = None,
     ):
         """
         Args:
@@ -58,6 +60,7 @@ class PortfolioBacktestEngine:
             data_root: 数据根目录
             overlay_manager: Overlay管理器
             preloaded_cache: 预加载的数据缓存（可选，用于性能优化）
+            entry_filter_config: 入场二级过滤配置（可选）
         """
         self.starting_capital = starting_capital
         self.max_positions = max_positions
@@ -66,6 +69,7 @@ class PortfolioBacktestEngine:
         self.data_root = data_root
         self.overlay_manager = overlay_manager
         self.preloaded_cache = preloaded_cache
+        self.entry_filter = EntrySecondaryFilter.from_dict(entry_filter_config)
 
         # 创建信号排序器
         self.signal_ranker = SignalRanker(method=signal_ranking_method)
@@ -397,6 +401,8 @@ class PortfolioBacktestEngine:
                         market_data=market_data, entry_strategy=entry_strategy
                     )
                     if entry_signal.action == SignalAction.BUY:
+                        if not self.entry_filter.passes(market_data):
+                            continue
                         buy_signals_today[ticker] = entry_signal
 
                 # 生成出场信号（仅对已持仓的股票）

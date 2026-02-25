@@ -88,6 +88,7 @@ class StrategyEvaluator:
         output_dir: str = "strategy_evaluation",
         verbose: bool = False,
         overlay_config: Optional[Dict] = None,
+        entry_filter_config: Optional[Dict] = None,
         workers: int = 4,
         use_cache: bool = True,
     ):
@@ -99,6 +100,7 @@ class StrategyEvaluator:
             output_dir: Output directory for results
             verbose: Enable detailed progress output
             overlay_config: Configuration for overlay manager
+            entry_filter_config: Entry secondary filter configuration
             workers: Number of parallel workers (default: 4, set to 1 for serial execution)
             use_cache: Enable data preloading cache for performance (default: True)
         """
@@ -109,6 +111,7 @@ class StrategyEvaluator:
         self.verbose = verbose  # 详细输出模式
         self.workers = workers  # Parallel workers
         self.use_cache = use_cache  # Data cache flag
+        self.entry_filter_config = entry_filter_config or {}
 
         self.overlay_manager = OverlayManager.from_config(
             overlay_config or {},
@@ -268,6 +271,7 @@ class StrategyEvaluator:
                         self.overlay_manager.config
                         if hasattr(self.overlay_manager, "config")
                         else {},
+                        self.entry_filter_config,
                         self.use_cache,
                     ): task
                     for task in tasks
@@ -393,6 +397,7 @@ class StrategyEvaluator:
             max_position_pct=max_position_pct,
             overlay_manager=self.overlay_manager,
             preloaded_cache=preloaded_cache,  # Pass cache to engine
+            entry_filter_config=self.entry_filter_config,
         )
 
         result = engine.backtest_portfolio_strategy(
@@ -876,6 +881,7 @@ def _run_backtest_worker(
     data_root: str,
     portfolio_limits: Tuple[int, float],
     overlay_config: Dict,
+    entry_filter_config: Dict,
     use_cache: bool,
 ) -> Optional[AnnualStrategyResult]:
     """
@@ -894,6 +900,7 @@ def _run_backtest_worker(
         data_root: Data root directory
         portfolio_limits: (max_positions, max_position_pct)
         overlay_config: Overlay manager configuration dict
+        entry_filter_config: Entry secondary filter configuration dict
         use_cache: Whether to use data cache
 
     Returns:
@@ -960,6 +967,7 @@ def _run_backtest_worker(
             max_position_pct=max_position_pct,
             overlay_manager=overlay_manager,
             preloaded_cache=preloaded_cache,
+            entry_filter_config=entry_filter_config,
         )
 
         result = engine.backtest_portfolio_strategy(

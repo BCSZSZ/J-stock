@@ -96,6 +96,7 @@ def cmd_evaluate(args):
         output_dir=output_dir,
         verbose=args.verbose,
         overlay_config=config,
+        entry_filter_config=config.get("evaluation", {}).get("entry_filter", {}),
     )
 
     entry_strategies = args.entry_strategies
