@@ -15,6 +15,8 @@ class ProductionConfig:
 
     # Data paths
     monitor_list_file: str
+    fetch_universe_file: str
+    sector_pool_file: Optional[str]
     data_dir: str
 
     # Production settings
@@ -186,6 +188,10 @@ class ConfigManager:
             monitor_list_file=prod_cfg.get(
                 "monitor_list_file", data_cfg.get("monitor_list_file")
             ),
+            fetch_universe_file=prod_cfg.get(
+                "fetch_universe_file", "data/fetch_universe.json"
+            ),
+            sector_pool_file=prod_cfg.get("sector_pool_file"),
             data_dir=data_cfg.get("data_dir"),
             # Production settings (使用回退后的路径)
             state_file=state_file,
@@ -239,6 +245,8 @@ class ConfigManager:
         print("PRODUCTION CONFIGURATION")
         print("=" * 60)
         print(f"Monitor List:     {prod_cfg.monitor_list_file}")
+        print(f"Fetch Universe:   {prod_cfg.fetch_universe_file}")
+        print(f"Sector Pool File: {prod_cfg.sector_pool_file or 'AUTO(latest)'}")
         print(f"Data Directory:   {prod_cfg.data_dir}")
 
         # 添加路径类型标识

@@ -8,6 +8,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from src.cli.production_utils import load_monitor_tickers
+from src.data.fetch_universe_builder import build_fetch_universe_file
 
 
 def run_daily_workflow(args, prod_cfg, state) -> None:
@@ -83,7 +84,17 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         print("\n[Data Update] Fetching latest market data...")
         from src.data_fetch_manager import run_fetch
 
-        summary = run_fetch(monitor_list_file=prod_cfg.monitor_list_file)
+        fetch_universe_file, merged_count, sector_count = build_fetch_universe_file(
+            monitor_list_file=prod_cfg.monitor_list_file,
+            output_file=prod_cfg.fetch_universe_file,
+            sector_pool_file=prod_cfg.sector_pool_file,
+        )
+        print(
+            "  Fetch universe prepared: "
+            f"{merged_count} tickers (sector pool contribution: {sector_count})"
+        )
+
+        summary = run_fetch(monitor_list_file=fetch_universe_file)
         if summary:
             print(f"  Updated {summary['successful']}/{summary['total']} stocks")
     else:
@@ -95,7 +106,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
     data_manager = StockDataManager(api_key=api_key)
     overlay_manager = OverlayManager.from_config(raw_config, data_root="data")
-    print(f"  Monitoring {len(monitor_tickers)} stocks")
+    print(f"  Monitoring {len(monitor_tickers)} stocks for signal evaluation")
 
     # 自动检测全市场最新可用数据日
     latest_data_date = _get_latest_data_date_for_tickers(monitor_tickers)

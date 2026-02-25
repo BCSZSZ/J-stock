@@ -3,13 +3,36 @@ from .common import load_config
 
 def cmd_fetch(args):
     """数据抓取命令"""
-    from src.data_fetch_manager import main as fetch_main
+    from src.data.fetch_universe_builder import build_fetch_universe_file
+    from src.data_fetch_manager import run_fetch
 
     config = load_config()
 
     if args.all:
         print("📥 抓取监视列表中的所有股票数据...")
-        fetch_main(recompute_features=args.recompute)
+        production_cfg = config.get("production", {})
+        monitor_list_file = config["data"]["monitor_list_file"]
+        fetch_universe_file = production_cfg.get(
+            "fetch_universe_file", "data/fetch_universe.json"
+        )
+
+        output_file, merged_count, sector_count = build_fetch_universe_file(
+            monitor_list_file=monitor_list_file,
+            output_file=fetch_universe_file,
+            sector_pool_file=production_cfg.get("sector_pool_file"),
+        )
+        print(
+            "  Fetch universe prepared: "
+            f"{merged_count} tickers (sector pool contribution: {sector_count})"
+        )
+
+        summary = run_fetch(
+            monitor_list_file=output_file, recompute_features=args.recompute
+        )
+        if summary:
+            print(
+                f"\n✅ 数据抓取完成: {summary['successful']}/{summary['total']} 只股票成功"
+            )
     elif args.tickers:
         print(f"📥 抓取指定股票数据: {', '.join(args.tickers)}")
         import os

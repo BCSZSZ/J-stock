@@ -47,4 +47,21 @@
 2. 若首次运行且用了 `--no-fetch`: 去掉 `--no-fetch` 重新执行。
 3. 若中断: 加 `--resume` 并保持相同 `--checkpoint`。
 
+## Task 3: 盘后生产任务（production --daily）
+
+### 目标
+一键执行盘后生产流程，自动完成数据更新、信号生成和日报输出。
+
+### 标准 CLI（直接执行）
+```powershell
+.venv/Scripts/python.exe main.py production --daily
+```
+
+### 输出位置
+- 信号文件: `G:/My Drive/AI-Stock-Sync/signals/YYYY-MM-DD.json`
+- 日报文件: `G:/My Drive/AI-Stock-Sync/reports/YYYY-MM-DD.md`
+
+### 完成判定
+- 终端出现 `Report saved:` 且无报错即视为成功。
+
 
