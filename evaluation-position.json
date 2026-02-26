@@ -1,0 +1,24 @@
+{
+  "portfolios": [
+    {
+      "name": "base_7x18",
+      "max_positions": 7,
+      "max_position_pct": 0.18
+    },
+    {
+      "name": "high_slots_low_pct_10x12",
+      "max_positions": 10,
+      "max_position_pct": 0.12
+    },
+    {
+      "name": "Exhigh_slots_EXlow_pct_10x12",
+      "max_positions": 20,
+      "max_position_pct": 0.10
+    },    
+    {
+      "name": "same_slots_high_pct_7x12",
+      "max_positions": 7,
+      "max_position_pct": 0.24
+    }
+  ]
+}

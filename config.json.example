@@ -12,6 +12,7 @@
   },
 
   "portfolio": {
+    "starting_capital_jpy": 8000000,
     "max_positions": 8,
     "max_position_pct": 0.2,
     "min_position_pct": 0.05,
@@ -36,6 +37,32 @@
   ],
 
   "evaluation": {
+    "entry_filters": {
+      "f01_base": {
+        "enabled": true,
+        "require_ema_bull_stack": true,
+        "rsi_min": 55,
+        "rsi_max": 75,
+        "atr_price_max": 0.04,
+        "min_price": 1000
+      },
+      "f02_rsi_tight": {
+        "enabled": true,
+        "require_ema_bull_stack": true,
+        "rsi_min": 58,
+        "rsi_max": 70,
+        "atr_price_max": 0.04,
+        "min_price": 1000
+      },
+      "f03_vol_relaxed": {
+        "enabled": true,
+        "require_ema_bull_stack": true,
+        "rsi_min": 55,
+        "rsi_max": 75,
+        "atr_price_max": 0.05,
+        "min_price": 1000
+      }
+    },
     "entry_filter": {
       "enabled": false,
       "require_ema_bull_stack": true,

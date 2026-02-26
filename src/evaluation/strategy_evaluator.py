@@ -29,6 +29,7 @@ class AnnualStrategyResult:
     end_date: str  # "2021-12-31"
     entry_strategy: str  # "SimpleScorerStrategy"
     exit_strategy: str  # "LayeredExitStrategy"
+    entry_filter: str  # "default" / "trend_strict" ...
     return_pct: float  # 策略收益率
     topix_return_pct: Optional[float]  # TOPIX收益率（可能为None）
     alpha: Optional[float]  # 超额收益率（无TOPIX数据时为None）
@@ -89,6 +90,8 @@ class StrategyEvaluator:
         verbose: bool = False,
         overlay_config: Optional[Dict] = None,
         entry_filter_config: Optional[Dict] = None,
+        entry_filter_variants: Optional[List[Tuple[str, Dict]]] = None,
+        portfolio_overrides: Optional[Dict] = None,
         workers: int = 4,
         use_cache: bool = True,
     ):
@@ -101,6 +104,7 @@ class StrategyEvaluator:
             verbose: Enable detailed progress output
             overlay_config: Configuration for overlay manager
             entry_filter_config: Entry secondary filter configuration
+            entry_filter_variants: Named filter variants for evaluation combinations
             workers: Number of parallel workers (default: 4, set to 1 for serial execution)
             use_cache: Enable data preloading cache for performance (default: True)
         """
@@ -112,6 +116,10 @@ class StrategyEvaluator:
         self.workers = workers  # Parallel workers
         self.use_cache = use_cache  # Data cache flag
         self.entry_filter_config = entry_filter_config or {}
+        self.entry_filter_variants = self._normalize_entry_filter_variants(
+            entry_filter_variants
+        )
+        self.portfolio_overrides = portfolio_overrides or {}
 
         self.overlay_manager = OverlayManager.from_config(
             overlay_config or {},
@@ -122,6 +130,63 @@ class StrategyEvaluator:
         self._monitor_list_cache = None  # Monitor list 缓存
         self._topix_cache: Dict[Tuple[str, str], Optional[float]] = {}  # TOPIX 缓存
         self._portfolio_limits_cache: Optional[Tuple[int, float]] = None
+        self._starting_capital_cache: Optional[int] = None
+
+    def _get_starting_capital(self) -> int:
+        """
+        Load starting capital from overrides or config.json.
+
+        Priority:
+        1) portfolio_overrides.starting_capital_jpy
+        2) config.json portfolio.starting_capital_jpy
+        3) fallback 8,000,000 JPY
+        """
+        if self._starting_capital_cache is not None:
+            return self._starting_capital_cache
+
+        override_capital = self.portfolio_overrides.get("starting_capital_jpy")
+        if override_capital is not None:
+            try:
+                value = int(override_capital)
+                if value > 0:
+                    self._starting_capital_cache = value
+                    return self._starting_capital_cache
+            except Exception:
+                pass
+
+        try:
+            config_path = Path("config.json")
+            if config_path.exists():
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                portfolio_cfg = config.get("portfolio", {})
+                value = int(portfolio_cfg.get("starting_capital_jpy", 8_000_000))
+                if value > 0:
+                    self._starting_capital_cache = value
+                    return self._starting_capital_cache
+        except Exception:
+            pass
+
+        self._starting_capital_cache = 8_000_000
+        return self._starting_capital_cache
+
+    def _normalize_entry_filter_variants(
+        self, variants: Optional[List[Tuple[str, Dict]]]
+    ) -> List[Tuple[str, Dict]]:
+        if variants:
+            normalized: List[Tuple[str, Dict]] = []
+            for idx, item in enumerate(variants, 1):
+                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                    continue
+                name, cfg = item
+                if not isinstance(cfg, dict):
+                    continue
+                variant_name = str(name).strip() or f"filter_{idx}"
+                normalized.append((variant_name, cfg))
+            if normalized:
+                return normalized
+
+        return [("default", self.entry_filter_config)]
 
     def _get_portfolio_limits(self) -> Tuple[int, float]:
         """
@@ -132,6 +197,23 @@ class StrategyEvaluator:
         """
         if self._portfolio_limits_cache is not None:
             return self._portfolio_limits_cache
+
+        override_max_positions = self.portfolio_overrides.get("max_positions")
+        override_max_position_pct = self.portfolio_overrides.get("max_position_pct")
+        if override_max_positions is not None or override_max_position_pct is not None:
+            try:
+                max_positions = int(
+                    override_max_positions if override_max_positions is not None else 7
+                )
+                max_position_pct = float(
+                    override_max_position_pct
+                    if override_max_position_pct is not None
+                    else 0.18
+                )
+                self._portfolio_limits_cache = (max_positions, max_position_pct)
+                return self._portfolio_limits_cache
+            except Exception:
+                pass
 
         try:
             config_path = Path("config.json")
@@ -176,7 +258,12 @@ class StrategyEvaluator:
         if exit_strategies is None:
             exit_strategies = list(EXIT_STRATEGIES.keys())
 
-        total_backtests = len(periods) * len(entry_strategies) * len(exit_strategies)
+        total_backtests = (
+            len(periods)
+            * len(entry_strategies)
+            * len(exit_strategies)
+            * len(self.entry_filter_variants)
+        )
 
         # 总是显示的基本信息
         print(f"\n{'=' * 80}")
@@ -185,6 +272,7 @@ class StrategyEvaluator:
         print(f"   时间段数量: {len(periods)}")
         print(f"   入场策略: {len(entry_strategies)}个")
         print(f"   出场策略: {len(exit_strategies)}个")
+        print(f"   入场过滤器: {len(self.entry_filter_variants)}个")
         print(f"   总回测次数: {total_backtests}")
         print(f"   并行Workers: {self.workers}")
         print(f"   数据缓存: {'启用' if self.use_cache else '禁用'}")
@@ -239,16 +327,19 @@ class StrategyEvaluator:
             topix_return = self._topix_cache.get((start_date, end_date))
             for entry in entry_strategies:
                 for exit in exit_strategies:
-                    tasks.append(
-                        {
-                            "period_label": period_label,
-                            "start_date": start_date,
-                            "end_date": end_date,
-                            "entry_strategy": entry,
-                            "exit_strategy": exit,
-                            "topix_return": topix_return,
-                        }
-                    )
+                    for filter_name, filter_cfg in self.entry_filter_variants:
+                        tasks.append(
+                            {
+                                "period_label": period_label,
+                                "start_date": start_date,
+                                "end_date": end_date,
+                                "entry_strategy": entry,
+                                "exit_strategy": exit,
+                                "entry_filter": filter_name,
+                                "entry_filter_config": filter_cfg,
+                                "topix_return": topix_return,
+                            }
+                        )
 
         # Step 4: Execute backtests (parallel or serial)
         print(f"🚀 开始执行 {len(tasks)} 个回测任务...")
@@ -265,13 +356,15 @@ class StrategyEvaluator:
                         task["end_date"],
                         task["entry_strategy"],
                         task["exit_strategy"],
+                        task["entry_filter"],
+                        task["entry_filter_config"],
                         task["topix_return"],
                         self.data_root,
                         self._get_portfolio_limits(),
+                        self._get_starting_capital(),
                         self.overlay_manager.config
                         if hasattr(self.overlay_manager, "config")
                         else {},
-                        self.entry_filter_config,
                         self.use_cache,
                     ): task
                     for task in tasks
@@ -294,7 +387,7 @@ class StrategyEvaluator:
                                 )
                                 print(
                                     f"[{completed}/{total_backtests} {progress:.1f}%] "
-                                    f"{result.entry_strategy} × {result.exit_strategy} ({result.period}) "
+                                    f"{result.entry_strategy} × {result.exit_strategy} × {result.entry_filter} ({result.period}) "
                                     f"✓ Return: {result.return_pct:>6.2f}%, Alpha: {alpha_str}"
                                 )
                             else:
@@ -309,7 +402,7 @@ class StrategyEvaluator:
                             task = future_to_task[future]
                             print(
                                 f"[{completed}/{total_backtests}] "
-                                f"{task['entry_strategy']} × {task['exit_strategy']} ✗ Error: {e}"
+                                f"{task['entry_strategy']} × {task['exit_strategy']} × {task['entry_filter']} ✗ Error: {e}"
                             )
         else:
             # Serial execution (backward compatibility)
@@ -320,7 +413,7 @@ class StrategyEvaluator:
                 if self.verbose:
                     print(
                         f"[{completed}/{total_backtests} {progress:.1f}%] "
-                        f"{task['entry_strategy']} × {task['exit_strategy']}... ",
+                        f"{task['entry_strategy']} × {task['exit_strategy']} × {task['entry_filter']}... ",
                         end="",
                         flush=True,
                     )
@@ -335,6 +428,8 @@ class StrategyEvaluator:
                         end_date=task["end_date"],
                         entry_strategy=task["entry_strategy"],
                         exit_strategy=task["exit_strategy"],
+                        entry_filter_name=task["entry_filter"],
+                        entry_filter_config=task["entry_filter_config"],
                         topix_return=task["topix_return"],
                         preloaded_cache=preloaded_cache,
                     )
@@ -368,6 +463,8 @@ class StrategyEvaluator:
         end_date: str,
         entry_strategy: str,
         exit_strategy: str,
+        entry_filter_name: str,
+        entry_filter_config: Dict,
         topix_return: float,
         preloaded_cache=None,
     ) -> AnnualStrategyResult:
@@ -392,12 +489,12 @@ class StrategyEvaluator:
         max_positions, max_position_pct = self._get_portfolio_limits()
         engine = PortfolioBacktestEngine(
             data_root=self.data_root,
-            starting_capital=5_000_000,
+            starting_capital=self._get_starting_capital(),
             max_positions=max_positions,
             max_position_pct=max_position_pct,
             overlay_manager=self.overlay_manager,
             preloaded_cache=preloaded_cache,  # Pass cache to engine
-            entry_filter_config=self.entry_filter_config,
+            entry_filter_config=entry_filter_config,
         )
 
         result = engine.backtest_portfolio_strategy(
@@ -420,6 +517,7 @@ class StrategyEvaluator:
             end_date=end_date,
             entry_strategy=entry_strategy,
             exit_strategy=exit_strategy,
+            entry_filter=entry_filter_name,
             return_pct=result.total_return_pct,
             topix_return_pct=topix_return,
             alpha=alpha,
@@ -512,7 +610,9 @@ class StrategyEvaluator:
         df["market_regime"] = df["topix_return_pct"].apply(MarketRegime.classify)
 
         # 按市场环境和策略组合分组
-        grouped = df.groupby(["market_regime", "entry_strategy", "exit_strategy"]).agg(
+        grouped = df.groupby(
+            ["market_regime", "entry_strategy", "exit_strategy", "entry_filter"]
+        ).agg(
             {
                 "return_pct": ["mean", "std", "min", "max"],
                 "alpha": ["mean", "std"],
@@ -561,6 +661,7 @@ class StrategyEvaluator:
                     "period",
                     "entry_strategy",
                     "exit_strategy",
+                    "entry_filter",
                     "return_pct",
                     "topix_return_pct",
                     "alpha",
@@ -622,11 +723,12 @@ class StrategyEvaluator:
             f.write("## 1. 总体概览\n\n")
             f.write(f"- 评估时段数: {df['period'].nunique()}\n")
             f.write(
-                f"- 策略组合数: {len(df.groupby(['entry_strategy', 'exit_strategy']))}\n"
+                f"- 策略组合数: {len(df.groupby(['entry_strategy', 'exit_strategy', 'entry_filter']))}\n"
             )
             f.write(f"- 总回测次数: {len(df)}\n")
             f.write(f"- 入场策略: {', '.join(df['entry_strategy'].unique())}\n")
             f.write(f"- 出场策略: {', '.join(df['exit_strategy'].unique())}\n\n")
+            f.write(f"- 入场过滤器: {', '.join(df['entry_filter'].unique())}\n\n")
 
             # 2. 时段TOPIX表现
             f.write("## 2. 时段TOPIX表现\n\n")
@@ -687,30 +789,30 @@ class StrategyEvaluator:
                     and regime_df["topix_return_pct"].sum() != 0
                 ):
                     f.write(
-                        "| 排名 | 时段 | 入场策略 | 出场策略 | 收益率 | 超额收益 | 夏普比率 | 胜率 |\n"
+                        "| 排名 | 时段 | 入场策略 | 出场策略 | 入场过滤器 | 收益率 | 超额收益 | 夏普比率 | 胜率 |\n"
                     )
                     f.write(
-                        "|------|------|---------|---------|--------|---------|---------|------|\n"
+                        "|------|------|---------|---------|------------|--------|---------|---------|------|\n"
                     )
                     for idx, (_, row) in enumerate(regime_df.iterrows(), 1):
                         alpha_str = (
                             f"{row['alpha']:.2f}%" if pd.notna(row["alpha"]) else "N/A"
                         )
                         f.write(
-                            f"| {idx} | {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | "
+                            f"| {idx} | {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | {row['entry_filter']} | "
                             f"{row['return_pct']:.2f}% | {alpha_str} | "
                             f"{row['sharpe_ratio']:.2f} | {row['win_rate_pct']:.1f}% |\n"
                         )
                 else:
                     f.write(
-                        "| 排名 | 时段 | 入场策略 | 出场策略 | 收益率 | 夏普比率 | 胜率 |\n"
+                        "| 排名 | 时段 | 入场策略 | 出场策略 | 入场过滤器 | 收益率 | 夏普比率 | 胜率 |\n"
                     )
                     f.write(
-                        "|------|------|---------|---------|--------|---------|------|\n"
+                        "|------|------|---------|---------|------------|--------|---------|------|\n"
                     )
                     for idx, (_, row) in enumerate(regime_df.iterrows(), 1):
                         f.write(
-                            f"| {idx} | {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | "
+                            f"| {idx} | {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | {row['entry_filter']} | "
                             f"{row['return_pct']:.2f}% | "
                             f"{row['sharpe_ratio']:.2f} | {row['win_rate_pct']:.1f}% |\n"
                         )
@@ -724,23 +826,30 @@ class StrategyEvaluator:
 
             # 按策略组合分组，显示所有时段数据
             strategies = sorted(
-                df.groupby(["entry_strategy", "exit_strategy"]).size().index.tolist()
+                df.groupby(["entry_strategy", "exit_strategy", "entry_filter"])
+                .size()
+                .index.tolist()
             )
 
-            f.write("| 时段 | 入场策略 | 出场策略 | 收益率 | 超额收益 | 市场环境 |\n")
-            f.write("|------|---------|---------|--------|---------|----------|\n")
+            f.write(
+                "| 时段 | 入场策略 | 出场策略 | 入场过滤器 | 收益率 | 超额收益 | 市场环境 |\n"
+            )
+            f.write(
+                "|------|---------|---------|------------|--------|---------|----------|\n"
+            )
 
-            for entry_strat, exit_strat in strategies:
+            for entry_strat, exit_strat, filter_name in strategies:
                 combo_df = df[
                     (df["entry_strategy"] == entry_strat)
                     & (df["exit_strategy"] == exit_strat)
+                    & (df["entry_filter"] == filter_name)
                 ].sort_values("period")
                 for _, row in combo_df.iterrows():
                     alpha_str = (
                         f"{row['alpha']:.2f}%" if pd.notna(row["alpha"]) else "N/A"
                     )
                     f.write(
-                        f"| {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | "
+                        f"| {row['period']} | {row['entry_strategy']} | {row['exit_strategy']} | {row['entry_filter']} | "
                         f"{row['return_pct']:.2f}% | {alpha_str} | {row['market_regime']} |\n"
                     )
             f.write("\n")
@@ -765,7 +874,11 @@ class StrategyEvaluator:
                     regime_df["rank"] = regime_df["return_pct"].rank(ascending=False)
 
                 for _, row in regime_df.iterrows():
-                    key = (row["entry_strategy"], row["exit_strategy"])
+                    key = (
+                        row["entry_strategy"],
+                        row["exit_strategy"],
+                        row["entry_filter"],
+                    )
                     if key not in strategy_performance:
                         strategy_performance[key] = []
                     strategy_performance[key].append(row["rank"])
@@ -776,13 +889,17 @@ class StrategyEvaluator:
 
             f.write("基于跨市场环境表现（平均排名），推荐策略：\n\n")
 
-            for i, ((entry, exit), avg_rank) in enumerate(sorted_strategies[:3], 1):
-                f.write(f"**{i}. {entry} × {exit}**\n")
+            for i, ((entry, exit, filter_name), avg_rank) in enumerate(
+                sorted_strategies[:3], 1
+            ):
+                f.write(f"**{i}. {entry} × {exit} × {filter_name}**\n")
                 f.write(f"- 平均排名: {avg_rank:.1f}\n")
 
                 # 统计在各市场环境的表现
                 combo_df = df[
-                    (df["entry_strategy"] == entry) & (df["exit_strategy"] == exit)
+                    (df["entry_strategy"] == entry)
+                    & (df["exit_strategy"] == exit)
+                    & (df["entry_filter"] == filter_name)
                 ]
                 f.write(f"- 平均收益率: {combo_df['return_pct'].mean():.2f}%\n")
 
@@ -877,11 +994,13 @@ def _run_backtest_worker(
     end_date: str,
     entry_strategy: str,
     exit_strategy: str,
+    entry_filter_name: str,
+    entry_filter_config: Dict,
     topix_return: Optional[float],
     data_root: str,
     portfolio_limits: Tuple[int, float],
+    starting_capital: int,
     overlay_config: Dict,
-    entry_filter_config: Dict,
     use_cache: bool,
 ) -> Optional[AnnualStrategyResult]:
     """
@@ -896,11 +1015,12 @@ def _run_backtest_worker(
         end_date: End date (YYYY-MM-DD)
         entry_strategy: Entry strategy name
         exit_strategy: Exit strategy name
+        entry_filter_name: Entry filter variant name
+        entry_filter_config: Entry secondary filter configuration dict
         topix_return: TOPIX benchmark return (optional)
         data_root: Data root directory
         portfolio_limits: (max_positions, max_position_pct)
         overlay_config: Overlay manager configuration dict
-        entry_filter_config: Entry secondary filter configuration dict
         use_cache: Whether to use data cache
 
     Returns:
@@ -962,7 +1082,7 @@ def _run_backtest_worker(
         max_positions, max_position_pct = portfolio_limits
         engine = PortfolioBacktestEngine(
             data_root=data_root,
-            starting_capital=5_000_000,
+            starting_capital=starting_capital,
             max_positions=max_positions,
             max_position_pct=max_position_pct,
             overlay_manager=overlay_manager,
@@ -990,6 +1110,7 @@ def _run_backtest_worker(
             end_date=end_date,
             entry_strategy=entry_strategy,
             exit_strategy=exit_strategy,
+            entry_filter=entry_filter_name,
             return_pct=result.total_return_pct,
             topix_return_pct=topix_return,
             alpha=alpha,

@@ -12,6 +12,7 @@
 - [CLI 命令参考](cli/COMMANDS_REFERENCE.md)
 - [Production 实操概要（单组 + 双终端）](cli/PRODUCTION_DAILY_SOP.md)
 - [策略逻辑与公式](strategies/ENTRY_EXIT_STRATEGIES.md)
+- [仓位管理统一评分规则（长期可用版）](strategies/POSITION_MANAGEMENT_SCORING_RULE.md)
 - [实现接口说明](interfaces/IMPLEMENTATION_INTERFACES.md)
 - [Feature 目录与计算方法](features/FEATURE_CATALOG.md)
 - [Agent 实施设计简报（Momentum + Regime）](AGENT_IMPLEMENTATION_BRIEF_MOMENTUM_REGIME.md)

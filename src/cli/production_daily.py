@@ -27,6 +27,15 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         raw_config = json.load(f)
     lot_sizes = raw_config.get("lot_sizes", {})
     default_lot_size = int(lot_sizes.get("default", 100) or 100)
+    prod_runtime_cfg = raw_config.get("production", {})
+    buy_price_buffer_pct = float(
+        prod_runtime_cfg.get("report_buy_price_buffer_pct", 0.02)
+    )
+    sell_price_buffer_pct = float(
+        prod_runtime_cfg.get("report_sell_price_buffer_pct", 0.02)
+    )
+    buy_price_buffer_pct = min(max(buy_price_buffer_pct, 0.0), 0.20)
+    sell_price_buffer_pct = min(max(sell_price_buffer_pct, 0.0), 0.20)
 
     monitor_tickers = load_monitor_tickers(prod_cfg.monitor_list_file)
 
@@ -177,6 +186,33 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         required_capital = qty * current_price
         return qty, required_capital, lot_size
 
+    def _estimate_buy_price(close_price: float) -> float:
+        return float(close_price) * (1.0 + buy_price_buffer_pct)
+
+    def _estimate_sell_price(close_price: float) -> float:
+        return float(close_price) * (1.0 - sell_price_buffer_pct)
+
+    def _parse_sell_pct(action: str) -> float:
+        normalized = (action or "").upper()
+        if "25" in normalized:
+            return 0.25
+        if "50" in normalized:
+            return 0.5
+        if "75" in normalized:
+            return 0.75
+        return 1.0
+
+    def _calculate_sell_quantity(ticker: str, total_qty: int, sell_pct: float) -> int:
+        lot_size = int(lot_sizes.get(ticker, default_lot_size) or default_lot_size)
+        if total_qty <= 0:
+            return 0
+        if sell_pct >= 0.999:
+            return total_qty
+        raw_qty = total_qty * max(sell_pct, 0.0)
+        lots = int((raw_qty + lot_size - 1) // lot_size)
+        qty = lots * lot_size
+        return min(total_qty, qty)
+
     overlay_summaries = []
 
     def _get_group_current_prices(group):
@@ -247,84 +283,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             overlay_decision.max_new_positions if overlay_decision else None
         )
 
-        # Calculate current position count (for max_positions_per_group enforcement)
-        current_position_count = len(current_tickers)
-
-        for ticker, eval_obj in comprehensive_evals.items():
-            if ticker in current_tickers:
-                continue
-            strategy_eval = eval_obj.evaluations.get(entry_strategy_name)
-            if not strategy_eval or strategy_eval.signal_action != "BUY":
-                continue
-
-            # Check if adding new position would exceed max_positions_per_group
-            if (
-                current_position_count + new_positions_opened
-                >= prod_cfg.max_positions_per_group
-            ):
-                break
-
-            if (
-                max_new_positions is not None
-                and new_positions_opened >= max_new_positions
-            ):
-                break
-
-            max_position_pct = float(prod_cfg.max_position_pct)
-            if overlay_decision and overlay_decision.position_scale is not None:
-                max_position_pct *= overlay_decision.position_scale
-
-            available_cash = float(group.cash)
-            if overlay_decision and overlay_decision.target_exposure is not None:
-                invested_value = sum(
-                    pos.quantity * current_prices.get(pos.ticker, pos.entry_price)
-                    for pos in group.positions
-                    if pos.quantity > 0
-                )
-                max_invested = total_value * overlay_decision.target_exposure
-                available_exposure = max(0.0, max_invested - invested_value)
-                available_cash = min(available_cash, available_exposure)
-
-            suggested_qty, required_capital, lot_size = _calc_suggested_qty(
-                ticker=ticker,
-                current_price=float(eval_obj.current_price),
-                available_cash=available_cash,
-                total_portfolio_value=total_value,
-                max_position_pct=max_position_pct,
-            )
-
-            buy_reason = strategy_eval.reason
-            if overlay_decision and overlay_decision.block_new_entries:
-                suggested_qty = 0
-                required_capital = 0.0
-                buy_reason = f"{buy_reason}; Overlay blocked new entries"
-            elif suggested_qty <= 0:
-                buy_reason = (
-                    f"{buy_reason}; SuggestedQty=0: cash/position limit insufficient "
-                    f"for lot size {lot_size}"
-                )
-
-            signal = Signal(
-                group_id=group.id,
-                ticker=ticker,
-                ticker_name=eval_obj.ticker_name,
-                signal_type="BUY",
-                action="BUY",
-                confidence=strategy_eval.confidence,
-                score=strategy_eval.score,
-                reason=buy_reason,
-                current_price=eval_obj.current_price,
-                suggested_qty=suggested_qty,
-                required_capital=required_capital,
-                strategy_name=entry_strategy_name,
-            )
-            all_signals.append(signal)
-            buy_count += 1
-            total_buy_signals += 1
-            if suggested_qty > 0:
-                new_positions_opened += 1
-
+        # Step 1) Build SELL/HOLD signals first (for projected cash release)
         sell_count = 0
+        projected_sell_proceeds = 0.0
+        projected_position_count = len(current_tickers)
         for position in group.positions:
             if position.quantity <= 0:
                 continue
@@ -416,7 +378,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
                 # Process SELL signals
                 if exit_signal.action == SignalAction.SELL:
-                    action_str = "SELL"
+                    action_str = (
+                        exit_signal.action.value
+                        if hasattr(exit_signal.action, "value")
+                        else "SELL"
+                    )
                     signal_type = "SELL"
                 elif exit_signal.action == SignalAction.HOLD:
                     # Generate HOLD signal for reporting
@@ -462,10 +428,112 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
                 # Count only SELL signals for statistics
                 if signal_type == "SELL":
+                    sell_pct = 1.0
+                    if exit_signal.metadata:
+                        sell_pct = float(
+                            exit_signal.metadata.get("sell_percentage", 1.0)
+                        )
+                    if action_str and action_str != "SELL":
+                        sell_pct = _parse_sell_pct(action_str)
+                    qty_to_sell = _calculate_sell_quantity(
+                        ticker=ticker,
+                        total_qty=position.quantity,
+                        sell_pct=sell_pct,
+                    )
+                    estimated_sell_price = _estimate_sell_price(float(current_price))
+                    projected_sell_proceeds += qty_to_sell * estimated_sell_price
+                    if qty_to_sell >= position.quantity:
+                        projected_position_count -= 1
                     sell_count += 1
                     total_sell_signals += 1
             except Exception:
                 continue
+
+        # Step 2) Build BUY signals using projected post-sell cash/exposure
+        invested_value = sum(
+            pos.quantity * current_prices.get(pos.ticker, pos.entry_price)
+            for pos in group.positions
+            if pos.quantity > 0
+        )
+        planning_cash = float(group.cash) + projected_sell_proceeds
+        planning_invested_value = max(0.0, invested_value - projected_sell_proceeds)
+
+        for ticker, eval_obj in comprehensive_evals.items():
+            if ticker in current_tickers:
+                continue
+            strategy_eval = eval_obj.evaluations.get(entry_strategy_name)
+            if not strategy_eval or strategy_eval.signal_action != "BUY":
+                continue
+
+            # Check if adding new position would exceed max_positions_per_group
+            if (
+                projected_position_count + new_positions_opened
+                >= prod_cfg.max_positions_per_group
+            ):
+                break
+
+            if (
+                max_new_positions is not None
+                and new_positions_opened >= max_new_positions
+            ):
+                break
+
+            max_position_pct = float(prod_cfg.max_position_pct)
+            if overlay_decision and overlay_decision.position_scale is not None:
+                max_position_pct *= overlay_decision.position_scale
+
+            available_cash = planning_cash
+            if overlay_decision and overlay_decision.target_exposure is not None:
+                max_invested = total_value * overlay_decision.target_exposure
+                available_exposure = max(0.0, max_invested - planning_invested_value)
+                available_cash = min(available_cash, available_exposure)
+
+            estimated_buy_price = _estimate_buy_price(float(eval_obj.current_price))
+            suggested_qty, required_capital, lot_size = _calc_suggested_qty(
+                ticker=ticker,
+                current_price=estimated_buy_price,
+                available_cash=available_cash,
+                total_portfolio_value=total_value,
+                max_position_pct=max_position_pct,
+            )
+
+            buy_reason = strategy_eval.reason
+            if overlay_decision and overlay_decision.block_new_entries:
+                suggested_qty = 0
+                required_capital = 0.0
+                buy_reason = f"{buy_reason}; Overlay blocked new entries"
+            elif suggested_qty <= 0:
+                buy_reason = (
+                    f"{buy_reason}; SuggestedQty=0: projected cash/exposure insufficient "
+                    f"for lot size {lot_size}"
+                )
+
+            buy_reason = (
+                f"{buy_reason}; PlanningPrice=Close*{1.0 + buy_price_buffer_pct:.2f}, "
+                f"SellPrice=Close*{1.0 - sell_price_buffer_pct:.2f}"
+            )
+
+            signal = Signal(
+                group_id=group.id,
+                ticker=ticker,
+                ticker_name=eval_obj.ticker_name,
+                signal_type="BUY",
+                action="BUY",
+                confidence=strategy_eval.confidence,
+                score=strategy_eval.score,
+                reason=buy_reason,
+                current_price=estimated_buy_price,
+                suggested_qty=suggested_qty,
+                required_capital=required_capital,
+                strategy_name=entry_strategy_name,
+            )
+            all_signals.append(signal)
+            buy_count += 1
+            total_buy_signals += 1
+            if suggested_qty > 0:
+                new_positions_opened += 1
+                planning_cash = max(0.0, planning_cash - required_capital)
+                planning_invested_value += required_capital
 
         print(f"      BUY: {buy_count}, SELL: {sell_count}")
 

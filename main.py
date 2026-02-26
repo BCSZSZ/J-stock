@@ -9,7 +9,7 @@ import os
 import sys
 
 from src.cli.backtest import cmd_backtest
-from src.cli.evaluate import cmd_evaluate
+from src.cli.evaluate import cmd_evaluate, cmd_pos_evaluation
 from src.cli.fetch import cmd_fetch
 from src.cli.portfolio import cmd_portfolio
 from src.cli.production import cmd_production
@@ -376,6 +376,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--exit-strategies", nargs="+", help="指定出场策略（默认全部）"
     )
     evaluate_parser.add_argument(
+        "--entry-filter-mode",
+        choices=["auto", "off", "single", "grid"],
+        default="auto",
+        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
+    )
+    evaluate_parser.add_argument(
+        "--entry-filter-name",
+        nargs="+",
+        help="指定entry_filters中的过滤器名称（single选1个，grid可选多个）",
+    )
+    evaluate_parser.add_argument(
+        "--list-entry-filters",
+        action="store_true",
+        help="仅列出可用的entry filter并退出",
+    )
+    evaluate_parser.add_argument(
         "--output-dir",
         default=None,
         help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation）",
@@ -384,6 +400,68 @@ def build_parser() -> argparse.ArgumentParser:
         "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
     )
     evaluate_parser.set_defaults(func=cmd_evaluate)
+
+    pos_evaluate_parser = subparsers.add_parser(
+        "pos-evaluation", help="仓位参数批量评价（读取evaluation-position.json）"
+    )
+    pos_evaluate_parser.add_argument(
+        "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
+    )
+    pos_evaluate_parser.add_argument(
+        "--mode",
+        choices=["annual", "quarterly", "monthly", "custom"],
+        default="annual",
+        help="评估模式: annual=整年, quarterly=季度, monthly=按月, custom=自定义",
+    )
+    pos_evaluate_parser.add_argument(
+        "--months", nargs="+", type=int, help="月份列表（monthly模式，例如: 1 2 3）"
+    )
+    pos_evaluate_parser.add_argument(
+        "--custom-periods",
+        type=str,
+        help='自定义时间段（JSON格式）: [["2021-Q1","2021-01-01","2021-03-31"], ...]',
+    )
+    pos_evaluate_parser.add_argument(
+        "--entry-strategies", nargs="+", help="指定入场策略（默认全部）"
+    )
+    pos_evaluate_parser.add_argument(
+        "--exit-strategies", nargs="+", help="指定出场策略（默认全部）"
+    )
+    pos_evaluate_parser.add_argument(
+        "--entry-filter-mode",
+        choices=["auto", "off", "single", "grid"],
+        default="auto",
+        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
+    )
+    pos_evaluate_parser.add_argument(
+        "--entry-filter-name",
+        nargs="+",
+        help="指定entry_filters中的过滤器名称（single选1个，grid可选多个）",
+    )
+    pos_evaluate_parser.add_argument(
+        "--list-entry-filters",
+        action="store_true",
+        help="仅列出可用的entry filter并退出",
+    )
+    pos_evaluate_parser.add_argument(
+        "--position-file",
+        default="evaluation-position.json",
+        help="仓位组合配置文件路径（默认: evaluation-position.json）",
+    )
+    pos_evaluate_parser.add_argument(
+        "--profile-name",
+        nargs="+",
+        help="仅运行指定仓位组合名称（可多个）",
+    )
+    pos_evaluate_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation）",
+    )
+    pos_evaluate_parser.add_argument(
+        "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
+    )
+    pos_evaluate_parser.set_defaults(func=cmd_pos_evaluation)
 
     return parser
 

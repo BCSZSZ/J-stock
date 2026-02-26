@@ -144,7 +144,7 @@ class ReportBuilder:
         # Actionable recommendations from signals
         sections.append(self._build_actionable_recommendations(signals))
 
-        # Final picks after secondary filtering
+        # Final picks from ranked executable BUY signals
         sections.append(self._build_final_picks(evaluations, signals))
 
         # Current portfolio with exit evaluations
@@ -549,138 +549,111 @@ class ReportBuilder:
         return "\n".join(lines)
 
     def _build_final_picks(self, evaluations: Dict, signals: List[Signal]) -> str:
-        """Build a secondary-filtered shortlist from available signals and indicators."""
+        """Build final BUY picks using ranking + executable position/cash constraints only."""
         if not evaluations:
-            return "## ✅ Final Picks (Secondary Filter)\n\n*No evaluations available.*"
+            return "## ✅ Final BUY Picks (Ranked & Capacity-Constrained)\n\n*No evaluations available.*"
 
         buy_signals = [s for s in (signals or []) if s.signal_type == "BUY"]
-        best_buy_by_ticker: Dict[str, Signal] = {}
+        if not buy_signals:
+            return (
+                "## ✅ Final BUY Picks (Ranked & Capacity-Constrained)\n\n"
+                "*No BUY signals generated today.*"
+            )
+
+        best_by_group_ticker: Dict[tuple, Signal] = {}
         for sig in buy_signals:
-            current = best_buy_by_ticker.get(sig.ticker)
+            key = (sig.group_id, sig.ticker)
+            current = best_by_group_ticker.get(key)
             if current is None:
-                best_buy_by_ticker[sig.ticker] = sig
+                best_by_group_ticker[key] = sig
                 continue
+
             current_exec = 1 if (current.suggested_qty or 0) > 0 else 0
             sig_exec = 1 if (sig.suggested_qty or 0) > 0 else 0
             current_cap = (
                 current.required_capital if current.required_capital else float("inf")
             )
             sig_cap = sig.required_capital if sig.required_capital else float("inf")
-            current_key = (
-                current_exec,
-                -current.score,
-                -current.confidence,
-                -current_cap,
-            )
-            sig_key = (sig_exec, -sig.score, -sig.confidence, -sig_cap)
+            current_key = (current_exec, current.score, current.confidence, -current_cap)
+            sig_key = (sig_exec, sig.score, sig.confidence, -sig_cap)
             if sig_key > current_key:
-                best_buy_by_ticker[sig.ticker] = sig
+                best_by_group_ticker[key] = sig
 
-        def _trend_ok(eval_obj) -> bool:
-            ema20 = eval_obj.technical_indicators.get("EMA_20", 0)
-            ema50 = eval_obj.technical_indicators.get("EMA_50", 0)
-            ema200 = eval_obj.technical_indicators.get("EMA_200", 0)
-            return ema20 > ema50 > ema200
-
-        def _rsi_ok(eval_obj) -> bool:
-            rsi = eval_obj.technical_indicators.get("RSI", 0)
-            return 55 <= rsi <= 75
-
-        def _atr_ok(eval_obj) -> bool:
-            atr = eval_obj.technical_indicators.get("ATR", 0)
-            price = eval_obj.current_price or 0
-            if price <= 0:
-                return False
-            atr_pct = atr / price
-            return atr_pct <= 0.04
-
-        def _price_ok(eval_obj) -> bool:
-            return (eval_obj.current_price or 0) >= 1000
-
-        candidates = []
-        for eval_obj in evaluations.values():
-            best_signal = best_buy_by_ticker.get(eval_obj.ticker)
-            if best_signal is None:
-                continue
-            if (best_signal.suggested_qty or 0) <= 0:
-                continue
-            if eval_obj.overall_signal not in ["STRONG_BUY", "BUY"]:
-                continue
-            if not _trend_ok(eval_obj):
-                continue
-            if not _rsi_ok(eval_obj):
-                continue
-            if not _atr_ok(eval_obj):
-                continue
-            if not _price_ok(eval_obj):
-                continue
-
-            atr_pct = (
-                eval_obj.technical_indicators.get("ATR", 0) / eval_obj.current_price
-            )
-            rsi = eval_obj.technical_indicators.get("RSI", 0)
-            rsi_quality = 1.0 if 60 <= rsi <= 70 else 0.7
-            risk_score = max(0.0, 1.0 - min(atr_pct / 0.04, 1.0))
-            trend_score = 1.0
-            final_score = (
-                0.45 * (best_signal.score / 100.0)
-                + 0.25 * trend_score
-                + 0.15 * rsi_quality
-                + 0.15 * risk_score
-            )
-
-            candidates.append(
-                {
-                    "eval": eval_obj,
-                    "signal": best_signal,
-                    "atr_pct": atr_pct,
-                    "final_score": final_score,
-                }
-            )
-
-        candidates = sorted(
-            candidates,
-            key=lambda c: (
-                -c["final_score"],
-                c["signal"].required_capital
-                if c["signal"].required_capital
-                else float("inf"),
-            ),
-        )
+        by_group: Dict[str, List[Signal]] = {}
+        for sig in best_by_group_ticker.values():
+            by_group.setdefault(sig.group_id, []).append(sig)
 
         lines = [
-            "## ✅ Final Picks (Secondary Filter)",
+            "## ✅ Final BUY Picks (Ranked & Capacity-Constrained)",
             "",
-            "**Filters:** Executable qty, STRONG_BUY/BUY, EMA20>EMA50>EMA200, "
-            "RSI 55-75, ATR/Price <= 4%, Price >= ¥1,000",
+            "**Rule:** No secondary technical filter. Picks are ranked by executable priority, "
+            "signal score/confidence, and capital efficiency under current position/cash limits.",
             "",
         ]
 
-        if not candidates:
-            lines.append("*No candidates passed secondary filters.*")
-            return "\n".join(lines)
+        any_executable = False
 
-        lines.append(
-            "| Rank | Ticker | Price | Score | Qty | Capital (¥) | RSI | ATR% | Reasons |"
-        )
-        lines.append(
-            "|------|--------|-------|-------|-----|-------------|-----|------|---------|"
-        )
+        for group in self.state_manager.get_all_groups():
+            group_signals = by_group.get(group.id, [])
+            active_positions = len([p for p in group.positions if p.quantity > 0])
 
-        for rank, item in enumerate(candidates[:8], 1):
-            eval_obj = item["eval"]
-            sig = item["signal"]
-            rsi = eval_obj.technical_indicators.get("RSI", 0)
-            atr_pct = item["atr_pct"] * 100
-            capital_str = (
-                f"{sig.required_capital:,.0f}" if sig.required_capital else "0"
+            ranked = sorted(
+                group_signals,
+                key=lambda s: (
+                    0 if (s.suggested_qty or 0) > 0 else 1,
+                    -(s.score or 0.0),
+                    -(s.confidence or 0.0),
+                    s.required_capital if s.required_capital else float("inf"),
+                    s.ticker,
+                ),
             )
-            reason = f"EMA20>EMA50>EMA200; RSI={rsi:.0f}; ATR%={atr_pct:.2f}"
+
+            executable = [s for s in ranked if (s.suggested_qty or 0) > 0]
+            total_capital = sum(float(s.required_capital or 0.0) for s in executable)
+
+            lines.append(f"### {group.name} ({group.id})")
+            lines.append("")
             lines.append(
-                f"| {rank} | {eval_obj.ticker} | ¥{eval_obj.current_price:,.0f} | "
-                f"{sig.score:.1f} | {sig.suggested_qty} | {capital_str} | "
-                f"{rsi:.0f} | {atr_pct:.2f}% | {reason} |"
+                f"**Current Positions:** {active_positions} | "
+                f"**Executable BUY Picks:** {len(executable)} | "
+                f"**Estimated Capital:** ¥{total_capital:,.0f}"
             )
+            lines.append("")
+
+            if not executable:
+                lines.append(
+                    "*No executable BUY picks under current ranking and position/cash constraints.*"
+                )
+                lines.append("")
+                continue
+
+            any_executable = True
+            lines.append(
+                "| Rank | Ticker | Price | Score | Confidence | Qty | Capital (¥) | Reason |"
+            )
+            lines.append(
+                "|------|--------|-------|-------|------------|-----|-------------|--------|"
+            )
+
+            for rank, sig in enumerate(executable, 1):
+                confidence_pct = (
+                    f"{sig.confidence * 100:.0f}%"
+                    if sig.confidence is not None
+                    else "N/A"
+                )
+                qty_str = str(sig.suggested_qty) if sig.suggested_qty else "0"
+                capital_str = (
+                    f"{sig.required_capital:,.0f}" if sig.required_capital else "0"
+                )
+                reason = (sig.reason or "...").replace("|", "/")
+                lines.append(
+                    f"| {rank} | {sig.ticker} | ¥{sig.current_price:,.0f} | {sig.score:.1f} | "
+                    f"{confidence_pct} | {qty_str} | {capital_str} | {reason} |"
+                )
+            lines.append("")
+
+        if not any_executable:
+            lines.append("*No executable BUY picks across all groups today.*")
 
         return "\n".join(lines)
 
