@@ -1,24 +1,79 @@
 {
   "portfolios": [
     {
-      "name": "base_7x18",
+      "name": "eqcap_6x21p00",
+      "max_positions": 6,
+      "max_position_pct": 0.21
+    },
+    {
+      "name": "eqcap_7x18p00",
       "max_positions": 7,
       "max_position_pct": 0.18
     },
     {
-      "name": "high_slots_low_pct_10x12",
-      "max_positions": 10,
-      "max_position_pct": 0.12
+      "name": "eqcap_8x15p75",
+      "max_positions": 8,
+      "max_position_pct": 0.1575
     },
     {
-      "name": "Exhigh_slots_EXlow_pct_10x12",
-      "max_positions": 20,
-      "max_position_pct": 0.10
-    },    
+      "name": "eqcap_9x14p00",
+      "max_positions": 9,
+      "max_position_pct": 0.14
+    },
     {
-      "name": "same_slots_high_pct_7x12",
-      "max_positions": 7,
-      "max_position_pct": 0.24
+      "name": "eqcap_10x12p60",
+      "max_positions": 10,
+      "max_position_pct": 0.126
+    },
+    {
+      "name": "eqcap_11x11p45",
+      "max_positions": 11,
+      "max_position_pct": 0.1145
+    },
+    {
+      "name": "eqcap_12x10p50",
+      "max_positions": 12,
+      "max_position_pct": 0.105
+    },
+    {
+      "name": "eqcap_13x9p69",
+      "max_positions": 13,
+      "max_position_pct": 0.0969
+    },
+    {
+      "name": "eqcap_14x9p00",
+      "max_positions": 14,
+      "max_position_pct": 0.09
+    },
+    {
+      "name": "eqcap_15x8p40",
+      "max_positions": 15,
+      "max_position_pct": 0.084
+    },
+    {
+      "name": "eqcap_16x7p88",
+      "max_positions": 16,
+      "max_position_pct": 0.0788
+    },
+    {
+      "name": "eqcap_17x7p41",
+      "max_positions": 17,
+      "max_position_pct": 0.0741
+    },
+    {
+      "name": "eqcap_18x7p00",
+      "max_positions": 18,
+      "max_position_pct": 0.07
+    },
+    {
+      "name": "eqcap_19x6p63",
+      "max_positions": 19,
+      "max_position_pct": 0.0663
+    },
+    {
+      "name": "eqcap_20x6p30",
+      "max_positions": 20,
+      "max_position_pct": 0.063
     }
   ]
 }
