@@ -1,0 +1,2 @@
+﻿market_regime,entry_strategy,exit_strategy,entry_filter,return_pct_mean,return_pct_std,return_pct_min,return_pct_max,alpha_mean,alpha_std,sharpe_ratio_mean,win_rate_pct_mean,max_drawdown_pct_mean,sample_count
+温和牛市 (TOPIX 0-25%),MACDCrossoverStrategy,MVX_N9_R3p4_T1p6_D18_B20p0,off,69.62,,69.62,69.62,45.944384725844714,,2.9501461133779707,65.21739130434783,10.657867039784055,1

@@ -21,6 +21,35 @@
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p4_T1p6_D18_B20p0
 ```
 
+### Entry Filter 层开关（evaluation）
+
+- `--entry-filter-mode off|single|grid|auto`
+  - `off`: 关闭过滤层（不启用二级过滤）
+  - `single`: 只使用单一过滤器（默认 `evaluation.entry_filter`）
+  - `grid`: 使用 `evaluation.entry_filters` 做网格评估
+  - `auto`: 有 `entry_filters` 就走网格，否则走单一（默认）
+- `--entry-filter-name ...`
+  - `single` 模式下指定 1 个过滤器名
+  - `grid` 模式下可指定多个过滤器名作为子集
+- `--list-entry-filters`
+  - 查看当前可用过滤器并退出
+
+示例：
+
+```powershell
+# 关闭filter层
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p4_T1p6_D18_B20p0 --entry-filter-mode off
+
+# 仅使用单一filter
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p4_T1p6_D18_B20p0 --entry-filter-mode single --entry-filter-name f01_base
+
+# 使用所有filter网格（例如1*1*9）
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p4_T1p6_D18_B20p0 --entry-filter-mode grid
+
+# 仅查看可用filter
+.venv/Scripts/python.exe main.py evaluate --list-entry-filters
+```
+
 ### 策略命名与注册规范（必须遵守）
 
 - 同一策略的不同参数版本，必须注册为不同策略名（不可共用一个名）。
@@ -76,6 +105,11 @@
 
 ```powershell
 .venv/Scripts/python.exe main.py production --daily
+```
+
+
+```powershell
+.venv/Scripts/python.exe main.py production --daily --no-fetch
 ```
 
 ### 外部文件导入成交（production --input）

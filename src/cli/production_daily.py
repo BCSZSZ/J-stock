@@ -326,6 +326,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     overlay_reason = overlay_decision.exit_overrides[ticker]
 
                 if overlay_reason:
+                    estimated_sell_price = _estimate_sell_price(float(current_price))
+                    planned_sell_qty = int(position.quantity)
+                    planned_sell_value = planned_sell_qty * estimated_sell_price
                     signal = Signal(
                         group_id=group.id,
                         ticker=ticker,
@@ -341,9 +344,13 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         entry_date=position.entry_date,
                         holding_days=(pd.Timestamp(signal_date) - entry_date_ts).days,
                         unrealized_pl_pct=float(unrealized_pl),
+                        planned_sell_qty=planned_sell_qty,
+                        planned_sell_value=planned_sell_value,
                         strategy_name="Overlay",
                     )
                     all_signals.append(signal)
+                    projected_sell_proceeds += planned_sell_value
+                    projected_position_count -= 1
                     sell_count += 1
                     total_sell_signals += 1
                     continue
@@ -402,6 +409,24 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 ) * 100
                 md = market_data.metadata if market_data else {}
 
+                planned_sell_qty = None
+                planned_sell_value = None
+                if signal_type == "SELL":
+                    sell_pct = 1.0
+                    if exit_signal.metadata:
+                        sell_pct = float(
+                            exit_signal.metadata.get("sell_percentage", 1.0)
+                        )
+                    if action_str and action_str != "SELL":
+                        sell_pct = _parse_sell_pct(action_str)
+                    planned_sell_qty = _calculate_sell_quantity(
+                        ticker=ticker,
+                        total_qty=position.quantity,
+                        sell_pct=sell_pct,
+                    )
+                    estimated_sell_price = _estimate_sell_price(float(current_price))
+                    planned_sell_value = planned_sell_qty * estimated_sell_price
+
                 signal = Signal(
                     group_id=group.id,
                     ticker=ticker,
@@ -421,6 +446,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     entry_date=position.entry_date,
                     holding_days=holding_days,
                     unrealized_pl_pct=float(unrealized_pl),
+                    planned_sell_qty=planned_sell_qty,
+                    planned_sell_value=planned_sell_value,
                     strategy_name=exit_strategy_name,
                     evaluation_details=evaluation_details,
                 )
@@ -428,21 +455,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
                 # Count only SELL signals for statistics
                 if signal_type == "SELL":
-                    sell_pct = 1.0
-                    if exit_signal.metadata:
-                        sell_pct = float(
-                            exit_signal.metadata.get("sell_percentage", 1.0)
-                        )
-                    if action_str and action_str != "SELL":
-                        sell_pct = _parse_sell_pct(action_str)
-                    qty_to_sell = _calculate_sell_quantity(
-                        ticker=ticker,
-                        total_qty=position.quantity,
-                        sell_pct=sell_pct,
-                    )
-                    estimated_sell_price = _estimate_sell_price(float(current_price))
-                    projected_sell_proceeds += qty_to_sell * estimated_sell_price
-                    if qty_to_sell >= position.quantity:
+                    projected_sell_proceeds += float(planned_sell_value or 0.0)
+                    if (planned_sell_qty or 0) >= position.quantity:
                         projected_position_count -= 1
                     sell_count += 1
                     total_sell_signals += 1

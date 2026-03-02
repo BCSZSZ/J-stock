@@ -46,6 +46,8 @@ class Signal:
     entry_date: Optional[str] = None
     holding_days: Optional[int] = None
     unrealized_pl_pct: Optional[float] = None
+    planned_sell_qty: Optional[int] = None
+    planned_sell_value: Optional[float] = None
 
     # For BUY signals
     suggested_qty: Optional[int] = None

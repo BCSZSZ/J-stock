@@ -426,10 +426,10 @@ class ReportBuilder:
                 signal_by_key[key] = sig
 
         lines.append(
-            "| Group | Ticker | Shares | Current Price | P&L (%) | Recommend | Action | Exit Evaluation |"
+            "| Group | Ticker | Shares | Sell Qty | Est. Proceeds (¥) | Current Price | P&L (%) | Recommend | Action | Exit Evaluation |"
         )
         lines.append(
-            "|-------|--------|--------|---------------|---------|-----------|--------|-----------------|"
+            "|-------|--------|--------|----------|-------------------|---------------|---------|-----------|--------|-----------------|"
         )
 
         holdings_found = False
@@ -466,6 +466,30 @@ class ReportBuilder:
                 )
                 action = sig.action if sig is not None else "HOLD"
 
+                sell_qty = "-"
+                est_proceeds = "-"
+                if sig is not None and sig.signal_type == "SELL":
+                    planned_qty = getattr(sig, "planned_sell_qty", None)
+                    if planned_qty is None:
+                        if action in ["SELL_25%", "SELL_50%", "SELL_75%"]:
+                            ratio_map = {
+                                "SELL_25%": 0.25,
+                                "SELL_50%": 0.50,
+                                "SELL_75%": 0.75,
+                            }
+                            planned_qty = max(
+                                1,
+                                int(pos.quantity * ratio_map.get(action, 1.0)),
+                            )
+                        else:
+                            planned_qty = pos.quantity
+                    sell_qty = f"{int(planned_qty)}"
+
+                    planned_value = getattr(sig, "planned_sell_value", None)
+                    if planned_value is None:
+                        planned_value = float(planned_qty) * float(current_price)
+                    est_proceeds = f"{float(planned_value):,.0f}"
+
                 # Format evaluation details
                 if (
                     sig is not None
@@ -479,12 +503,12 @@ class ReportBuilder:
                     ).replace("|", "/")
 
                 lines.append(
-                    f"| {group.id} | {pos.ticker} | {pos.quantity} | "
+                    f"| {group.id} | {pos.ticker} | {pos.quantity} | {sell_qty} | {est_proceeds} | "
                     f"¥{current_price:,.0f} | {pnl_pct_str} | {recommend} | {action} | {eval_text} |"
                 )
 
         if not holdings_found:
-            lines.append("| - | - | - | - | - | - | - | No holdings |")
+            lines.append("| - | - | - | - | - | - | - | - | - | No holdings |")
 
         return "\n".join(lines)
 
@@ -549,23 +573,23 @@ class ReportBuilder:
         return "\n".join(lines)
 
     def _build_final_picks(self, evaluations: Dict, signals: List[Signal]) -> str:
-        """Build final BUY picks using ranking + executable position/cash constraints only."""
-        if not evaluations:
-            return "## ✅ Final BUY Picks (Ranked & Capacity-Constrained)\n\n*No evaluations available.*"
+        """Build final operation summary (SELL first, then BUY)."""
+        lines = [
+            "## ✅ Final Operation Summary",
+            "",
+            "**Execution Order:** SELL first (release cash/risk), then BUY (capacity-constrained).",
+            "",
+        ]
 
         buy_signals = [s for s in (signals or []) if s.signal_type == "BUY"]
-        if not buy_signals:
-            return (
-                "## ✅ Final BUY Picks (Ranked & Capacity-Constrained)\n\n"
-                "*No BUY signals generated today.*"
-            )
+        sell_signals = [s for s in (signals or []) if s.signal_type == "SELL"]
 
-        best_by_group_ticker: Dict[tuple, Signal] = {}
+        best_buy_by_group_ticker: Dict[tuple, Signal] = {}
         for sig in buy_signals:
             key = (sig.group_id, sig.ticker)
-            current = best_by_group_ticker.get(key)
+            current = best_buy_by_group_ticker.get(key)
             if current is None:
-                best_by_group_ticker[key] = sig
+                best_buy_by_group_ticker[key] = sig
                 continue
 
             current_exec = 1 if (current.suggested_qty or 0) > 0 else 0
@@ -577,30 +601,26 @@ class ReportBuilder:
             current_key = (current_exec, current.score, current.confidence, -current_cap)
             sig_key = (sig_exec, sig.score, sig.confidence, -sig_cap)
             if sig_key > current_key:
-                best_by_group_ticker[key] = sig
+                best_buy_by_group_ticker[key] = sig
 
-        by_group: Dict[str, List[Signal]] = {}
-        for sig in best_by_group_ticker.values():
-            by_group.setdefault(sig.group_id, []).append(sig)
+        buys_by_group: Dict[str, List[Signal]] = {}
+        for sig in best_buy_by_group_ticker.values():
+            buys_by_group.setdefault(sig.group_id, []).append(sig)
 
-        lines = [
-            "## ✅ Final BUY Picks (Ranked & Capacity-Constrained)",
-            "",
-            "**Rule:** No secondary technical filter. Picks are ranked by executable priority, "
-            "signal score/confidence, and capital efficiency under current position/cash limits.",
-            "",
-        ]
+        sells_by_group: Dict[str, List[Signal]] = {}
+        for sig in sell_signals:
+            sells_by_group.setdefault(sig.group_id, []).append(sig)
 
-        any_executable = False
+        any_operations = False
 
         for group in self.state_manager.get_all_groups():
-            group_signals = by_group.get(group.id, [])
+            group_sells = sells_by_group.get(group.id, [])
+            group_buys = buys_by_group.get(group.id, [])
             active_positions = len([p for p in group.positions if p.quantity > 0])
 
-            ranked = sorted(
-                group_signals,
+            executable_buys = sorted(
+                [s for s in group_buys if (s.suggested_qty or 0) > 0],
                 key=lambda s: (
-                    0 if (s.suggested_qty or 0) > 0 else 1,
                     -(s.score or 0.0),
                     -(s.confidence or 0.0),
                     s.required_capital if s.required_capital else float("inf"),
@@ -608,52 +628,94 @@ class ReportBuilder:
                 ),
             )
 
-            executable = [s for s in ranked if (s.suggested_qty or 0) > 0]
-            total_capital = sum(float(s.required_capital or 0.0) for s in executable)
+            executable_sells = []
+            for sig in group_sells:
+                planned_qty = getattr(sig, "planned_sell_qty", None)
+                if planned_qty is None and (sig.position_qty or 0) > 0:
+                    if sig.action in ["SELL_25%", "SELL_50%", "SELL_75%"]:
+                        ratio_map = {
+                            "SELL_25%": 0.25,
+                            "SELL_50%": 0.50,
+                            "SELL_75%": 0.75,
+                        }
+                        planned_qty = max(
+                            1,
+                            int((sig.position_qty or 0) * ratio_map.get(sig.action, 1.0)),
+                        )
+                    else:
+                        planned_qty = sig.position_qty
+                if (planned_qty or 0) > 0:
+                    executable_sells.append(sig)
+
+            executable_sells = sorted(executable_sells, key=lambda s: s.ticker)
+
+            total_sell_qty = sum(int(getattr(s, "planned_sell_qty", 0) or 0) for s in executable_sells)
+            total_sell_value = sum(float(getattr(s, "planned_sell_value", 0.0) or 0.0) for s in executable_sells)
+            total_buy_capital = sum(float(s.required_capital or 0.0) for s in executable_buys)
 
             lines.append(f"### {group.name} ({group.id})")
             lines.append("")
             lines.append(
                 f"**Current Positions:** {active_positions} | "
-                f"**Executable BUY Picks:** {len(executable)} | "
-                f"**Estimated Capital:** ¥{total_capital:,.0f}"
+                f"**SELL Orders:** {len(executable_sells)} (Qty {total_sell_qty}, Est. ¥{total_sell_value:,.0f}) | "
+                f"**BUY Orders:** {len(executable_buys)} (Est. ¥{total_buy_capital:,.0f})"
             )
             lines.append("")
 
-            if not executable:
+            lines.append("#### 1) SELL Orders")
+            lines.append("")
+            if executable_sells:
+                any_operations = True
                 lines.append(
-                    "*No executable BUY picks under current ranking and position/cash constraints.*"
+                    "| Rank | Ticker | Action | Current Price | Sell Qty | Est. Proceeds (¥) | Reason |"
                 )
-                lines.append("")
-                continue
-
-            any_executable = True
-            lines.append(
-                "| Rank | Ticker | Price | Score | Confidence | Qty | Capital (¥) | Reason |"
-            )
-            lines.append(
-                "|------|--------|-------|-------|------------|-----|-------------|--------|"
-            )
-
-            for rank, sig in enumerate(executable, 1):
-                confidence_pct = (
-                    f"{sig.confidence * 100:.0f}%"
-                    if sig.confidence is not None
-                    else "N/A"
-                )
-                qty_str = str(sig.suggested_qty) if sig.suggested_qty else "0"
-                capital_str = (
-                    f"{sig.required_capital:,.0f}" if sig.required_capital else "0"
-                )
-                reason = (sig.reason or "...").replace("|", "/")
                 lines.append(
-                    f"| {rank} | {sig.ticker} | ¥{sig.current_price:,.0f} | {sig.score:.1f} | "
-                    f"{confidence_pct} | {qty_str} | {capital_str} | {reason} |"
+                    "|------|--------|--------|---------------|----------|-------------------|--------|"
                 )
+                for rank, sig in enumerate(executable_sells, 1):
+                    planned_qty = int(getattr(sig, "planned_sell_qty", 0) or 0)
+                    planned_value = float(getattr(sig, "planned_sell_value", 0.0) or 0.0)
+                    reason = (sig.reason or "...").replace("|", "/")
+                    lines.append(
+                        f"| {rank} | {sig.ticker} | {sig.action} | ¥{sig.current_price:,.0f} | "
+                        f"{planned_qty} | {planned_value:,.0f} | {reason} |"
+                    )
+            else:
+                lines.append("*No executable SELL orders.*")
+
+            lines.append("")
+            lines.append("#### 2) BUY Orders")
+            lines.append("")
+            if executable_buys:
+                any_operations = True
+                lines.append(
+                    "| Rank | Ticker | Price | Score | Confidence | Qty | Capital (¥) | Reason |"
+                )
+                lines.append(
+                    "|------|--------|-------|-------|------------|-----|-------------|--------|"
+                )
+                for rank, sig in enumerate(executable_buys, 1):
+                    confidence_pct = (
+                        f"{sig.confidence * 100:.0f}%"
+                        if sig.confidence is not None
+                        else "N/A"
+                    )
+                    qty_str = str(sig.suggested_qty) if sig.suggested_qty else "0"
+                    capital_str = (
+                        f"{sig.required_capital:,.0f}" if sig.required_capital else "0"
+                    )
+                    reason = (sig.reason or "...").replace("|", "/")
+                    lines.append(
+                        f"| {rank} | {sig.ticker} | ¥{sig.current_price:,.0f} | {sig.score:.1f} | "
+                        f"{confidence_pct} | {qty_str} | {capital_str} | {reason} |"
+                    )
+            else:
+                lines.append("*No executable BUY orders.*")
+
             lines.append("")
 
-        if not any_executable:
-            lines.append("*No executable BUY picks across all groups today.*")
+        if not any_operations:
+            lines.append("*No executable operations across all groups today.*")
 
         return "\n".join(lines)
 

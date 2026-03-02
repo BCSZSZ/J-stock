@@ -1,0 +1,2 @@
+﻿period,start_date,end_date,entry_strategy,exit_strategy,entry_filter,return_pct,topix_return_pct,alpha,sharpe_ratio,max_drawdown_pct,num_trades,win_rate_pct,avg_gain_pct,avg_loss_pct
+2025,2025-01-01,2025-12-31,MACDCrossoverStrategy,MVX_N9_R3p4_T1p6_D18_B20p0,off,69.62,23.67561802073732,45.944384725844714,2.9501461133779707,10.657867039784055,207,65.21739130434783,11.244883,-4.7673635
