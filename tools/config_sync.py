@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Manual config sync utility.
+
+`otherconfig.json` is an optional placeholder in the G-drive structure.
+It may not exist yet, and pull will skip it gracefully.
+"""
+
 import argparse
 import json
 import shutil
@@ -89,7 +95,10 @@ def pull_from_gdrive(paths: SyncPaths, sync_otherconfig: bool = True) -> None:
                 f"✅ 已同步: {paths.remote_otherconfig} -> {paths.local_otherconfig}"
             )
         else:
-            print(f"ℹ️ 未找到 otherconfig，已跳过: {paths.remote_otherconfig}")
+            print(
+                "ℹ️ otherconfig.json 为可选占位文件，当前不存在，已跳过: "
+                f"{paths.remote_otherconfig}"
+            )
 
 
 def _confirm_twice(paths: SyncPaths) -> None:

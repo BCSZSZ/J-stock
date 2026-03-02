@@ -132,11 +132,10 @@ ticker,action,qty,price,date
 
 ### 目标
 
-在多终端环境中，手动同步 `config.json`（以及可选 `otherconfig.json`），避免自动流程误覆盖。
+在多终端环境中，手动同步 `config.json`（以及可选 `otherconfig.json`）。
 
 ### 规则（必须遵守）
 
-- 不集成到 `production` / `fetch` / 其他命令中。
 - `push` 只能单独运行，且必须通过双重确认。
 - 每次 `push` 前，G盘旧 `config.json` 会自动按时间戳重命名并移动到 `old/`。
 
@@ -165,7 +164,3 @@ ticker,action,qty,price,date
 ```powershell
 .venv/Scripts/python.exe tools/config_sync.py push
 ```
-
-### 当前状态备注
-
-- 当前本地 `config.json` 为旧版本，暂不执行同步命令，先完成配置内容校准后再操作。
