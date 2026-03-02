@@ -127,3 +127,45 @@ ticker,action,qty,price,date
 ### 完成判定
 
 - 终端输出 `Summary`，且 `rows_removed` 为去重删除行数。
+
+## Task 5: 配置文件手动同步（config_sync）
+
+### 目标
+
+在多终端环境中，手动同步 `config.json`（以及可选 `otherconfig.json`），避免自动流程误覆盖。
+
+### 规则（必须遵守）
+
+- 不集成到 `production` / `fetch` / 其他命令中。
+- `push` 只能单独运行，且必须通过双重确认。
+- 每次 `push` 前，G盘旧 `config.json` 会自动按时间戳重命名并移动到 `old/`。
+
+### G盘目录规范
+
+- `G:/My Drive/AI-Stock-Sync/config.json`
+- `G:/My Drive/AI-Stock-Sync/otherconfig.json`
+- `G:/My Drive/AI-Stock-Sync/old/`
+
+### 手动命令
+
+从 G盘同步到本地：
+
+```powershell
+.venv/Scripts/python.exe tools/config_sync.py pull
+```
+
+仅同步 `config.json`（跳过 `otherconfig.json`）：
+
+```powershell
+.venv/Scripts/python.exe tools/config_sync.py pull --no-otherconfig
+```
+
+将本地覆盖到 G盘（危险操作，双确认）：
+
+```powershell
+.venv/Scripts/python.exe tools/config_sync.py push
+```
+
+### 当前状态备注
+
+- 当前本地 `config.json` 为旧版本，暂不执行同步命令，先完成配置内容校准后再操作。
