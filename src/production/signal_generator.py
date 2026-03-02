@@ -39,6 +39,10 @@ class Signal:
     score: float  # 0-100 (for entry signals)
     reason: str  # Human-readable explanation
     current_price: float
+    close_price: Optional[float] = None
+    planned_price: Optional[float] = None
+    planning_price_factor: Optional[float] = None
+    sell_price_factor: Optional[float] = None
 
     # For SELL signals
     position_qty: Optional[int] = None

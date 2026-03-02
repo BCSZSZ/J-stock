@@ -15,7 +15,9 @@ from .state_manager import (
     StrategyGroupState,
     ProductionState,
     Trade,
-    TradeHistoryManager
+    TradeHistoryManager,
+    CashFlowEvent,
+    CashHistoryManager,
 )
 
 from .signal_generator import (
@@ -45,6 +47,8 @@ __all__ = [
     'ProductionState',
     'Trade',
     'TradeHistoryManager',
+    'CashFlowEvent',
+    'CashHistoryManager',
     
     # Signal Generation (Phase 3)
     'Signal',

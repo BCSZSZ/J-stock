@@ -24,6 +24,7 @@ class ProductionConfig:
     signal_file_pattern: str
     report_file_pattern: str
     history_file: str
+    cash_history_file: str
 
     # Position management
     max_positions_per_group: int
@@ -69,6 +70,7 @@ class ConfigManager:
         "signal_file_pattern": r"G:\My Drive\AI-Stock-Sync\signals\{date}.json",
         "report_file_pattern": r"G:\My Drive\AI-Stock-Sync\reports\{date}.md",
         "history_file": r"G:\My Drive\AI-Stock-Sync\state\trade_history.json",
+        "cash_history_file": r"G:\My Drive\AI-Stock-Sync\state\cash_history.json",
         "fetch_universe_file": r"G:\My Drive\AI-Stock-Sync\state\fetch_universe.json",
         "sector_pool_file": r"G:\My Drive\AI-Stock-Sync\universe\sector_pool",
         "buy_threshold": 65.0,
@@ -151,6 +153,9 @@ class ConfigManager:
         # 获取用户配置或默认值
         state_file_raw = prod_cfg.get("state_file", self.DEFAULTS["state_file"])
         history_file_raw = prod_cfg.get("history_file", self.DEFAULTS["history_file"])
+        cash_history_file_raw = prod_cfg.get(
+            "cash_history_file", self.DEFAULTS["cash_history_file"]
+        )
         signal_pattern_raw = prod_cfg.get(
             "signal_file_pattern", self.DEFAULTS["signal_file_pattern"]
         )
@@ -160,6 +165,7 @@ class ConfigManager:
 
         state_file = self._ensure_path_ready(state_file_raw)
         history_file = self._ensure_path_ready(history_file_raw)
+        cash_history_file = self._ensure_path_ready(cash_history_file_raw)
         signal_pattern = self._ensure_path_ready(signal_pattern_raw)
         report_pattern = self._ensure_path_ready(report_pattern_raw)
 
@@ -189,6 +195,7 @@ class ConfigManager:
             signal_file_pattern=signal_pattern,
             report_file_pattern=report_pattern,
             history_file=history_file,
+            cash_history_file=cash_history_file,
             # Position management
             max_positions_per_group=prod_cfg.get(
                 "max_positions_per_group", portfolio_cfg.get("max_positions", 5)
@@ -248,6 +255,7 @@ class ConfigManager:
 
         print(f"State File:       {prod_cfg.state_file}")
         print(f"History File:     {prod_cfg.history_file}")
+        print(f"Cash History:     {prod_cfg.cash_history_file}")
         print("\nPosition Management:")
         print(f"  Max Positions:  {prod_cfg.max_positions_per_group}")
         print(f"  Max Position%:  {prod_cfg.max_position_pct * 100:.0f}%")

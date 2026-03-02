@@ -5,6 +5,7 @@ Generates Markdown daily trading reports from signals and portfolio state.
 """
 
 import json
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Dict, List, Optional
 from ..data.stock_data_manager import StockDataManager
 from .signal_generator import Signal
 from .state_manager import ProductionState
+from .state_manager import CashHistoryManager
+from .state_manager import TradeHistoryManager
 from .trade_executor import ExecutionResult
 
 
@@ -43,7 +46,14 @@ class ReportBuilder:
         path = builder.save_report(report, output_dir="output")
     """
 
-    def __init__(self, state_manager: ProductionState, data_manager: StockDataManager):
+    def __init__(
+        self,
+        state_manager: ProductionState,
+        data_manager: StockDataManager,
+        history_file: Optional[str] = None,
+        cash_history_file: Optional[str] = None,
+        initial_capital_override: Optional[float] = None,
+    ):
         """
         Initialize report builder.
 
@@ -53,6 +63,25 @@ class ReportBuilder:
         """
         self.state_manager = state_manager
         self.data_manager = data_manager
+        self.initial_capital_override = (
+            float(initial_capital_override)
+            if initial_capital_override is not None
+            else None
+        )
+        self.trade_history_manager: Optional[TradeHistoryManager] = None
+        self.cash_history_manager: Optional[CashHistoryManager] = None
+        if history_file:
+            try:
+                self.trade_history_manager = TradeHistoryManager(history_file=history_file)
+            except Exception:
+                self.trade_history_manager = None
+        if cash_history_file:
+            try:
+                self.cash_history_manager = CashHistoryManager(
+                    cash_history_file=cash_history_file
+                )
+            except Exception:
+                self.cash_history_manager = None
 
     def generate_daily_report(
         self,
@@ -103,6 +132,7 @@ class ReportBuilder:
         sections.append(self._build_buy_signals_section(buy_signals))
         sections.append(self._build_sell_signals_section(sell_signals))
         sections.append(self._build_portfolio_status_section())
+        sections.append(self._build_performance_summary_section(report_date))
 
         if execution_results:
             sections.append(self._build_execution_summary_section(execution_results))
@@ -149,6 +179,7 @@ class ReportBuilder:
 
         # Current portfolio with exit evaluations
         sections.append(self._build_portfolio_status_section())
+        sections.append(self._build_performance_summary_section(report_date))
 
         if execution_results:
             sections.append(self._build_execution_summary_section(execution_results))
@@ -663,22 +694,50 @@ class ReportBuilder:
             lines.append("")
 
             lines.append("#### 1) SELL Orders")
+            sell_factor = next(
+                (
+                    s.sell_price_factor
+                    for s in executable_sells
+                    if getattr(s, "sell_price_factor", None)
+                ),
+                0.98,
+            )
+            buy_factor = next(
+                (
+                    s.planning_price_factor
+                    for s in executable_buys
+                    if getattr(s, "planning_price_factor", None)
+                ),
+                1.02,
+            )
+            lines.append("")
+            lines.append(
+                f"Pricing Rule: PlanningPrice=Close*{buy_factor:.2f}, SellPrice=Close*{sell_factor:.2f}"
+            )
             lines.append("")
             if executable_sells:
                 any_operations = True
                 lines.append(
-                    "| Rank | Ticker | Action | Current Price | Sell Qty | Est. Proceeds (¥) | Reason |"
+                    "| Rank | Ticker | Action | Close Price | Planned Sell Price (Close*SellFactor) | Sell Qty | Est. Proceeds (¥) | Reason |"
                 )
                 lines.append(
-                    "|------|--------|--------|---------------|----------|-------------------|--------|"
+                    "|------|--------|--------|-------------|--------------------------------------|----------|-------------------|--------|"
                 )
                 for rank, sig in enumerate(executable_sells, 1):
                     planned_qty = int(getattr(sig, "planned_sell_qty", 0) or 0)
                     planned_value = float(getattr(sig, "planned_sell_value", 0.0) or 0.0)
+                    close_price = float(
+                        getattr(sig, "close_price", None)
+                        if getattr(sig, "close_price", None) is not None
+                        else (sig.current_price or 0.0)
+                    )
+                    planned_sell_price = getattr(sig, "planned_price", None)
+                    if planned_sell_price is None and planned_qty > 0:
+                        planned_sell_price = planned_value / planned_qty
                     reason = (sig.reason or "...").replace("|", "/")
                     lines.append(
-                        f"| {rank} | {sig.ticker} | {sig.action} | ¥{sig.current_price:,.0f} | "
-                        f"{planned_qty} | {planned_value:,.0f} | {reason} |"
+                        f"| {rank} | {sig.ticker} | {sig.action} | ¥{close_price:,.2f} | "
+                        f"¥{float(planned_sell_price or 0.0):,.2f} | {planned_qty} | {planned_value:,.0f} | {reason} |"
                     )
             else:
                 lines.append("*No executable SELL orders.*")
@@ -686,13 +745,17 @@ class ReportBuilder:
             lines.append("")
             lines.append("#### 2) BUY Orders")
             lines.append("")
+            lines.append(
+                f"Pricing Rule: PlanningPrice=Close*{buy_factor:.2f}, SellPrice=Close*{sell_factor:.2f}"
+            )
+            lines.append("")
             if executable_buys:
                 any_operations = True
                 lines.append(
-                    "| Rank | Ticker | Price | Score | Confidence | Qty | Capital (¥) | Reason |"
+                    "| Rank | Ticker | Close Price | Planning Price (Close*PlanningFactor) | Score | Confidence | Qty | Capital (¥) | Reason |"
                 )
                 lines.append(
-                    "|------|--------|-------|-------|------------|-----|-------------|--------|"
+                    "|------|--------|-------------|---------------------------------------|-------|------------|-----|-------------|--------|"
                 )
                 for rank, sig in enumerate(executable_buys, 1):
                     confidence_pct = (
@@ -704,9 +767,22 @@ class ReportBuilder:
                     capital_str = (
                         f"{sig.required_capital:,.0f}" if sig.required_capital else "0"
                     )
+                    planning_price = float(
+                        getattr(sig, "planned_price", None)
+                        if getattr(sig, "planned_price", None) is not None
+                        else (sig.current_price or 0.0)
+                    )
+                    close_price = getattr(sig, "close_price", None)
+                    if close_price is None:
+                        factor = (
+                            getattr(sig, "planning_price_factor", None)
+                            if getattr(sig, "planning_price_factor", None)
+                            else buy_factor
+                        )
+                        close_price = planning_price / factor if factor else planning_price
                     reason = (sig.reason or "...").replace("|", "/")
                     lines.append(
-                        f"| {rank} | {sig.ticker} | ¥{sig.current_price:,.0f} | {sig.score:.1f} | "
+                        f"| {rank} | {sig.ticker} | ¥{float(close_price):,.2f} | ¥{planning_price:,.2f} | {sig.score:.1f} | "
                         f"{confidence_pct} | {qty_str} | {capital_str} | {reason} |"
                     )
             else:
@@ -988,14 +1064,7 @@ class ReportBuilder:
 
         Shows all positions across all strategy groups with P&L.
         """
-        current_prices: Dict[str, float] = {}
-        for group in self.state_manager.get_all_groups():
-            for pos in group.positions:
-                if pos.quantity <= 0 or pos.ticker in current_prices:
-                    continue
-                latest_close = self._get_latest_close(pos.ticker)
-                if latest_close is not None:
-                    current_prices[pos.ticker] = latest_close
+        current_prices = self._collect_current_prices()
 
         lines = ["## 💼 Current Portfolio Status", ""]
 
@@ -1049,6 +1118,384 @@ class ReportBuilder:
                 lines.append("")
 
         return "\n".join(lines)
+
+    def _collect_current_prices(self) -> Dict[str, float]:
+        current_prices: Dict[str, float] = {}
+        for group in self.state_manager.get_all_groups():
+            for pos in group.positions:
+                if pos.quantity <= 0 or pos.ticker in current_prices:
+                    continue
+                latest_close = self._get_latest_close(pos.ticker)
+                if latest_close is not None:
+                    current_prices[pos.ticker] = latest_close
+        return current_prices
+
+    def _build_performance_summary_section(self, report_date: str) -> str:
+        lines = ["## 📈 收益汇总", ""]
+
+        realized = self._calculate_realized_performance()
+        current_prices = self._collect_current_prices()
+        unrealized = self._calculate_unrealized_performance(current_prices)
+
+        lines.append("### 1) 历史交易股票收益")
+        lines.append("")
+        ticker_rows = realized["ticker_rows"]
+        if ticker_rows:
+            lines.append(
+                "| 股票代码 | 分组 | 买入金额 (¥) | 卖出金额 (¥) | 已实现盈亏 (¥) | 已实现收益率 (%) | 卖出笔数 | 胜率 |"
+            )
+            lines.append(
+                "|----------|------|---------------|---------------|----------------|------------------|---------|------|"
+            )
+            for row in ticker_rows:
+                win_rate_str = f"{row['win_rate']:.1f}%" if row["win_rate"] is not None else "N/A"
+                lines.append(
+                    f"| {row['ticker']} | {row['group_id']} | {row['buy_amount']:,.0f} | {row['sell_amount']:,.0f} | "
+                    f"{row['realized_pnl']:+,.0f} | {row['realized_return_pct']:+.2f}% | {row['sell_trades']} | {win_rate_str} |"
+                )
+            lines.append("")
+            lines.append(
+                f"**已实现盈亏合计：** {realized['realized_pnl']:+,.0f} JPY "
+                f"({realized['realized_return_pct']:+.2f}%)"
+            )
+        else:
+            lines.append("*暂无交易历史数据。*")
+
+        lines.append("")
+        lines.append("### 2) 当前持仓未实现收益")
+        lines.append("")
+        position_rows = unrealized["position_rows"]
+        if position_rows:
+            lines.append(
+                "| 股票代码 | 分组 | 持仓数量 | 持仓成本 (¥) | 市值 (¥) | 未实现盈亏 (¥) | 未实现收益率 (%) |"
+            )
+            lines.append(
+                "|----------|------|----------|--------------|----------|----------------|------------------|"
+            )
+            for row in position_rows:
+                lines.append(
+                    f"| {row['ticker']} | {row['group_id']} | {row['quantity']} | {row['cost_basis']:,.0f} | "
+                    f"{row['market_value']:,.0f} | {row['unrealized_pnl']:+,.0f} | {row['unrealized_return_pct']:+.2f}% |"
+                )
+            lines.append("")
+            lines.append(
+                f"**未实现盈亏合计：** {unrealized['unrealized_pnl']:+,.0f} JPY "
+                f"({unrealized['unrealized_return_pct']:+.2f}%)"
+            )
+        else:
+            lines.append("*当前无持仓。*")
+
+        lines.append("")
+        lines.append("### 3) 组合盈亏汇总")
+        lines.append("")
+
+        portfolio_status = self.state_manager.get_portfolio_status(current_prices)
+        total_value = float(portfolio_status.get("total_value", 0.0))
+        baseline_initial_capital = float(
+            sum(g.initial_capital for g in self.state_manager.get_all_groups())
+        )
+        if self.initial_capital_override is not None and self.initial_capital_override > 0:
+            baseline_initial_capital = self.initial_capital_override
+
+        net_cash_flow = (
+            float(self.cash_history_manager.get_net_cash_flow())
+            if self.cash_history_manager
+            else 0.0
+        )
+        effective_initial_capital = baseline_initial_capital + net_cash_flow
+        if effective_initial_capital <= 0:
+            effective_initial_capital = baseline_initial_capital
+
+        realized_pnl = float(realized["realized_pnl"])
+        unrealized_pnl = float(unrealized["unrealized_pnl"])
+        total_pnl = realized_pnl + unrealized_pnl
+        implied_initial_capital = total_value - total_pnl
+        total_return_pct = (
+            ((total_value - effective_initial_capital) / effective_initial_capital) * 100
+            if effective_initial_capital > 0
+            else 0.0
+        )
+
+        lines.append(f"- **基准初始资金：** ¥{baseline_initial_capital:,.0f}")
+        lines.append(f"- **资金流水净额：** {net_cash_flow:+,.0f} JPY")
+        lines.append(f"- **有效初始资金：** ¥{effective_initial_capital:,.0f}")
+        lines.append(f"- **当前组合总资产：** ¥{total_value:,.0f}")
+        lines.append(f"- **已实现盈亏：** {realized_pnl:+,.0f} JPY")
+        lines.append(f"- **未实现盈亏：** {unrealized_pnl:+,.0f} JPY")
+        lines.append(f"- **总盈亏（已实现 + 未实现）：** {total_pnl:+,.0f} JPY")
+        lines.append(f"- **总收益率（相对有效初始资金）：** {total_return_pct:+.2f}%")
+
+        lines.append("")
+        lines.append("### 4) 今日盈亏")
+        lines.append("")
+        daily_pnl = self._calculate_daily_pnl(report_date, current_prices)
+        if daily_pnl["ticker_rows"]:
+            lines.append(
+                "| 股票代码 | 分组 | 昨收 | 今收 | 开盘前持仓 | 当日买入 | 当日卖出 | 持仓贡献 (¥) | 当日成交贡献 (¥) | 今日盈亏 (¥) |"
+            )
+            lines.append(
+                "|----------|------|------|------|------------|----------|----------|---------------|------------------|-------------|"
+            )
+            for row in daily_pnl["ticker_rows"]:
+                lines.append(
+                    f"| {row['ticker']} | {row['group_id']} | ¥{row['prev_close']:,.0f} | ¥{row['close_today']:,.0f} | "
+                    f"{row['opening_qty']} | {row['buy_qty']} | {row['sell_qty']} | {row['holding_pnl']:+,.0f} | "
+                    f"{row['trade_pnl']:+,.0f} | {row['daily_pnl']:+,.0f} |"
+                )
+        else:
+            lines.append("*缺少足够的价格或交易数据，无法计算今日盈亏。*")
+
+        return "\n".join(lines)
+
+    def _get_close_pair(self, ticker: str, report_date: str) -> Optional[Dict[str, float]]:
+        df = self.data_manager.load_stock_features(ticker)
+        if df is None or df.empty:
+            return None
+
+        import pandas as pd
+
+        if "Date" in df.columns:
+            date_series = pd.to_datetime(df["Date"])
+            close_series = df["Close"]
+            frame = pd.DataFrame({"Date": date_series, "Close": close_series})
+            frame = frame.dropna(subset=["Date", "Close"]).sort_values("Date")
+        else:
+            idx = pd.to_datetime(df.index)
+            frame = pd.DataFrame({"Date": idx, "Close": df["Close"].values})
+            frame = frame.dropna(subset=["Date", "Close"]).sort_values("Date")
+
+        if frame.empty:
+            return None
+
+        target = pd.Timestamp(report_date)
+        upto_target = frame[frame["Date"] <= target]
+        if upto_target.empty:
+            return None
+
+        today_row = upto_target.iloc[-1]
+        before_today = frame[frame["Date"] < today_row["Date"]]
+        if before_today.empty:
+            return None
+
+        prev_row = before_today.iloc[-1]
+        return {
+            "close_today": float(today_row["Close"]),
+            "prev_close": float(prev_row["Close"]),
+        }
+
+    def _calculate_daily_pnl(self, report_date: str, current_prices: Dict[str, float]) -> Dict:
+        from collections import defaultdict
+
+        end_qty_by_key = defaultdict(int)
+        for group in self.state_manager.get_all_groups():
+            for pos in group.positions:
+                if pos.quantity > 0:
+                    end_qty_by_key[(group.id, pos.ticker)] += int(pos.quantity)
+
+        buy_qty_by_key = defaultdict(int)
+        buy_notional_by_key = defaultdict(float)
+        sell_qty_by_key = defaultdict(int)
+        sell_notional_by_key = defaultdict(float)
+
+        if self.trade_history_manager:
+            for trade in self.trade_history_manager.trades:
+                if trade.date != report_date:
+                    continue
+                key = (trade.group_id, trade.ticker)
+                action = (trade.action or "").upper()
+                qty = int(trade.quantity or 0)
+                notional = float((trade.quantity or 0) * (trade.price or 0.0))
+                if action == "BUY":
+                    buy_qty_by_key[key] += qty
+                    buy_notional_by_key[key] += notional
+                elif action == "SELL":
+                    sell_qty_by_key[key] += qty
+                    sell_notional_by_key[key] += notional
+
+        all_keys = set(end_qty_by_key.keys()) | set(buy_qty_by_key.keys()) | set(sell_qty_by_key.keys())
+        ticker_rows = []
+        total_holding_pnl = 0.0
+        total_trade_pnl = 0.0
+
+        for group_id, ticker in sorted(all_keys):
+            close_pair = self._get_close_pair(ticker, report_date)
+            if not close_pair:
+                continue
+
+            prev_close = close_pair["prev_close"]
+            close_today = close_pair["close_today"]
+            end_qty = int(end_qty_by_key.get((group_id, ticker), 0))
+            buy_qty = int(buy_qty_by_key.get((group_id, ticker), 0))
+            sell_qty = int(sell_qty_by_key.get((group_id, ticker), 0))
+            opening_qty = end_qty - buy_qty + sell_qty
+
+            holding_pnl = opening_qty * (close_today - prev_close)
+            trade_pnl = (
+                sell_notional_by_key.get((group_id, ticker), 0.0) - (sell_qty * prev_close)
+            ) + (
+                (buy_qty * close_today) - buy_notional_by_key.get((group_id, ticker), 0.0)
+            )
+            daily_pnl = holding_pnl + trade_pnl
+
+            total_holding_pnl += holding_pnl
+            total_trade_pnl += trade_pnl
+            ticker_rows.append(
+                {
+                    "group_id": group_id,
+                    "ticker": ticker,
+                    "prev_close": prev_close,
+                    "close_today": close_today,
+                    "opening_qty": opening_qty,
+                    "buy_qty": buy_qty,
+                    "sell_qty": sell_qty,
+                    "holding_pnl": holding_pnl,
+                    "trade_pnl": trade_pnl,
+                    "daily_pnl": daily_pnl,
+                }
+            )
+
+        return {
+            "ticker_rows": ticker_rows,
+            "total_holding_pnl": total_holding_pnl,
+            "total_trade_pnl": total_trade_pnl,
+            "total_daily_pnl": total_holding_pnl + total_trade_pnl,
+        }
+
+    def _calculate_realized_performance(self) -> Dict:
+        if not self.trade_history_manager:
+            return {"ticker_rows": [], "realized_pnl": 0.0, "realized_return_pct": 0.0}
+
+        trades = list(self.trade_history_manager.trades)
+        if not trades:
+            return {"ticker_rows": [], "realized_pnl": 0.0, "realized_return_pct": 0.0}
+
+        lots_by_key: Dict[tuple, deque] = defaultdict(deque)
+        stats: Dict[tuple, Dict[str, float]] = defaultdict(
+            lambda: {
+                "buy_amount": 0.0,
+                "sell_amount": 0.0,
+                "realized_pnl": 0.0,
+                "sell_trades": 0,
+                "winning_sells": 0,
+            }
+        )
+
+        for trade in trades:
+            key = (trade.group_id, trade.ticker)
+            action = (trade.action or "").upper()
+            qty = int(trade.quantity or 0)
+            price = float(trade.price or 0.0)
+            if qty <= 0 or price <= 0:
+                continue
+
+            if action == "BUY":
+                lots_by_key[key].append({"qty": qty, "price": price})
+                stats[key]["buy_amount"] += qty * price
+                continue
+
+            if action != "SELL":
+                continue
+
+            stats[key]["sell_amount"] += qty * price
+            stats[key]["sell_trades"] += 1
+
+            remaining = qty
+            matched_cost = 0.0
+            while remaining > 0 and lots_by_key[key]:
+                lot = lots_by_key[key][0]
+                matched = min(remaining, int(lot["qty"]))
+                matched_cost += matched * float(lot["price"])
+                lot["qty"] -= matched
+                remaining -= matched
+                if lot["qty"] <= 0:
+                    lots_by_key[key].popleft()
+
+            matched_qty = qty - remaining
+            matched_proceeds = matched_qty * price
+            sell_realized = matched_proceeds - matched_cost
+            stats[key]["realized_pnl"] += sell_realized
+            if matched_qty > 0 and sell_realized > 0:
+                stats[key]["winning_sells"] += 1
+
+        ticker_rows = []
+        total_realized = 0.0
+        total_buy_amount = 0.0
+        for (group_id, ticker), item in stats.items():
+            buy_amount = float(item["buy_amount"])
+            sell_amount = float(item["sell_amount"])
+            realized_pnl = float(item["realized_pnl"])
+            sell_trades = int(item["sell_trades"])
+            winning_sells = int(item["winning_sells"])
+            if buy_amount <= 0 or sell_amount <= 0:
+                continue
+            realized_return_pct = (realized_pnl / buy_amount * 100) if buy_amount > 0 else 0.0
+            win_rate = (winning_sells / sell_trades * 100) if sell_trades > 0 else None
+            ticker_rows.append(
+                {
+                    "group_id": group_id,
+                    "ticker": ticker,
+                    "buy_amount": buy_amount,
+                    "sell_amount": sell_amount,
+                    "realized_pnl": realized_pnl,
+                    "realized_return_pct": realized_return_pct,
+                    "sell_trades": sell_trades,
+                    "win_rate": win_rate,
+                }
+            )
+            total_realized += realized_pnl
+            total_buy_amount += buy_amount
+
+        ticker_rows.sort(key=lambda x: (x["group_id"], x["ticker"]))
+        realized_return_pct = (
+            (total_realized / total_buy_amount * 100) if total_buy_amount > 0 else 0.0
+        )
+        return {
+            "ticker_rows": ticker_rows,
+            "realized_pnl": total_realized,
+            "realized_return_pct": realized_return_pct,
+        }
+
+    def _calculate_unrealized_performance(self, current_prices: Dict[str, float]) -> Dict:
+        position_rows = []
+        total_unrealized = 0.0
+        total_cost_basis = 0.0
+
+        for group in self.state_manager.get_all_groups():
+            for pos in group.positions:
+                if pos.quantity <= 0:
+                    continue
+                current_price = current_prices.get(pos.ticker, pos.entry_price)
+                cost_basis = float(pos.quantity * pos.entry_price)
+                market_value = float(pos.quantity * current_price)
+                unrealized_pnl = market_value - cost_basis
+                unrealized_return_pct = (
+                    (unrealized_pnl / cost_basis * 100) if cost_basis > 0 else 0.0
+                )
+
+                position_rows.append(
+                    {
+                        "group_id": group.id,
+                        "ticker": pos.ticker,
+                        "quantity": int(pos.quantity),
+                        "cost_basis": cost_basis,
+                        "market_value": market_value,
+                        "unrealized_pnl": unrealized_pnl,
+                        "unrealized_return_pct": unrealized_return_pct,
+                    }
+                )
+
+                total_unrealized += unrealized_pnl
+                total_cost_basis += cost_basis
+
+        position_rows.sort(key=lambda x: (x["group_id"], x["ticker"]))
+        unrealized_return_pct = (
+            (total_unrealized / total_cost_basis * 100) if total_cost_basis > 0 else 0.0
+        )
+        return {
+            "position_rows": position_rows,
+            "unrealized_pnl": total_unrealized,
+            "unrealized_return_pct": unrealized_return_pct,
+        }
 
     def _get_latest_close(self, ticker: str) -> Optional[float]:
         df = self.data_manager.load_stock_features(ticker)
@@ -1205,6 +1652,10 @@ def load_signals_from_file(signals_file: str) -> List[Signal]:
             score=item["score"],
             reason=item["reason"],
             current_price=item["current_price"],
+            close_price=item.get("close_price"),
+            planned_price=item.get("planned_price"),
+            planning_price_factor=item.get("planning_price_factor"),
+            sell_price_factor=item.get("sell_price_factor"),
             position_qty=item.get("position_qty"),
             entry_price=item.get("entry_price"),
             entry_date=item.get("entry_date"),

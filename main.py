@@ -91,6 +91,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="工具命令：直接修正某分组现金",
     )
     production_mode.add_argument(
+        "--add-cash",
+        nargs=2,
+        metavar=("GROUP_ID", "AMOUNT"),
+        help="工具命令：为某分组增减现金（正数入金，负数出金）",
+    )
+    production_mode.add_argument(
         "--set-position",
         nargs=4,
         metavar=("GROUP_ID", "TICKER", "QTY", "PRICE"),

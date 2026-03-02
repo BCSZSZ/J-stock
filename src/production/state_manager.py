@@ -253,6 +253,19 @@ class Trade:
     exit_score: Optional[float] = None   # For SELL
 
 
+@dataclass
+class CashFlowEvent:
+    """Record of manual cash adjustments for audit and reporting."""
+
+    date: str  # ISO format YYYY-MM-DD
+    group_id: str
+    event_type: str  # "DEPOSIT", "WITHDRAW", "SET_CASH"
+    amount: float  # signed delta amount (+inflow, -outflow)
+    old_cash: float
+    new_cash: float
+    reason: str = ""
+
+
 class ProductionState:
     """
     Main state manager for production trading system.
@@ -541,6 +554,69 @@ class TradeHistoryManager:
     def get_trades_by_date(self, date_str: str) -> List[Trade]:
         """Get all trades on a specific date"""
         return [t for t in self.trades if t.date == date_str]
+
+
+class CashHistoryManager:
+    """Manages cash adjustment history (append-only log)."""
+
+    def __init__(self, cash_history_file: str = "cash_history.json"):
+        self.cash_history_file = cash_history_file
+        self.events: List[CashFlowEvent] = []
+        self.load_or_initialize()
+
+    def load_or_initialize(self) -> None:
+        if os.path.exists(self.cash_history_file):
+            self.load()
+        else:
+            self.events = []
+
+    def load(self) -> None:
+        try:
+            with open(self.cash_history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                self.events = [
+                    CashFlowEvent(**event_data)
+                    for event_data in data.get("events", [])
+                ]
+        except Exception as e:
+            print(f"Error loading cash history: {e}")
+            self.events = []
+
+    def save(self) -> None:
+        data = {"events": [asdict(event) for event in self.events]}
+        with open(self.cash_history_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    def record_event(
+        self,
+        date: str,
+        group_id: str,
+        event_type: str,
+        amount: float,
+        old_cash: float,
+        new_cash: float,
+        reason: str = "",
+    ) -> CashFlowEvent:
+        event = CashFlowEvent(
+            date=date,
+            group_id=group_id,
+            event_type=event_type,
+            amount=float(amount),
+            old_cash=float(old_cash),
+            new_cash=float(new_cash),
+            reason=reason,
+        )
+        self.events.append(event)
+        return event
+
+    def get_events_by_group(self, group_id: str) -> List[CashFlowEvent]:
+        return [e for e in self.events if e.group_id == group_id]
+
+    def get_net_cash_flow(self, group_id: Optional[str] = None) -> float:
+        events = self.events
+        if group_id is not None:
+            events = [e for e in events if e.group_id == group_id]
+        return float(sum(e.amount for e in events))
 
 
 if __name__ == "__main__":

@@ -339,6 +339,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         score=0,
                         reason=overlay_reason,
                         current_price=float(current_price),
+                        close_price=float(current_price),
+                        planned_price=float(estimated_sell_price),
+                        planning_price_factor=float(1.0 + buy_price_buffer_pct),
+                        sell_price_factor=float(1.0 - sell_price_buffer_pct),
                         position_qty=position.quantity,
                         entry_price=position.entry_price,
                         entry_date=position.entry_date,
@@ -441,6 +445,14 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         else exit_signal.action.name
                     ),
                     current_price=float(current_price),
+                    close_price=float(current_price),
+                    planned_price=(
+                        float(estimated_sell_price)
+                        if signal_type == "SELL" and planned_sell_qty
+                        else None
+                    ),
+                    planning_price_factor=float(1.0 + buy_price_buffer_pct),
+                    sell_price_factor=float(1.0 - sell_price_buffer_pct),
                     position_qty=position.quantity,
                     entry_price=position.entry_price,
                     entry_date=position.entry_date,
@@ -522,11 +534,6 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     f"for lot size {lot_size}"
                 )
 
-            buy_reason = (
-                f"{buy_reason}; PlanningPrice=Close*{1.0 + buy_price_buffer_pct:.2f}, "
-                f"SellPrice=Close*{1.0 - sell_price_buffer_pct:.2f}"
-            )
-
             signal = Signal(
                 group_id=group.id,
                 ticker=ticker,
@@ -537,6 +544,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 score=strategy_eval.score,
                 reason=buy_reason,
                 current_price=estimated_buy_price,
+                close_price=float(eval_obj.current_price),
+                planned_price=float(estimated_buy_price),
+                planning_price_factor=float(1.0 + buy_price_buffer_pct),
+                sell_price_factor=float(1.0 - sell_price_buffer_pct),
                 suggested_qty=suggested_qty,
                 required_capital=required_capital,
                 strategy_name=entry_strategy_name,
@@ -583,7 +594,16 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     print(f"  BUY: {total_buy_signals}, SELL: {total_sell_signals}")
     print(f"  Signals saved: {signal_file}")
 
-    builder = ReportBuilder(state, data_manager)
+    initial_capital_override = (
+        raw_config.get("portfolio", {}).get("starting_capital_jpy")
+    )
+    builder = ReportBuilder(
+        state,
+        data_manager,
+        history_file=prod_cfg.history_file,
+        cash_history_file=prod_cfg.cash_history_file,
+        initial_capital_override=initial_capital_override,
+    )
     report_md = builder.generate_daily_report(
         signals=all_signals,
         report_date=signal_date,
