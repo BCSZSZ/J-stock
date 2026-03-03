@@ -619,6 +619,108 @@ class CashHistoryManager:
         return float(sum(e.amount for e in events))
 
 
+def build_state_as_of(
+    base_state: ProductionState,
+    history_file: Optional[str],
+    cash_history_file: Optional[str],
+    as_of_date: str,
+) -> ProductionState:
+    """
+    Reconstruct portfolio state as of `as_of_date` (inclusive).
+
+    The snapshot is rebuilt from:
+    - strategy groups (id/name/initial_capital) from current state config
+    - cash flow events up to as_of_date
+    - trade history up to as_of_date
+
+    This guarantees deterministic replay for historical report generation,
+    even when current state already includes newer-day trades.
+    """
+
+    cutoff = datetime.strptime(as_of_date, "%Y-%m-%d").date()
+
+    snapshot = ProductionState.__new__(ProductionState)
+    snapshot.state_file = base_state.state_file
+    snapshot.last_updated = datetime.now().isoformat()
+    snapshot.strategy_groups = {}
+
+    for group in base_state.get_all_groups():
+        snapshot.strategy_groups[group.id] = StrategyGroupState(
+            id=group.id,
+            name=group.name,
+            initial_capital=float(group.initial_capital),
+            cash=float(group.initial_capital),
+            positions=[],
+        )
+
+    if cash_history_file:
+        try:
+            cash_history = CashHistoryManager(cash_history_file=cash_history_file)
+            ordered_events = sorted(
+                enumerate(cash_history.events),
+                key=lambda x: (x[1].date or "", x[0]),
+            )
+            for _, event in ordered_events:
+                group = snapshot.get_group(event.group_id)
+                if not group:
+                    continue
+                try:
+                    event_date = datetime.strptime(event.date, "%Y-%m-%d").date()
+                except Exception:
+                    continue
+                if event_date <= cutoff:
+                    group.cash += float(event.amount or 0.0)
+        except Exception:
+            pass
+
+    if history_file:
+        try:
+            history = TradeHistoryManager(history_file=history_file)
+            ordered_trades = sorted(
+                enumerate(history.trades),
+                key=lambda x: (x[1].date or "", x[0]),
+            )
+            for _, trade in ordered_trades:
+                group = snapshot.get_group(trade.group_id)
+                if not group:
+                    continue
+
+                try:
+                    trade_date = datetime.strptime(trade.date, "%Y-%m-%d").date()
+                except Exception:
+                    continue
+                if trade_date > cutoff:
+                    continue
+
+                action = (trade.action or "").upper()
+                quantity = int(trade.quantity or 0)
+                price = float(trade.price or 0.0)
+                if quantity <= 0 or price <= 0:
+                    continue
+
+                if action == "BUY":
+                    group.add_position(
+                        ticker=trade.ticker,
+                        quantity=quantity,
+                        entry_price=price,
+                        entry_date=trade.date,
+                        entry_score=float(trade.entry_score or 0.0),
+                    )
+                elif action == "SELL":
+                    try:
+                        group.partial_sell(
+                            ticker=trade.ticker,
+                            quantity=quantity,
+                            exit_price=price,
+                        )
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    return snapshot
+
+
 if __name__ == "__main__":
     # Example usage
     state = ProductionState()

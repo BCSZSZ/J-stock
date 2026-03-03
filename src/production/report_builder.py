@@ -131,7 +131,7 @@ class ReportBuilder:
             sections.append(self._build_overlay_summary_section(overlay_summary))
         sections.append(self._build_buy_signals_section(buy_signals))
         sections.append(self._build_sell_signals_section(sell_signals))
-        sections.append(self._build_portfolio_status_section())
+        sections.append(self._build_portfolio_status_section(report_date))
         sections.append(self._build_performance_summary_section(report_date))
 
         if execution_results:
@@ -178,7 +178,7 @@ class ReportBuilder:
         sections.append(self._build_final_picks(evaluations, signals))
 
         # Current portfolio with exit evaluations
-        sections.append(self._build_portfolio_status_section())
+        sections.append(self._build_portfolio_status_section(report_date))
         sections.append(self._build_performance_summary_section(report_date))
 
         if execution_results:
@@ -1058,13 +1058,13 @@ class ReportBuilder:
 
         return "\n".join(lines)
 
-    def _build_portfolio_status_section(self) -> str:
+    def _build_portfolio_status_section(self, report_date: Optional[str] = None) -> str:
         """
         Build current portfolio status section.
 
         Shows all positions across all strategy groups with P&L.
         """
-        current_prices = self._collect_current_prices()
+        current_prices = self._collect_current_prices(report_date)
 
         lines = ["## 💼 Current Portfolio Status", ""]
 
@@ -1119,13 +1119,13 @@ class ReportBuilder:
 
         return "\n".join(lines)
 
-    def _collect_current_prices(self) -> Dict[str, float]:
+    def _collect_current_prices(self, report_date: Optional[str] = None) -> Dict[str, float]:
         current_prices: Dict[str, float] = {}
         for group in self.state_manager.get_all_groups():
             for pos in group.positions:
                 if pos.quantity <= 0 or pos.ticker in current_prices:
                     continue
-                latest_close = self._get_latest_close(pos.ticker)
+                latest_close = self._get_latest_close(pos.ticker, report_date)
                 if latest_close is not None:
                     current_prices[pos.ticker] = latest_close
         return current_prices
@@ -1133,8 +1133,8 @@ class ReportBuilder:
     def _build_performance_summary_section(self, report_date: str) -> str:
         lines = ["## 📈 收益汇总", ""]
 
-        realized = self._calculate_realized_performance()
-        current_prices = self._collect_current_prices()
+        realized = self._calculate_realized_performance(report_date)
+        current_prices = self._collect_current_prices(report_date)
         unrealized = self._calculate_unrealized_performance(current_prices)
 
         lines.append("### 1) 历史交易股票收益")
@@ -1197,11 +1197,14 @@ class ReportBuilder:
         if self.initial_capital_override is not None and self.initial_capital_override > 0:
             baseline_initial_capital = self.initial_capital_override
 
-        net_cash_flow = (
-            float(self.cash_history_manager.get_net_cash_flow())
-            if self.cash_history_manager
-            else 0.0
-        )
+        net_cash_flow = 0.0
+        if self.cash_history_manager:
+            for event in self.cash_history_manager.events:
+                event_date = getattr(event, "date", None)
+                if not event_date:
+                    continue
+                if self._is_on_or_before(event_date, report_date):
+                    net_cash_flow += float(getattr(event, "amount", 0.0) or 0.0)
         effective_initial_capital = baseline_initial_capital + net_cash_flow
         if effective_initial_capital <= 0:
             effective_initial_capital = baseline_initial_capital
@@ -1361,11 +1364,18 @@ class ReportBuilder:
             "total_daily_pnl": total_holding_pnl + total_trade_pnl,
         }
 
-    def _calculate_realized_performance(self) -> Dict:
+    def _calculate_realized_performance(self, report_date: Optional[str] = None) -> Dict:
         if not self.trade_history_manager:
             return {"ticker_rows": [], "realized_pnl": 0.0, "realized_return_pct": 0.0}
 
         trades = list(self.trade_history_manager.trades)
+        if report_date:
+            trades = [
+                t
+                for t in trades
+                if getattr(t, "date", None)
+                and self._is_on_or_before(t.date, report_date)
+            ]
         if not trades:
             return {"ticker_rows": [], "realized_pnl": 0.0, "realized_return_pct": 0.0}
 
@@ -1497,22 +1507,48 @@ class ReportBuilder:
             "unrealized_return_pct": unrealized_return_pct,
         }
 
-    def _get_latest_close(self, ticker: str) -> Optional[float]:
+    def _get_latest_close(self, ticker: str, report_date: Optional[str] = None) -> Optional[float]:
         df = self.data_manager.load_stock_features(ticker)
         if df is None or df.empty:
             return None
 
-        if "Date" in df.columns:
-            dt = df["Date"]
-        else:
-            dt = df.index
+        import pandas as pd
 
-        last_idx = dt.idxmax()
-        last_row = df.loc[last_idx]
+        if "Date" in df.columns:
+            frame = df.copy()
+            frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
+            frame = frame.dropna(subset=["Date"]).sort_values("Date")
+        else:
+            frame = df.copy()
+            frame = frame.reset_index()
+            idx_col = frame.columns[0]
+            frame = frame.rename(columns={idx_col: "Date"})
+            frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
+            frame = frame.dropna(subset=["Date"]).sort_values("Date")
+
+        if frame.empty:
+            return None
+
+        if report_date:
+            cutoff = pd.Timestamp(report_date)
+            frame = frame[frame["Date"] <= cutoff]
+            if frame.empty:
+                return None
+
+        last_row = frame.iloc[-1]
         close_val = last_row.get("Close")
         if close_val is None:
             return None
         return float(close_val)
+
+    @staticmethod
+    def _is_on_or_before(date_text: str, cutoff_text: str) -> bool:
+        try:
+            return datetime.strptime(date_text, "%Y-%m-%d").date() <= datetime.strptime(
+                cutoff_text, "%Y-%m-%d"
+            ).date()
+        except Exception:
+            return False
 
     def _build_execution_summary_section(
         self, execution_results: List[ExecutionResult]

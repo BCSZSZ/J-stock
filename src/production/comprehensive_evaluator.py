@@ -113,6 +113,7 @@ class ComprehensiveEvaluator:
             Dict mapping ticker to StockComprehensiveEvaluation
         """
         results = {}
+        eval_ts = pd.Timestamp(current_date) if current_date else pd.Timestamp.now()
         
         for idx, ticker in enumerate(tickers, 1):
             if verbose:
@@ -123,7 +124,7 @@ class ComprehensiveEvaluator:
                 market_data = MarketDataBuilder.build_from_manager(
                     data_manager=self.data_manager,
                     ticker=ticker,
-                    current_date=pd.Timestamp.now()
+                    current_date=eval_ts
                 )
                 
                 if market_data is None:
@@ -134,7 +135,11 @@ class ComprehensiveEvaluator:
                 # 从 MarketData 对象提取信息
                 df_features = market_data.df_features
                 metadata = market_data.metadata
-                latest_date = market_data.current_date
+                latest_date = (
+                    market_data.df_features.index.max()
+                    if not market_data.df_features.empty
+                    else eval_ts
+                )
                 latest_row = df_features.iloc[-1] if not df_features.empty else None
                 current_price = float(latest_row['Close']) if latest_row is not None else 0
                 ticker_name = metadata.get('company_name', ticker) if metadata else ticker

@@ -17,6 +17,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.data.stock_data_manager import StockDataManager
     from src.overlays import OverlayContext, OverlayManager
     from src.production import ReportBuilder
+    from src.production.state_manager import build_state_as_of
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
     from src.production.signal_generator import Signal
     from src.utils.strategy_loader import load_exit_strategy
@@ -144,8 +145,15 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         print("  It may be too early (before EOD data is published). Workflow aborted.")
         return
 
+    effective_state = build_state_as_of(
+        base_state=state,
+        history_file=prod_cfg.history_file,
+        cash_history_file=prod_cfg.cash_history_file,
+        as_of_date=signal_date,
+    )
+
     all_signals = []
-    groups = state.get_all_groups()
+    groups = effective_state.get_all_groups()
     group_configs = {g["id"]: g for g in (prod_cfg.strategy_groups or [])}
     entry_strategy_names = set()
     for group in groups:
@@ -160,6 +168,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     print(f"  Evaluating all {len(monitor_tickers)} stocks...")
     comprehensive_evals = evaluator.evaluate_all_stocks(
         tickers=monitor_tickers,
+        current_date=signal_date,
         verbose=False,
     )
     print(f"  ✅ Evaluated {len(comprehensive_evals)} stocks")
@@ -224,7 +233,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 market_data = MarketDataBuilder.build_from_manager(
                     data_manager=data_manager,
                     ticker=pos.ticker,
-                    current_date=pd.Timestamp.now(),
+                    current_date=pd.Timestamp(signal_date),
                 )
             except Exception:
                 continue
@@ -296,7 +305,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 market_data = MarketDataBuilder.build_from_manager(
                     data_manager=data_manager,
                     ticker=ticker,
-                    current_date=pd.Timestamp.now(),
+                    current_date=pd.Timestamp(signal_date),
                 )
                 if market_data is None:
                     continue
@@ -598,7 +607,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         raw_config.get("portfolio", {}).get("starting_capital_jpy")
     )
     builder = ReportBuilder(
-        state,
+        effective_state,
         data_manager,
         history_file=prod_cfg.history_file,
         cash_history_file=prod_cfg.cash_history_file,
