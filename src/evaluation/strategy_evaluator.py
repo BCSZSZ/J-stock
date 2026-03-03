@@ -120,9 +120,10 @@ class StrategyEvaluator:
             entry_filter_variants
         )
         self.portfolio_overrides = portfolio_overrides or {}
+        self.overlay_config = overlay_config or {}
 
         self.overlay_manager = OverlayManager.from_config(
-            overlay_config or {},
+            self.overlay_config,
             data_root=self.data_root,
         )
 
@@ -362,9 +363,7 @@ class StrategyEvaluator:
                         self.data_root,
                         self._get_portfolio_limits(),
                         self._get_starting_capital(),
-                        self.overlay_manager.config
-                        if hasattr(self.overlay_manager, "config")
-                        else {},
+                        self.overlay_config,
                         self.use_cache,
                     ): task
                     for task in tasks

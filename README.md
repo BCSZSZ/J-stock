@@ -266,9 +266,36 @@ print(metadata)
 - `tools/analyze_sell_timing.py`
     - 用途：按交易明细统计卖出结构（胜负、持仓、退出不对称）
 
+- `tools/score_strategy_ranking.py`
+    - 用途：将多年份 raw 回测结果做归一化排名（默认风险60% / 赚钱40%）
+    - 默认模型：`risk60_profit40_v2`
+        - 风险 60%：`avg_mdd` 35% + `worst_year_return` 25%
+        - 赚钱 40%：`avg_alpha` 25% + `positive_alpha_ratio` 15%
+    - `positive_alpha_ratio` 定义：`alpha > 0` 的年份占比，用于衡量赚钱一致性
+    - 历史口径可选：`risk60_profit40_v1`（含 `residual_return` 项）
+    - 输出：
+        - `strategy_evaluation/strategy_ranking_risk60_profit40_v2_{timestamp}.csv`
+        - `strategy_evaluation/strategy_ranking_risk60_profit40_v2_{timestamp}_summary.csv`
+    - 示例：
+        ```bash
+        python tools/score_strategy_ranking.py --raw-csv strategy_evaluation/custom_db_3x3_raw_20260222_024413.csv
+        ```
+
+### 策略比较默认打分公式（当前标准）
+
+默认使用 `risk60_profit40_v2`，用于多年份策略横向比较：
+
+- `final_score = 0.35*mdd_inverse_norm + 0.25*worst_year_return_norm + 0.25*avg_alpha_norm + 0.15*positive_alpha_ratio_norm`
+- `mdd_inverse_norm` 为最大回撤逆向归一化（回撤越小分越高）
+- `worst_year_return_norm` 为最差年度收益归一化（越不差分越高）
+- `positive_alpha_ratio_norm` 为正 Alpha 年份占比归一化（越高说明跨年稳定性越好）
+- 归一化使用 Min-Max；当某指标在所有策略上无差异时，统一记为 `0.5`
+
+该实现保留可扩展性：可在 `tools/score_strategy_ranking.py` 的 `MODEL_REGISTRY` 新增模型并切换 `--model`。
+
 ### 本轮结论快照
 
-- 当前默认参数：`MVX_N9_R3p5_T1p6_D20_B15`（D=20, B=15；已停止使用 243 网格参数集）
+- 当前默认参数：`MVX_N9_R3p5_T1p6_D18_B20p0`
 - 与校验直接相关的策略实现位置：
     - `src/analysis/strategies/exit/multiview_grid_exit.py`
     - `tools/eval_n10r36_check_ab.py` 中 `MultiViewCompositeExitWithFastNegCheck`
@@ -284,7 +311,7 @@ print(metadata)
 ### 策略与回测矩阵
 
 - Entry 策略：`SimpleScorerStrategy` / `EnhancedScorerStrategy` / `MACDCrossoverStrategy` / `BollingerSqueezeStrategy` / `IchimokuStochStrategy`
-- Exit 策略：`ATRExitStrategy` / `ScoreBasedExitStrategy` / `LayeredExitStrategy` / `BollingerDynamicExit` / `ADXTrendExhaustionExit` / `MVX_N9_R3p5_T1p6_D20_B15`
+- Exit 策略：`ATRExitStrategy` / `ScoreBasedExitStrategy` / `LayeredExitStrategy` / `BollingerDynamicExit` / `ADXTrendExhaustionExit` / `MVX_N9_R3p5_T1p6_D18_B20p0`
 - `--all-strategies` 为 entry × exit 组合（来自 `src/utils/strategy_loader.py`）
 
 ### 落盘文件（实际命名）

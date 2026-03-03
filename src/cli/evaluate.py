@@ -174,11 +174,14 @@ def _run_once(
     prefix,
     portfolio_overrides=None,
 ):
+    use_overlay = bool(getattr(args, "enable_overlay", False))
+    overlay_config = config if use_overlay else {}
+
     evaluator = StrategyEvaluator(
         data_root="data",
         output_dir=output_dir,
         verbose=args.verbose,
-        overlay_config=config,
+        overlay_config=overlay_config,
         entry_filter_config=config.get("evaluation", {}).get("entry_filter", {}),
         entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
@@ -238,6 +241,7 @@ def cmd_evaluate(args):
 
     print(f"\n🧪 Entry Filter 变体: {len(entry_filter_variants)} 个")
     print(f"   {', '.join(name for name, _ in entry_filter_variants)}")
+    print(f"🧭 Overlay: {'ENABLED' if getattr(args, 'enable_overlay', False) else 'DISABLED'}")
     print("\n🚀 开始策略评估...")
 
     files = _run_once(
@@ -346,6 +350,7 @@ def cmd_pos_evaluation(args):
     output_dir = _resolve_output_dir(args.output_dir)
     print(f"\n🧪 Entry Filter 变体: {len(entry_filter_variants)} 个")
     print(f"   {', '.join(name for name, _ in entry_filter_variants)}")
+    print(f"🧭 Overlay: {'ENABLED' if getattr(args, 'enable_overlay', False) else 'DISABLED'}")
     print(f"\n📚 仓位组合: {len(normalized_profiles)} 个")
 
     all_files = []

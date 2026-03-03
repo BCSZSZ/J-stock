@@ -111,7 +111,7 @@ config.json                                   (Updated: MACDCrossover default)
 cat config.json | grep -A2 "default_strategies"
 # Expected:
 #   "entry": "MACDCrossoverStrategy",
-#   "exit": "MVX_N9_R3p4_T1p6_D18_B20p0"
+#   "exit": "MVX_N9_R3p5_T1p6_D18_B20p0"
 ```
 
 **Result:** ✅ MACDCrossoverStrategy (21.5% alpha) now default

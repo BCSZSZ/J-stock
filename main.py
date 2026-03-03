@@ -405,6 +405,11 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument(
         "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
     )
+    evaluate_parser.add_argument(
+        "--enable-overlay",
+        action="store_true",
+        help="按需启用overlay参与evaluation（默认关闭）",
+    )
     evaluate_parser.set_defaults(func=cmd_evaluate)
 
     pos_evaluate_parser = subparsers.add_parser(
@@ -466,6 +471,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pos_evaluate_parser.add_argument(
         "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
+    )
+    pos_evaluate_parser.add_argument(
+        "--enable-overlay",
+        action="store_true",
+        help="按需启用overlay参与evaluation（默认关闭）",
     )
     pos_evaluate_parser.set_defaults(func=cmd_pos_evaluation)
 

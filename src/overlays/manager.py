@@ -3,10 +3,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .base import BaseOverlay, OverlayContext, OverlayDecision
 from .regime_overlay import RegimeOverlay
+from .sector_breadth_overlay import SectorBreadthOverlay
 
 
 OVERLAY_REGISTRY = {
     "RegimeOverlay": RegimeOverlay,
+    "SectorBreadthOverlay": SectorBreadthOverlay,
 }
 
 
