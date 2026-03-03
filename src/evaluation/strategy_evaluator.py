@@ -139,7 +139,7 @@ class StrategyEvaluator:
 
         Priority:
         1) portfolio_overrides.starting_capital_jpy
-        2) config.json portfolio.starting_capital_jpy
+        2) config.json evaluation.starting_capital_jpy
         3) fallback 8,000,000 JPY
         """
         if self._starting_capital_cache is not None:
@@ -160,8 +160,8 @@ class StrategyEvaluator:
             if config_path.exists():
                 with open(config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
-                portfolio_cfg = config.get("portfolio", {})
-                value = int(portfolio_cfg.get("starting_capital_jpy", 8_000_000))
+                eval_cfg = config.get("evaluation", {})
+                value = int(eval_cfg.get("starting_capital_jpy", 8_000_000))
                 if value > 0:
                     self._starting_capital_cache = value
                     return self._starting_capital_cache

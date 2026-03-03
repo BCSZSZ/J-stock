@@ -1,5 +1,8 @@
 import json
+from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
 
 from src.evaluation import (
     StrategyEvaluator,
@@ -173,8 +176,12 @@ def _run_once(
     output_dir,
     prefix,
     portfolio_overrides=None,
+    enable_overlay: bool = None,
 ):
-    use_overlay = bool(getattr(args, "enable_overlay", False))
+    if enable_overlay is None:
+        use_overlay = bool(getattr(args, "enable_overlay", False))
+    else:
+        use_overlay = bool(enable_overlay)
     overlay_config = config if use_overlay else {}
 
     evaluator = StrategyEvaluator(
@@ -348,12 +355,18 @@ def cmd_pos_evaluation(args):
         return
 
     output_dir = _resolve_output_dir(args.output_dir)
+
+    overlay_modes = args.overlay_modes or (["on"] if args.enable_overlay else ["off"])
+    overlay_modes = [m.lower() for m in overlay_modes]
+
     print(f"\n🧪 Entry Filter 变体: {len(entry_filter_variants)} 个")
     print(f"   {', '.join(name for name, _ in entry_filter_variants)}")
-    print(f"🧭 Overlay: {'ENABLED' if getattr(args, 'enable_overlay', False) else 'DISABLED'}")
+    print(f"🧭 Overlay Modes: {', '.join(overlay_modes)}")
     print(f"\n📚 仓位组合: {len(normalized_profiles)} 个")
 
     all_files = []
+    combined_raw_frames = []
+    combined_regime_frames = []
     for profile in normalized_profiles:
         name = profile["name"]
         overrides = {
@@ -363,30 +376,59 @@ def cmd_pos_evaluation(args):
         if profile["starting_capital_jpy"] is not None:
             overrides["starting_capital_jpy"] = profile["starting_capital_jpy"]
 
-        prefix = f"position_eval_{_sanitize_name(name)}"
-        print("\n" + "-" * 80)
-        print(
-            f"🚀 运行组合 {name}: max_positions={overrides['max_positions']}, "
-            f"max_position_pct={overrides['max_position_pct']}, "
-            f"starting_capital_jpy={overrides.get('starting_capital_jpy', 'config.portfolio')}"
-        )
-        print("-" * 80)
+        for overlay_mode in overlay_modes:
+            enable_overlay = overlay_mode == "on"
+            prefix = f"position_eval_{_sanitize_name(name)}_overlay_{overlay_mode}"
+            print("\n" + "-" * 80)
+            print(
+                f"🚀 运行组合 {name} [{overlay_mode.upper()}]: max_positions={overrides['max_positions']}, "
+                f"max_position_pct={overrides['max_position_pct']}, "
+                f"starting_capital_jpy={overrides.get('starting_capital_jpy', 8000000)}"
+            )
+            print("-" * 80)
 
-        files = _run_once(
-            args=args,
-            config=config,
-            periods=periods,
-            entry_filter_variants=entry_filter_variants,
-            output_dir=output_dir,
-            prefix=prefix,
-            portfolio_overrides=overrides,
-        )
+            files = _run_once(
+                args=args,
+                config=config,
+                periods=periods,
+                entry_filter_variants=entry_filter_variants,
+                output_dir=output_dir,
+                prefix=prefix,
+                portfolio_overrides=overrides,
+                enable_overlay=enable_overlay,
+            )
 
-        if files:
-            all_files.append((name, files))
-            print(f"✅ 组合 {name} 完成")
-        else:
-            print(f"❌ 组合 {name} 未生成结果")
+            if files:
+                all_files.append((f"{name}|overlay={overlay_mode}", files))
+                print(f"✅ 组合 {name} [{overlay_mode.upper()}] 完成")
+
+                try:
+                    raw_df = pd.read_csv(files["raw"])
+                    raw_df["position_profile"] = name
+                    raw_df["overlay_mode"] = overlay_mode
+                    raw_df["max_positions"] = overrides["max_positions"]
+                    raw_df["max_position_pct"] = overrides["max_position_pct"]
+                    raw_df["starting_capital_jpy"] = int(
+                        overrides.get("starting_capital_jpy", 8_000_000)
+                    )
+                    combined_raw_frames.append(raw_df)
+                except Exception as e:
+                    print(f"⚠️ 合并raw失败 ({name}/{overlay_mode}): {e}")
+
+                try:
+                    regime_df = pd.read_csv(files["regime"])
+                    regime_df["position_profile"] = name
+                    regime_df["overlay_mode"] = overlay_mode
+                    regime_df["max_positions"] = overrides["max_positions"]
+                    regime_df["max_position_pct"] = overrides["max_position_pct"]
+                    regime_df["starting_capital_jpy"] = int(
+                        overrides.get("starting_capital_jpy", 8_000_000)
+                    )
+                    combined_regime_frames.append(regime_df)
+                except Exception as e:
+                    print(f"⚠️ 合并regime失败 ({name}/{overlay_mode}): {e}")
+            else:
+                print(f"❌ 组合 {name} [{overlay_mode.upper()}] 未生成结果")
 
     if not all_files:
         print("\n❌ 全部组合执行失败")
@@ -400,4 +442,19 @@ def cmd_pos_evaluation(args):
         print(f"  📄 原始结果: {files['raw']}")
         print(f"  📊 市场环境分析: {files['regime']}")
         print(f"  📝 综合报告: {files['report']}")
+
+    if combined_raw_frames:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        combined_raw = pd.concat(combined_raw_frames, ignore_index=True)
+        combined_raw_path = Path(output_dir) / f"position_eval_combined_raw_{ts}.csv"
+        combined_raw.to_csv(combined_raw_path, index=False, encoding="utf-8-sig")
+        print(f"\n📦 合并Raw结果: {combined_raw_path}")
+
+    if combined_regime_frames:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        combined_regime = pd.concat(combined_regime_frames, ignore_index=True)
+        combined_regime_path = Path(output_dir) / f"position_eval_combined_by_regime_{ts}.csv"
+        combined_regime.to_csv(combined_regime_path, index=False, encoding="utf-8-sig")
+        print(f"📦 合并Regime结果: {combined_regime_path}")
+
     print(f"{'=' * 80}\n")

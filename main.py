@@ -477,6 +477,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="按需启用overlay参与evaluation（默认关闭）",
     )
+    pos_evaluate_parser.add_argument(
+        "--overlay-modes",
+        nargs="+",
+        choices=["off", "on"],
+        default=None,
+        help="pos-evaluation叠加维度：一次运行多个overlay模式（off/on）",
+    )
     pos_evaluate_parser.set_defaults(func=cmd_pos_evaluation)
 
     return parser
