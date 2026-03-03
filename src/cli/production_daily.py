@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from src.cli.production_utils import load_monitor_tickers
 from src.data.fetch_universe_builder import build_fetch_universe_file
+from src.data.sector_metrics_updater import update_sector_metrics
 
 
 def run_daily_workflow(args, prod_cfg, state) -> None:
@@ -107,6 +108,26 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         summary = run_fetch(monitor_list_file=fetch_universe_file)
         if summary:
             print(f"  Updated {summary['successful']}/{summary['total']} stocks")
+
+        lookback_days = int(prod_runtime_cfg.get("sector_metrics_lookback_days", 90))
+        min_names = int(prod_runtime_cfg.get("sector_metrics_min_names", 5))
+        metrics_summary = update_sector_metrics(
+            sector_pool_file=prod_cfg.sector_pool_file,
+            data_root="data",
+            lookback_days=lookback_days,
+            min_names_per_sector=min_names,
+        )
+        if metrics_summary.get("status") == "ok":
+            print("  Sector metrics updated")
+            print(
+                "    "
+                f"Pool={metrics_summary.get('pool_size')} "
+                f"Sectors={metrics_summary.get('sector_count')} "
+                f"Rows={metrics_summary.get('rows_written')}"
+            )
+        else:
+            print("  [WARN] Sector metrics update skipped (non-blocking)")
+            print(f"    Reason: {metrics_summary.get('message', 'unknown')}")
     else:
         print("\n[Data Update] Skipped (--skip-fetch flag)")
 

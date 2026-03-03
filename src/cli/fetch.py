@@ -4,6 +4,7 @@ from .common import load_config
 def cmd_fetch(args):
     """数据抓取命令"""
     from src.data.fetch_universe_builder import build_fetch_universe_file
+    from src.data.sector_metrics_updater import update_sector_metrics
     from src.data_fetch_manager import run_fetch
 
     config = load_config()
@@ -37,6 +38,26 @@ def cmd_fetch(args):
             print(
                 f"\n✅ 数据抓取完成: {summary['successful']}/{summary['total']} 只股票成功"
             )
+
+            lookback_days = int(
+                production_cfg.get("sector_metrics_lookback_days", 90)
+            )
+            min_names = int(production_cfg.get("sector_metrics_min_names", 5))
+            metrics_summary = update_sector_metrics(
+                sector_pool_file=production_cfg.get("sector_pool_file"),
+                data_root=config.get("data", {}).get("data_dir", "data"),
+                lookback_days=lookback_days,
+                min_names_per_sector=min_names,
+            )
+            if metrics_summary.get("status") == "ok":
+                print("✅ 板块指标更新完成")
+                print(f"  Pool: {metrics_summary.get('pool_size')} names")
+                print(f"  Sectors: {metrics_summary.get('sector_count')}")
+                print(f"  Rows written: {metrics_summary.get('rows_written')}")
+                print(f"  Metrics: {metrics_summary.get('metrics_file')}")
+            else:
+                print("⚠️ 板块指标更新跳过（不中断）")
+                print(f"  Reason: {metrics_summary.get('message', 'unknown')}")
     elif args.tickers:
         print(f"📥 抓取指定股票数据: {', '.join(args.tickers)}")
         import os
