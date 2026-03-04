@@ -129,6 +129,9 @@ class ReportBuilder:
         sections.append(self._build_market_summary(report_date))
         if overlay_summary:
             sections.append(self._build_overlay_summary_section(overlay_summary))
+            sections.append(
+                self._build_overlay_effect_audit_section(signals, overlay_summary)
+            )
         sections.append(self._build_buy_signals_section(buy_signals))
         sections.append(self._build_sell_signals_section(sell_signals))
         sections.append(self._build_portfolio_status_section(report_date))
@@ -165,6 +168,9 @@ class ReportBuilder:
         sections.append(self._build_market_summary(report_date))
         if overlay_summary:
             sections.append(self._build_overlay_summary_section(overlay_summary))
+            sections.append(
+                self._build_overlay_effect_audit_section(signals, overlay_summary)
+            )
 
         # NEW: Complete evaluation table (all 61 stocks × strategies)
         sections.append(
@@ -189,12 +195,18 @@ class ReportBuilder:
         return "\n\n".join(sections)
 
     def _build_overlay_summary_section(self, overlay_summary: List[Dict]) -> str:
-        lines = ["## 🧭 Overlay Summary", ""]
+        lines = [
+            "## 🧭 Overlay Summary",
+            "",
+            "### EN",
+            "",
+        ]
         for item in overlay_summary:
             group_id = item.get("group_id", "N/A")
             group_name = item.get("group_name", "N/A")
             combined = item.get("combined", {})
             metadata = combined.get("metadata", {})
+            per_overlay = item.get("overlays", [])
             regime = None
             for overlay_meta in metadata.values():
                 if isinstance(overlay_meta, dict) and "regime" in overlay_meta:
@@ -213,9 +225,213 @@ class ReportBuilder:
                 parts.append("New Entries: BLOCKED")
             if combined.get("force_exit"):
                 parts.append("Force Exit: ENABLED")
-            if combined.get("exit_overrides"):
-                parts.append("Exit Overrides: yes")
+            exit_overrides = combined.get("exit_overrides") or {}
+            parts.append(f"Exit Overrides: {len(exit_overrides)}")
             lines.append("- " + " | ".join(parts))
+
+            lines.append("  - Combined Decision:")
+            lines.append(
+                f"    - target_exposure={combined.get('target_exposure')} | "
+                f"position_scale={combined.get('position_scale')} | "
+                f"max_new_positions={combined.get('max_new_positions')} | "
+                f"block_new_entries={combined.get('block_new_entries')} | "
+                f"force_exit={combined.get('force_exit')}"
+            )
+
+            if exit_overrides:
+                lines.append("  - Triggered Exit Overrides:")
+                for ticker, reason in sorted(exit_overrides.items()):
+                    lines.append(f"    - {ticker}: {reason}")
+
+            if per_overlay:
+                lines.append("  - Overlay Metrics & Judgement:")
+                for decision in per_overlay:
+                    source = decision.get("source", "UnknownOverlay")
+                    lines.append(f"    - {source}:")
+                    lines.append(
+                        "      - decision: "
+                        f"target_exposure={decision.get('target_exposure')}, "
+                        f"position_scale={decision.get('position_scale')}, "
+                        f"max_new_positions={decision.get('max_new_positions')}, "
+                        f"block_new_entries={decision.get('block_new_entries')}, "
+                        f"force_exit={decision.get('force_exit')}, "
+                        f"exit_overrides={len(decision.get('exit_overrides') or {})}"
+                    )
+
+                    overlay_meta = decision.get("metadata")
+                    if isinstance(overlay_meta, dict) and overlay_meta:
+                        lines.append("      - metrics:")
+                        for key in sorted(overlay_meta.keys()):
+                            lines.append(f"        - {key}: {overlay_meta.get(key)}")
+
+        lines.append("")
+        lines.append("### 中文")
+        lines.append("")
+
+        for item in overlay_summary:
+            group_id = item.get("group_id", "N/A")
+            group_name = item.get("group_name", "N/A")
+            combined = item.get("combined", {})
+            metadata = combined.get("metadata", {})
+            per_overlay = item.get("overlays", [])
+            regime = None
+            for overlay_meta in metadata.values():
+                if isinstance(overlay_meta, dict) and "regime" in overlay_meta:
+                    regime = overlay_meta.get("regime")
+                    break
+
+            parts_zh = [f"{group_name} ({group_id})"]
+            if regime:
+                parts_zh.append(f"状态: {regime}")
+            if combined.get("target_exposure") is not None:
+                parts_zh.append(f"目标仓位暴露: {combined.get('target_exposure')}")
+            if combined.get("position_scale") is not None:
+                parts_zh.append(f"仓位缩放: {combined.get('position_scale')}")
+            if combined.get("max_new_positions") is not None:
+                parts_zh.append(f"当日最大新开仓: {combined.get('max_new_positions')}")
+            if combined.get("block_new_entries"):
+                parts_zh.append("新开仓: 阻断")
+            if combined.get("force_exit"):
+                parts_zh.append("强制退出: 开启")
+
+            exit_overrides = combined.get("exit_overrides") or {}
+            parts_zh.append(f"覆盖卖出数: {len(exit_overrides)}")
+            lines.append("- " + " | ".join(parts_zh))
+
+            lines.append("  - 组合决策:")
+            lines.append(
+                f"    - 目标仓位暴露(target_exposure)={combined.get('target_exposure')} | "
+                f"仓位缩放(position_scale)={combined.get('position_scale')} | "
+                f"当日最大新开仓(max_new_positions)={combined.get('max_new_positions')} | "
+                f"阻断新开仓(block_new_entries)={combined.get('block_new_entries')} | "
+                f"强制退出(force_exit)={combined.get('force_exit')}"
+            )
+
+            if exit_overrides:
+                lines.append("  - 覆盖卖出明细:")
+                for ticker, reason in sorted(exit_overrides.items()):
+                    lines.append(f"    - {ticker}: {reason}")
+
+            if per_overlay:
+                lines.append("  - Overlay 指标与判断:")
+                for decision in per_overlay:
+                    source = decision.get("source", "UnknownOverlay")
+                    lines.append(f"    - {source}:")
+                    lines.append(
+                        "      - 决策: "
+                        f"目标仓位暴露(target_exposure)={decision.get('target_exposure')}, "
+                        f"仓位缩放(position_scale)={decision.get('position_scale')}, "
+                        f"当日最大新开仓(max_new_positions)={decision.get('max_new_positions')}, "
+                        f"阻断新开仓(block_new_entries)={decision.get('block_new_entries')}, "
+                        f"强制退出(force_exit)={decision.get('force_exit')}, "
+                        f"覆盖卖出数(exit_overrides)={len(decision.get('exit_overrides') or {})}"
+                    )
+
+                    overlay_meta = decision.get("metadata")
+                    if isinstance(overlay_meta, dict) and overlay_meta:
+                        lines.append("      - 指标:")
+                        for key in sorted(overlay_meta.keys()):
+                            label_zh = self._translate_overlay_metric_key(key)
+                            lines.append(
+                                f"        - {label_zh}: {overlay_meta.get(key)}"
+                            )
+
+        lines.append("")
+        lines.append("### 附录：Overlay 指标释义")
+        lines.append("")
+        lines.append(
+            "- `strong_ratio`：强势板块占比，表示当日被判定为强势的板块数量 / 有效板块数量。"
+        )
+        lines.append(
+            "- `weak_ratio`：弱势板块占比，表示当日被判定为弱势的板块数量 / 有效板块数量。"
+        )
+        lines.append(
+            "- `valid_sector_count`：有效板块数量，表示当日有足够数据并参与 Overlay 统计的板块数。"
+        )
+        lines.append(
+            "- 解释示例：`strong_ratio=0.24` 与 `weak_ratio=0.32` 意味着弱势板块比例高于强势板块比例，叠加风控后更可能给出偏保守仓位决策。"
+        )
+
+        return "\n".join(lines).strip()
+
+    def _translate_overlay_metric_key(self, key: str) -> str:
+        key_map = {
+            "latest_date": "最新交易日 (latest_date)",
+            "low_coverage_ratio": "低覆盖板块占比 (low_coverage_ratio)",
+            "median_sector_score": "板块得分中位数 (median_sector_score)",
+            "metrics_file": "指标文件路径 (metrics_file)",
+            "regime": "市场状态 (regime)",
+            "sector_count": "板块总数 (sector_count)",
+            "snapshot_dir": "快照目录 (snapshot_dir)",
+            "status": "状态 (status)",
+            "strong_ratio": "强势板块占比 (strong_ratio)",
+            "valid_sector_count": "有效板块数 (valid_sector_count)",
+            "weak_ratio": "弱势板块占比 (weak_ratio)",
+        }
+        return key_map.get(key, key)
+
+    def _build_overlay_effect_audit_section(
+        self,
+        signals: List[Signal],
+        overlay_summary: Optional[List[Dict]],
+    ) -> str:
+        signals = signals or []
+        overlay_summary = overlay_summary or []
+
+        blocked_buy_signals = [
+            s
+            for s in signals
+            if s.signal_type == "BUY"
+            and "overlay blocked new entries" in (s.reason or "").lower()
+        ]
+        overlay_sell_signals = [
+            s
+            for s in signals
+            if s.signal_type == "SELL"
+            and (
+                (s.strategy_name or "") == "Overlay"
+                or "overlay" in (s.reason or "").lower()
+            )
+        ]
+
+        blocked_buy_count = len(blocked_buy_signals)
+        overlay_sell_count = len(overlay_sell_signals)
+
+        blocked_buy_tickers = sorted({s.ticker for s in blocked_buy_signals})
+        overlay_sell_tickers = sorted({s.ticker for s in overlay_sell_signals})
+
+        lines = [
+            "## 🧪 Overlay Effect Audit",
+            "",
+            "### EN",
+            "",
+            f"- Blocked BUY signals by overlay: {blocked_buy_count}",
+            f"- Overlay-triggered SELL signals: {overlay_sell_count}",
+            f"- Blocked BUY tickers: {', '.join(blocked_buy_tickers) if blocked_buy_tickers else 'None'}",
+            f"- Overlay SELL tickers: {', '.join(overlay_sell_tickers) if overlay_sell_tickers else 'None'}",
+            "",
+            "### 中文",
+            "",
+            f"- 当日被 overlay 阻断的买入信号数: {blocked_buy_count}",
+            f"- 当日由 overlay 触发的卖出信号数: {overlay_sell_count}",
+            f"- 被阻断买入标的: {', '.join(blocked_buy_tickers) if blocked_buy_tickers else '无'}",
+            f"- overlay 触发卖出标的: {', '.join(overlay_sell_tickers) if overlay_sell_tickers else '无'}",
+        ]
+
+        if overlay_summary:
+            lines.extend(["", "### Per Group", ""])
+            for item in overlay_summary:
+                group_id = item.get("group_id", "N/A")
+                group_name = item.get("group_name", "N/A")
+                combined = item.get("combined", {})
+                lines.append(
+                    f"- {group_name} ({group_id}): "
+                    f"block_new_entries={combined.get('block_new_entries')}, "
+                    f"max_new_positions={combined.get('max_new_positions')}, "
+                    f"target_exposure={combined.get('target_exposure')}, "
+                    f"exit_overrides={len(combined.get('exit_overrides') or {})}"
+                )
+
         return "\n".join(lines).strip()
 
     def _build_comprehensive_evaluation_section(
@@ -1245,6 +1461,17 @@ class ReportBuilder:
                     f"{row['opening_qty']} | {row['buy_qty']} | {row['sell_qty']} | {row['holding_pnl']:+,.0f} | "
                     f"{row['trade_pnl']:+,.0f} | {row['daily_pnl']:+,.0f} |"
                 )
+            lines.append("")
+            lines.append("**今日盈亏汇总：**")
+            lines.append(
+                f"- 持仓贡献合计：{daily_pnl['total_holding_pnl']:+,.0f} JPY"
+            )
+            lines.append(
+                f"- 当日成交贡献合计：{daily_pnl['total_trade_pnl']:+,.0f} JPY"
+            )
+            lines.append(
+                f"- 今日盈亏合计：{daily_pnl['total_daily_pnl']:+,.0f} JPY"
+            )
         else:
             lines.append("*缺少足够的价格或交易数据，无法计算今日盈亏。*")
 

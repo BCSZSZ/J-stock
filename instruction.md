@@ -18,13 +18,13 @@
 ### 标准 CLI（必须使用）
 
 ```powershell
-.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p5_T1p6_D18_B20p0
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0
 ```
 
 如需在 evaluation 中按需启用 overlay（默认关闭）：
 
 ```powershell
-.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p5_T1p6_D18_B20p0 --enable-overlay
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --enable-overlay
 ```
 
 ### Entry Filter 层开关（evaluation）
@@ -44,13 +44,13 @@
 
 ```powershell
 # 关闭filter层
-.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p5_T1p6_D18_B20p0 --entry-filter-mode off
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode off
 
 # 仅使用单一filter
-.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p5_T1p6_D18_B20p0 --entry-filter-mode single --entry-filter-name f01_base
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode single --entry-filter-name f01_base
 
 # 使用所有filter网格（例如1*1*9）
-.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p5_T1p6_D18_B20p0 --entry-filter-mode grid
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode grid
 
 # 仅查看可用filter
 .venv/Scripts/python.exe main.py evaluate --list-entry-filters
@@ -62,7 +62,7 @@
 - 命名应直接体现参数差异，便于评估追踪与回放。
 - 参考命名风格：
   - 入场策略参数版：`MACDCrossoverEnhancedA2_V11` / `MACDCrossoverEnhancedA2_V12` / `MACDCrossoverEnhancedA2_V13`
-  - 出场策略参数版：`MVX_N9_R3p5_T1p6_D18_B20p0`
+  - 出场策略参数版：`MVX_N9_R3p6_T1p7_D18_B20p0`
 
 ## Task 2: 板块代表池构建（33板块）
 
@@ -118,7 +118,7 @@
 .venv/Scripts/python.exe main.py production --daily --no-fetch
 ```
 
-说明：production 流程当前不接入 overlay（overlay 仅支持在 evaluation 中通过 `--enable-overlay` 按需启用）。
+说明：production 流程已接入 overlay，并在日报 `Overlay Summary` 区块输出 overlay 指标与判断结果（含 regime、阈值指标、组合决策与触发动作）。
 
 ### 外部文件导入成交（production --input）
 

@@ -16,6 +16,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.analysis.signals import Position, SignalAction
     from src.data.market_data_builder import MarketDataBuilder
     from src.data.stock_data_manager import StockDataManager
+    from src.overlays import OverlayContext, OverlayManager
     from src.production import ReportBuilder
     from src.production.state_manager import build_state_as_of
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
@@ -135,6 +136,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     Path("output/report").mkdir(parents=True, exist_ok=True)
 
     data_manager = StockDataManager(api_key=api_key)
+    overlay_manager = OverlayManager.from_config(raw_config, data_root="data")
     print(f"  Monitoring {len(monitor_tickers)} stocks for signal evaluation")
 
     # 自动检测全市场最新可用数据日
@@ -241,6 +243,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         qty = lots * lot_size
         return min(total_qty, qty)
 
+    overlay_summaries = []
+
     def _get_group_current_prices(group):
         prices = {}
         for pos in group.positions:
@@ -285,9 +289,30 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             if pos.quantity > 0
         )
 
+        overlay_decision = None
+        if overlay_manager.overlays:
+            overlay_context = OverlayContext(
+                current_date=pd.Timestamp(signal_date),
+                portfolio_cash=group.cash,
+                portfolio_value=total_value,
+                positions={pos.ticker: pos for pos in group.positions},
+                current_prices=current_prices,
+                group_id=group.id,
+            )
+            overlay_decision, per_overlay = overlay_manager.evaluate(overlay_context)
+            overlay_summaries.append(
+                {
+                    "group_id": group.id,
+                    "group_name": group.name,
+                    **overlay_manager.summarize(overlay_decision, per_overlay),
+                }
+            )
+
         buy_count = 0
         new_positions_opened = 0
-        max_new_positions = None
+        max_new_positions = (
+            overlay_decision.max_new_positions if overlay_decision else None
+        )
 
         # Step 1) Build SELL/HOLD signals first (for projected cash release)
         sell_count = 0
@@ -321,6 +346,51 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     (current_price - position.entry_price) / position.entry_price
                 ) * 100
                 md = market_data.metadata if market_data else {}
+
+                overlay_reason = None
+                if overlay_decision and overlay_decision.force_exit:
+                    overlay_reason = "Overlay force exit"
+                elif (
+                    overlay_decision
+                    and overlay_decision.exit_overrides
+                    and ticker in overlay_decision.exit_overrides
+                ):
+                    overlay_reason = overlay_decision.exit_overrides[ticker]
+
+                if overlay_reason:
+                    estimated_sell_price = _estimate_sell_price(float(current_price))
+                    planned_sell_qty = int(position.quantity)
+                    planned_sell_value = planned_sell_qty * estimated_sell_price
+                    signal = Signal(
+                        group_id=group.id,
+                        ticker=ticker,
+                        ticker_name=md.get("company_name", ticker) if md else ticker,
+                        signal_type="SELL",
+                        action="SELL",
+                        confidence=1.0,
+                        score=0,
+                        reason=overlay_reason,
+                        current_price=float(current_price),
+                        close_price=float(current_price),
+                        planned_price=float(estimated_sell_price),
+                        planning_price_factor=float(1.0 + buy_price_buffer_pct),
+                        sell_price_factor=float(1.0 - sell_price_buffer_pct),
+                        position_qty=position.quantity,
+                        entry_price=position.entry_price,
+                        entry_date=position.entry_date,
+                        holding_days=(pd.Timestamp(signal_date) - entry_date_ts).days,
+                        unrealized_pl_pct=float(unrealized_pl),
+                        planned_sell_qty=planned_sell_qty,
+                        planned_sell_value=planned_sell_value,
+                        strategy_name="Overlay",
+                    )
+                    all_signals.append(signal)
+                    projected_sell_proceeds += planned_sell_value
+                    projected_position_count -= 1
+                    sell_count += 1
+                    total_sell_signals += 1
+                    continue
+
                 signals_position = Position(
                     ticker=ticker,
                     entry_price=position.entry_price,
@@ -468,7 +538,14 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 break
 
             max_position_pct = float(prod_cfg.max_position_pct)
+            if overlay_decision and overlay_decision.position_scale is not None:
+                max_position_pct *= overlay_decision.position_scale
+
             available_cash = planning_cash
+            if overlay_decision and overlay_decision.target_exposure is not None:
+                max_invested = total_value * overlay_decision.target_exposure
+                available_exposure = max(0.0, max_invested - planning_invested_value)
+                available_cash = min(available_cash, available_exposure)
 
             estimated_buy_price = _estimate_buy_price(float(eval_obj.current_price))
             suggested_qty, required_capital, lot_size = _calc_suggested_qty(
@@ -480,7 +557,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             )
 
             buy_reason = strategy_eval.reason
-            if suggested_qty <= 0:
+            if overlay_decision and overlay_decision.block_new_entries:
+                suggested_qty = 0
+                required_capital = 0.0
+                buy_reason = f"{buy_reason}; Overlay blocked new entries"
+            elif suggested_qty <= 0:
                 buy_reason = (
                     f"{buy_reason}; SuggestedQty=0: projected cash/exposure insufficient "
                     f"for lot size {lot_size}"
@@ -560,7 +641,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         signals=all_signals,
         report_date=signal_date,
         comprehensive_evaluations=comprehensive_evals,
-        overlay_summary=None,
+        overlay_summary=overlay_summaries,
     )
     report_file = prod_cfg.report_file_pattern.replace("{date}", signal_date)
     builder.save_report(report_md, report_file)
