@@ -14,18 +14,16 @@ from src.evaluation import (
 from .common import load_config
 
 
+DEFAULT_EVALUATION_OUTPUT_DIR = Path(r"G:\My Drive\AI-Stock-Sync\strategy_evaluation")
+
+
 def _resolve_output_dir(user_output_dir):
     if user_output_dir:
         return user_output_dir
 
-    cloud_default = Path(r"G:\My Drive\AI-Stock-Sync\strategy_evaluation")
-    cloud_default.mkdir(parents=True, exist_ok=True)
-    probe = cloud_default / ".write_probe.tmp"
-    with open(probe, "w", encoding="utf-8") as f:
-        f.write("ok")
-    probe.unlink(missing_ok=True)
-    print(f"📁 输出目录: {cloud_default} (Google Drive)")
-    return str(cloud_default)
+    DEFAULT_EVALUATION_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"📁 输出目录: {DEFAULT_EVALUATION_OUTPUT_DIR} (Google Drive)")
+    return str(DEFAULT_EVALUATION_OUTPUT_DIR)
 
 
 def _load_entry_filter_variants(cfg):
@@ -168,6 +166,19 @@ def _sanitize_name(name: str) -> str:
     return "".join(ch if (ch.isalnum() or ch in ["-", "_"]) else "_" for ch in name)
 
 
+def _resolve_universe_variants(universe_files):
+    if not universe_files:
+        return [("default", None)]
+
+    variants = []
+    for item in universe_files:
+        p = Path(item)
+        if not p.exists():
+            raise ValueError(f"股票池文件不存在: {p}")
+        variants.append((p.stem, str(p)))
+    return variants
+
+
 def _run_once(
     args,
     config,
@@ -175,11 +186,17 @@ def _run_once(
     entry_filter_variants,
     output_dir,
     prefix,
+    monitor_list_file=None,
     portfolio_overrides=None,
     enable_overlay: bool = None,
 ):
+    eval_cfg = config.get("evaluation", {})
     if enable_overlay is None:
-        use_overlay = bool(getattr(args, "enable_overlay", False))
+        arg_overlay = getattr(args, "enable_overlay", None)
+        if arg_overlay is None:
+            use_overlay = bool(eval_cfg.get("default_overlay_enabled", False))
+        else:
+            use_overlay = bool(arg_overlay)
     else:
         use_overlay = bool(enable_overlay)
     overlay_config = config if use_overlay else {}
@@ -187,6 +204,7 @@ def _run_once(
     evaluator = StrategyEvaluator(
         data_root="data",
         output_dir=output_dir,
+        monitor_list_file=monitor_list_file,
         verbose=args.verbose,
         overlay_config=overlay_config,
         entry_filter_config=config.get("evaluation", {}).get("entry_filter", {}),
@@ -195,7 +213,18 @@ def _run_once(
     )
 
     entry_strategies = args.entry_strategies
+    if not entry_strategies:
+        entry_strategies = eval_cfg.get("default_entry_strategies")
+        if entry_strategies:
+            print("\n🧭 使用 evaluation.default_entry_strategies")
+            print(f"   入场策略: {', '.join(entry_strategies)}")
+
     exit_strategies = args.exit_strategies
+    if not exit_strategies:
+        exit_strategies = eval_cfg.get("default_exit_strategies")
+        if exit_strategies:
+            print("\n🧭 使用 evaluation.default_exit_strategies")
+            print(f"   出场策略: {', '.join(exit_strategies)}")
 
     if not exit_strategies:
         exit_strategies = config.get("entry_eval_exit_strategies")
@@ -240,6 +269,7 @@ def cmd_evaluate(args):
             selected_names=selected_filter_names,
         )
         periods = _build_periods(args)
+        universe_variants = _resolve_universe_variants(args.universe_file)
     except ValueError as e:
         print(f"❌ 错误: {e}")
         return
@@ -248,29 +278,49 @@ def cmd_evaluate(args):
 
     print(f"\n🧪 Entry Filter 变体: {len(entry_filter_variants)} 个")
     print(f"   {', '.join(name for name, _ in entry_filter_variants)}")
+    print(f"🗂️ 股票池变体: {len(universe_variants)} 个")
+    print(f"   {', '.join(name for name, _ in universe_variants)}")
     print(f"🧭 Overlay: {'ENABLED' if getattr(args, 'enable_overlay', False) else 'DISABLED'}")
     print("\n🚀 开始策略评估...")
 
-    files = _run_once(
-        args=args,
-        config=config,
-        periods=periods,
-        entry_filter_variants=entry_filter_variants,
-        output_dir=output_dir,
-        prefix="strategy_evaluation",
-        portfolio_overrides=None,
-    )
+    all_files = []
+    for universe_name, universe_file in universe_variants:
+        prefix = "strategy_evaluation"
+        if len(universe_variants) > 1 or universe_file is not None:
+            prefix = f"strategy_evaluation_universe_{_sanitize_name(universe_name)}"
 
-    if not files:
+        print("\n" + "-" * 80)
+        print(
+            f"🧺 股票池: {universe_name}"
+            + (f" ({universe_file})" if universe_file else " (config默认)")
+        )
+        print("-" * 80)
+
+        files = _run_once(
+            args=args,
+            config=config,
+            periods=periods,
+            entry_filter_variants=entry_filter_variants,
+            output_dir=output_dir,
+            prefix=prefix,
+            monitor_list_file=universe_file,
+            portfolio_overrides=None,
+        )
+        if files:
+            all_files.append((universe_name, universe_file, files))
+
+    if not all_files:
         print("❌ 评估失败: 没有生成任何结果")
         return
 
     print(f"\n{'=' * 80}")
     print("✅ 策略评价完成！")
     print(f"{'=' * 80}")
-    print(f"📄 原始结果: {files['raw']}")
-    print(f"📊 市场环境分析: {files['regime']}")
-    print(f"📝 综合报告: {files['report']}")
+    for universe_name, universe_file, files in all_files:
+        print(f"[股票池: {universe_name}] {universe_file or '(config默认)'}")
+        print(f"  📄 原始结果: {files['raw']}")
+        print(f"  📊 市场环境分析: {files['regime']}")
+        print(f"  📝 综合报告: {files['report']}")
     print(f"{'=' * 80}\n")
 
 
@@ -281,6 +331,7 @@ def cmd_pos_evaluation(args):
     print("=" * 80 + "\n")
 
     config = load_config()
+    eval_cfg = config.get("evaluation", {})
     selected_filter_names = args.entry_filter_name or []
 
     if args.list_entry_filters:
@@ -294,11 +345,21 @@ def cmd_pos_evaluation(args):
             selected_names=selected_filter_names,
         )
         periods = _build_periods(args)
+        universe_variants = _resolve_universe_variants(args.universe_file)
     except ValueError as e:
         print(f"❌ 错误: {e}")
         return
 
-    position_file = Path(args.position_file)
+    position_file_arg = args.position_file
+    default_position_file = eval_cfg.get("default_position_file")
+    if (
+        default_position_file
+        and position_file_arg == "evaluation-position.json"
+        and Path(default_position_file).exists()
+    ):
+        position_file_arg = default_position_file
+
+    position_file = Path(position_file_arg)
     if not position_file.exists():
         print(f"❌ 错误: 仓位配置文件不存在: {position_file}")
         return
@@ -326,7 +387,7 @@ def cmd_pos_evaluation(args):
         print("❌ 错误: 未找到可用仓位组合（支持 list 或 {portfolios:[...]}）")
         return
 
-    selected_profile_names = set(args.profile_name or [])
+    selected_profile_names = set(args.profile_name or eval_cfg.get("default_profile_names", []))
     normalized_profiles = []
     for idx, item in enumerate(profiles, 1):
         if not isinstance(item, dict):
@@ -356,11 +417,21 @@ def cmd_pos_evaluation(args):
 
     output_dir = _resolve_output_dir(args.output_dir)
 
-    overlay_modes = args.overlay_modes or (["on"] if args.enable_overlay else ["off"])
+    if args.overlay_modes:
+        overlay_modes = args.overlay_modes
+    else:
+        overlay_default_on = (
+            eval_cfg.get("default_overlay_enabled", False)
+            if args.enable_overlay is None
+            else bool(args.enable_overlay)
+        )
+        overlay_modes = ["on"] if overlay_default_on else ["off"]
     overlay_modes = [m.lower() for m in overlay_modes]
 
     print(f"\n🧪 Entry Filter 变体: {len(entry_filter_variants)} 个")
     print(f"   {', '.join(name for name, _ in entry_filter_variants)}")
+    print(f"🗂️ 股票池变体: {len(universe_variants)} 个")
+    print(f"   {', '.join(name for name, _ in universe_variants)}")
     print(f"🧭 Overlay Modes: {', '.join(overlay_modes)}")
     print(f"\n📚 仓位组合: {len(normalized_profiles)} 个")
 
@@ -377,58 +448,85 @@ def cmd_pos_evaluation(args):
             overrides["starting_capital_jpy"] = profile["starting_capital_jpy"]
 
         for overlay_mode in overlay_modes:
-            enable_overlay = overlay_mode == "on"
-            prefix = f"position_eval_{_sanitize_name(name)}_overlay_{overlay_mode}"
-            print("\n" + "-" * 80)
-            print(
-                f"🚀 运行组合 {name} [{overlay_mode.upper()}]: max_positions={overrides['max_positions']}, "
-                f"max_position_pct={overrides['max_position_pct']}, "
-                f"starting_capital_jpy={overrides.get('starting_capital_jpy', 8000000)}"
-            )
-            print("-" * 80)
+            for universe_name, universe_file in universe_variants:
+                enable_overlay = overlay_mode == "on"
+                prefix = (
+                    f"position_eval_{_sanitize_name(name)}_overlay_{overlay_mode}"
+                    f"_univ_{_sanitize_name(universe_name)}"
+                )
+                print("\n" + "-" * 80)
+                print(
+                    f"🚀 运行组合 {name} [{overlay_mode.upper()}] × 股票池 {universe_name}: "
+                    f"max_positions={overrides['max_positions']}, "
+                    f"max_position_pct={overrides['max_position_pct']}, "
+                    f"starting_capital_jpy={overrides.get('starting_capital_jpy', 8000000)}"
+                )
+                if universe_file:
+                    print(f"   股票池文件: {universe_file}")
+                else:
+                    print("   股票池文件: (config默认)")
+                print("-" * 80)
 
-            files = _run_once(
-                args=args,
-                config=config,
-                periods=periods,
-                entry_filter_variants=entry_filter_variants,
-                output_dir=output_dir,
-                prefix=prefix,
-                portfolio_overrides=overrides,
-                enable_overlay=enable_overlay,
-            )
+                files = _run_once(
+                    args=args,
+                    config=config,
+                    periods=periods,
+                    entry_filter_variants=entry_filter_variants,
+                    output_dir=output_dir,
+                    prefix=prefix,
+                    monitor_list_file=universe_file,
+                    portfolio_overrides=overrides,
+                    enable_overlay=enable_overlay,
+                )
 
-            if files:
-                all_files.append((f"{name}|overlay={overlay_mode}", files))
-                print(f"✅ 组合 {name} [{overlay_mode.upper()}] 完成")
-
-                try:
-                    raw_df = pd.read_csv(files["raw"])
-                    raw_df["position_profile"] = name
-                    raw_df["overlay_mode"] = overlay_mode
-                    raw_df["max_positions"] = overrides["max_positions"]
-                    raw_df["max_position_pct"] = overrides["max_position_pct"]
-                    raw_df["starting_capital_jpy"] = int(
-                        overrides.get("starting_capital_jpy", 8_000_000)
+                if files:
+                    all_files.append(
+                        (
+                            f"{name}|overlay={overlay_mode}|universe={universe_name}",
+                            files,
+                        )
                     )
-                    combined_raw_frames.append(raw_df)
-                except Exception as e:
-                    print(f"⚠️ 合并raw失败 ({name}/{overlay_mode}): {e}")
-
-                try:
-                    regime_df = pd.read_csv(files["regime"])
-                    regime_df["position_profile"] = name
-                    regime_df["overlay_mode"] = overlay_mode
-                    regime_df["max_positions"] = overrides["max_positions"]
-                    regime_df["max_position_pct"] = overrides["max_position_pct"]
-                    regime_df["starting_capital_jpy"] = int(
-                        overrides.get("starting_capital_jpy", 8_000_000)
+                    print(
+                        f"✅ 组合 {name} [{overlay_mode.upper()}] × 股票池 {universe_name} 完成"
                     )
-                    combined_regime_frames.append(regime_df)
-                except Exception as e:
-                    print(f"⚠️ 合并regime失败 ({name}/{overlay_mode}): {e}")
-            else:
-                print(f"❌ 组合 {name} [{overlay_mode.upper()}] 未生成结果")
+
+                    try:
+                        raw_df = pd.read_csv(files["raw"])
+                        raw_df["position_profile"] = name
+                        raw_df["overlay_mode"] = overlay_mode
+                        raw_df["universe_name"] = universe_name
+                        raw_df["universe_file"] = universe_file or ""
+                        raw_df["max_positions"] = overrides["max_positions"]
+                        raw_df["max_position_pct"] = overrides["max_position_pct"]
+                        raw_df["starting_capital_jpy"] = int(
+                            overrides.get("starting_capital_jpy", 8_000_000)
+                        )
+                        combined_raw_frames.append(raw_df)
+                    except Exception as e:
+                        print(
+                            f"⚠️ 合并raw失败 ({name}/{overlay_mode}/{universe_name}): {e}"
+                        )
+
+                    try:
+                        regime_df = pd.read_csv(files["regime"])
+                        regime_df["position_profile"] = name
+                        regime_df["overlay_mode"] = overlay_mode
+                        regime_df["universe_name"] = universe_name
+                        regime_df["universe_file"] = universe_file or ""
+                        regime_df["max_positions"] = overrides["max_positions"]
+                        regime_df["max_position_pct"] = overrides["max_position_pct"]
+                        regime_df["starting_capital_jpy"] = int(
+                            overrides.get("starting_capital_jpy", 8_000_000)
+                        )
+                        combined_regime_frames.append(regime_df)
+                    except Exception as e:
+                        print(
+                            f"⚠️ 合并regime失败 ({name}/{overlay_mode}/{universe_name}): {e}"
+                        )
+                else:
+                    print(
+                        f"❌ 组合 {name} [{overlay_mode.upper()}] × 股票池 {universe_name} 未生成结果"
+                    )
 
     if not all_files:
         print("\n❌ 全部组合执行失败")

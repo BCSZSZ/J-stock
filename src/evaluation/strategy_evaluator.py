@@ -87,6 +87,7 @@ class StrategyEvaluator:
         self,
         data_root: str = "data",
         output_dir: str = "strategy_evaluation",
+        monitor_list_file: Optional[str] = None,
         verbose: bool = False,
         overlay_config: Optional[Dict] = None,
         entry_filter_config: Optional[Dict] = None,
@@ -115,6 +116,7 @@ class StrategyEvaluator:
         self.verbose = verbose  # 详细输出模式
         self.workers = workers  # Parallel workers
         self.use_cache = use_cache  # Data cache flag
+        self.monitor_list_file = monitor_list_file
         self.entry_filter_config = entry_filter_config or {}
         self.entry_filter_variants = self._normalize_entry_filter_variants(
             entry_filter_variants
@@ -259,6 +261,8 @@ class StrategyEvaluator:
         if exit_strategies is None:
             exit_strategies = list(EXIT_STRATEGIES.keys())
 
+        tickers = self._load_monitor_list()
+
         total_backtests = (
             len(periods)
             * len(entry_strategies)
@@ -290,7 +294,6 @@ class StrategyEvaluator:
             try:
                 from src.backtest.data_cache import BacktestDataCache
 
-                tickers = self._load_monitor_list()
                 preloaded_cache = BacktestDataCache(data_root=self.data_root)
 
                 # 计算所需的日期范围
@@ -360,6 +363,7 @@ class StrategyEvaluator:
                         task["entry_filter"],
                         task["entry_filter_config"],
                         task["topix_return"],
+                        tickers,
                         self.data_root,
                         self._get_portfolio_limits(),
                         self._get_starting_capital(),
@@ -555,26 +559,56 @@ class StrategyEvaluator:
 
         # 从 config.json 读取配置
         try:
-            config_path = Path("config.json")
-            if config_path.exists():
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    monitor_file = Path(config["data"]["monitor_list_file"])
+            if self.monitor_list_file:
+                monitor_file = Path(self.monitor_list_file)
             else:
-                # Config 不存在时回退到默认路径
-                monitor_file = Path(self.data_root) / "monitor_list.json"
+                config_path = Path("config.json")
+                if config_path.exists():
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        config = json.load(f)
+                        monitor_file = Path(config["data"]["monitor_list_file"])
+                else:
+                    # Config 不存在时回退到默认路径
+                    monitor_file = Path(self.data_root) / "monitor_list.json"
         except Exception:
             monitor_file = Path(self.data_root) / "monitor_list.json"
 
         if not monitor_file.exists():
             raise FileNotFoundError(f"监视列表文件不存在: {monitor_file}")
 
-        # JSON format with tickers array
+        # JSON format
         if monitor_file.suffix == ".json":
             with open(monitor_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                self._monitor_list_cache = [stock["code"] for stock in data["tickers"]]
+                tickers = []
+                if isinstance(data, dict):
+                    raw_tickers = data.get("tickers") or data.get("symbols") or data.get("stocks")
+                    if isinstance(raw_tickers, list):
+                        for item in raw_tickers:
+                            if isinstance(item, dict) and item.get("code") is not None:
+                                tickers.append(str(item["code"]).strip())
+                            elif item is not None:
+                                tickers.append(str(item).strip())
+                elif isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and item.get("code") is not None:
+                            tickers.append(str(item["code"]).strip())
+                        elif item is not None:
+                            tickers.append(str(item).strip())
+                self._monitor_list_cache = [ticker for ticker in tickers if ticker]
                 return self._monitor_list_cache
+
+        # CSV format
+        if monitor_file.suffix == ".csv":
+            df = pd.read_csv(monitor_file)
+            for col in ["code", "Code", "ticker", "Ticker", "symbol", "Symbol"]:
+                if col in df.columns:
+                    values = [str(v).strip() for v in df[col].tolist() if pd.notna(v)]
+                    self._monitor_list_cache = [v for v in values if v]
+                    return self._monitor_list_cache
+            raise ValueError(
+                f"CSV股票池文件缺少代码列（支持 code/Code/ticker/Ticker/symbol/Symbol）: {monitor_file}"
+            )
 
         # TXT format (legacy support)
         tickers = []
@@ -996,6 +1030,7 @@ def _run_backtest_worker(
     entry_filter_name: str,
     entry_filter_config: Dict,
     topix_return: Optional[float],
+    tickers: List[str],
     data_root: str,
     portfolio_limits: Tuple[int, float],
     starting_capital: int,
@@ -1026,9 +1061,6 @@ def _run_backtest_worker(
         AnnualStrategyResult or None if error
     """
     try:
-        import json
-        from pathlib import Path
-
         from src.backtest.data_cache import BacktestDataCache
         from src.backtest.portfolio_engine import PortfolioBacktestEngine
         from src.overlays import OverlayManager
@@ -1038,24 +1070,8 @@ def _run_backtest_worker(
         entry = load_entry_strategy(entry_strategy)
         exit_inst = load_exit_strategy(exit_strategy)
 
-        # Load monitor list (from config.json)
-        try:
-            config_path = Path("config.json")
-            if config_path.exists():
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    monitor_file = Path(config["data"]["monitor_list_file"])
-            else:
-                monitor_file = Path(data_root) / "monitor_list.json"
-        except Exception:
-            monitor_file = Path(data_root) / "monitor_list.json"
-
-        if not monitor_file.exists():
+        if not tickers:
             return None
-
-        with open(monitor_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            tickers = [stock["code"] for stock in data["tickers"]]
 
         # Create data cache (if enabled)
         preloaded_cache = None

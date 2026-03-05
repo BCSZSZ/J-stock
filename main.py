@@ -9,7 +9,11 @@ import os
 import sys
 
 from src.cli.backtest import cmd_backtest
-from src.cli.evaluate import cmd_evaluate, cmd_pos_evaluation
+from src.cli.evaluate import (
+    DEFAULT_EVALUATION_OUTPUT_DIR,
+    cmd_evaluate,
+    cmd_pos_evaluation,
+)
 from src.cli.fetch import cmd_fetch
 from src.cli.portfolio import cmd_portfolio
 from src.cli.production import cmd_production
@@ -356,7 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
     universe_sector_parser.set_defaults(func=cmd_universe_sector)
 
     evaluate_parser = subparsers.add_parser(
-        "evaluate", help="策略综合评价（按年度/市场环境）"
+        "evaluate", aliases=["evaluation"], help="策略综合评价（按年度/市场环境）"
     )
     evaluate_parser.add_argument(
         "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
@@ -400,7 +404,13 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument(
         "--output-dir",
         default=None,
-        help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation）",
+        help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
+    )
+    evaluate_parser.add_argument(
+        "--universe-file",
+        nargs="+",
+        default=None,
+        help="股票池文件路径（支持多个，用于同策略不同股票池比较；支持 json/csv/txt）",
     )
     evaluate_parser.add_argument(
         "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
@@ -408,6 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument(
         "--enable-overlay",
         action="store_true",
+        default=None,
         help="按需启用overlay参与evaluation（默认关闭）",
     )
     evaluate_parser.set_defaults(func=cmd_evaluate)
@@ -467,7 +478,13 @@ def build_parser() -> argparse.ArgumentParser:
     pos_evaluate_parser.add_argument(
         "--output-dir",
         default=None,
-        help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation）",
+        help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
+    )
+    pos_evaluate_parser.add_argument(
+        "--universe-file",
+        nargs="+",
+        default=None,
+        help="股票池文件路径（支持多个，用于同策略不同股票池比较；支持 json/csv/txt）",
     )
     pos_evaluate_parser.add_argument(
         "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
@@ -475,6 +492,7 @@ def build_parser() -> argparse.ArgumentParser:
     pos_evaluate_parser.add_argument(
         "--enable-overlay",
         action="store_true",
+        default=None,
         help="按需启用overlay参与evaluation（默认关闭）",
     )
     pos_evaluate_parser.add_argument(
