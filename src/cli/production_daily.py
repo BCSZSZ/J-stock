@@ -21,7 +21,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.production.state_manager import build_state_as_of
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
     from src.production.signal_generator import Signal
-    from src.utils.strategy_loader import load_exit_strategy
+    from src.utils.strategy_loader import load_entry_strategy, load_exit_strategy
 
     load_dotenv()
     api_key = os.getenv("JQUANTS_API_KEY")
@@ -242,6 +242,169 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         lots = int((raw_qty + lot_size - 1) // lot_size)
         qty = lots * lot_size
         return min(total_qty, qty)
+
+    def _build_buy_diagnostics_markdown(
+        groups,
+        group_cfg_map,
+        evals,
+        runtime_cfg,
+    ) -> str:
+        lines = [
+            "## 🧠 Buy Signal Diagnostics",
+            "",
+            (
+                f"- 配置分数阈值 `production.buy_threshold`: {float(runtime_cfg.buy_threshold):.1f}"
+                "（仅对带 score 的策略有效）"
+            ),
+            "- 说明：当前生产流程在 `production_daily` 中以 `signal_action == BUY` 为主门槛；"
+            "若策略无 score（如纯技术信号策略），不会被 `buy_threshold` 二次过滤。",
+            "",
+        ]
+
+        for group in groups:
+            cfg = group_cfg_map.get(group.id, {})
+            entry_strategy_name = cfg.get(
+                "entry_strategy", runtime_cfg.default_entry_strategy
+            )
+            current_tickers = {
+                pos.ticker for pos in group.positions if int(getattr(pos, "quantity", 0) or 0) > 0
+            }
+
+            strategy_inst = None
+            strategy_threshold_desc = "N/A"
+            try:
+                strategy_inst = load_entry_strategy(entry_strategy_name)
+                if hasattr(strategy_inst, "min_confidence"):
+                    strategy_threshold_desc = (
+                        f"min_confidence={float(getattr(strategy_inst, 'min_confidence')):.2f}"
+                    )
+                elif hasattr(strategy_inst, "threshold"):
+                    strategy_threshold_desc = (
+                        f"threshold={float(getattr(strategy_inst, 'threshold')):.1f}"
+                    )
+            except Exception:
+                strategy_threshold_desc = "(strategy load failed)"
+
+            candidates = []
+            for ticker, eval_obj in evals.items():
+                if ticker in current_tickers:
+                    continue
+                strategy_eval = eval_obj.evaluations.get(entry_strategy_name)
+                if strategy_eval is None:
+                    continue
+                candidates.append(strategy_eval)
+
+            buy_actions = [e for e in candidates if e.signal_action == "BUY"]
+            scored_candidates = [e for e in candidates if float(getattr(e, "score", 0.0) or 0.0) > 0]
+            scored_above_threshold = [
+                e
+                for e in scored_candidates
+                if float(getattr(e, "score", 0.0) or 0.0) >= float(runtime_cfg.buy_threshold)
+            ]
+
+            reason_counts = {}
+            for e in candidates:
+                reason = (getattr(e, "reason", "") or "").strip()
+                reason_key = reason.split(";")[0].strip() if reason else "(no reason)"
+                reason_counts[reason_key] = reason_counts.get(reason_key, 0) + 1
+
+            top_reasons = sorted(reason_counts.items(), key=lambda x: (-x[1], x[0]))[:3]
+            near_miss = sorted(
+                [e for e in candidates if e.signal_action != "BUY"],
+                key=lambda x: float(getattr(x, "confidence", 0.0) or 0.0),
+                reverse=True,
+            )[:5]
+
+            lines.append(f"### {group.name} ({group.id})")
+            lines.append("")
+            lines.append(f"- 入场策略: `{entry_strategy_name}`")
+            lines.append(f"- 策略内部阈值: {strategy_threshold_desc}")
+            lines.append(f"- 非持仓候选数: {len(candidates)}")
+            lines.append(f"- 策略返回 BUY 数: {len(buy_actions)}")
+            lines.append(
+                f"- 候选中有 score 的数量: {len(scored_candidates)} | score >= {float(runtime_cfg.buy_threshold):.1f} 的数量: {len(scored_above_threshold)}"
+            )
+
+            if top_reasons:
+                lines.append("- 未触发BUY的主要原因(top3):")
+                for reason, count in top_reasons:
+                    lines.append(f"  - {reason}: {count}")
+
+            if near_miss:
+                lines.append("- 接近触发但未买入的候选(按confidence):")
+                for e in near_miss:
+                    lines.append(
+                        f"  - {e.ticker}: confidence={float(getattr(e, 'confidence', 0.0) or 0.0):.2f}, "
+                        f"score={float(getattr(e, 'score', 0.0) or 0.0):.1f}, reason={getattr(e, 'reason', '') or '(no reason)'}"
+                    )
+
+            if len(buy_actions) == 0:
+                lines.append(
+                    "- 结论: 本组今日无BUY触发，核心原因是策略条件未满足（而非overlay阻断或仓位资金约束）。"
+                )
+
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _build_macd_hist_snapshot_markdown(
+        tickers: List[str],
+        target_date: str,
+        lookback_days: int = 5,
+    ) -> str:
+        lookback_days = max(2, int(lookback_days))
+        headers = [f"Hist[-{i}]" for i in range(lookback_days - 1, 0, -1)] + ["Hist[0]"]
+
+        lines = [
+            "## 📉 MACD Hist Recent Snapshot",
+            "",
+            (
+                f"- 口径：展示每只股票最近 {lookback_days} 个交易日的 `MACD_Hist`（`Hist[0]` 为今日 {target_date}）"
+            ),
+            "- 金叉判定：`Hist[-1] < 0` 且 `Hist[0] > 0`",
+            "",
+            "| Ticker | " + " | ".join(headers) + " | GoldCrossToday |",
+            "|---|" + "---|" * (len(headers) + 1),
+        ]
+
+        for ticker in sorted(tickers):
+            hist_vals = []
+            try:
+                market_data = MarketDataBuilder.build_from_manager(
+                    data_manager=data_manager,
+                    ticker=ticker,
+                    current_date=pd.Timestamp(target_date),
+                )
+                if market_data is not None and not market_data.df_features.empty:
+                    series = market_data.df_features["MACD_Hist"].dropna().tail(lookback_days)
+                    hist_vals = [float(v) for v in series.tolist()]
+            except Exception:
+                hist_vals = []
+
+            if len(hist_vals) < lookback_days:
+                hist_vals = ([None] * (lookback_days - len(hist_vals))) + hist_vals
+
+            formatted = [
+                (f"{v:.4f}" if isinstance(v, float) else "N/A")
+                for v in hist_vals
+            ]
+
+            prev_hist = hist_vals[-2] if len(hist_vals) >= 2 else None
+            now_hist = hist_vals[-1] if len(hist_vals) >= 1 else None
+            is_cross = (
+                isinstance(prev_hist, float)
+                and isinstance(now_hist, float)
+                and prev_hist < 0
+                and now_hist > 0
+            )
+
+            lines.append(
+                f"| {ticker} | "
+                + " | ".join(formatted)
+                + f" | {'YES' if is_cross else 'NO'} |"
+            )
+
+        return "\n".join(lines)
 
     overlay_summaries = []
 
@@ -642,6 +805,17 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         report_date=signal_date,
         comprehensive_evaluations=comprehensive_evals,
         overlay_summary=overlay_summaries,
+    )
+    report_md += "\n\n" + _build_buy_diagnostics_markdown(
+        groups=groups,
+        group_cfg_map=group_configs,
+        evals=comprehensive_evals,
+        runtime_cfg=prod_cfg,
+    )
+    report_md += "\n\n" + _build_macd_hist_snapshot_markdown(
+        tickers=monitor_tickers,
+        target_date=signal_date,
+        lookback_days=5,
     )
     report_file = prod_cfg.report_file_pattern.replace("{date}", signal_date)
     builder.save_report(report_md, report_file)
