@@ -44,6 +44,7 @@ class PortfolioBacktestEngine:
         max_positions: int = 5,
         max_position_pct: float = 0.30,
         min_position_pct: float = 0.05,
+        exit_confirmation_days: int = 1,
         signal_ranking_method: str = "simple_score",
         data_root: str = "./data",
         overlay_manager: Optional[OverlayManager] = None,
@@ -56,6 +57,7 @@ class PortfolioBacktestEngine:
             max_positions: 最大持仓数
             max_position_pct: 单股最大仓位
             min_position_pct: 单股最小仓位
+            exit_confirmation_days: 出场确认天数（连续N天SELL才执行）
             signal_ranking_method: 信号排序方法
             data_root: 数据根目录
             overlay_manager: Overlay管理器
@@ -66,6 +68,7 @@ class PortfolioBacktestEngine:
         self.max_positions = max_positions
         self.max_position_pct = max_position_pct
         self.min_position_pct = min_position_pct
+        self.exit_confirmation_days = max(1, int(exit_confirmation_days))
         self.data_root = data_root
         self.overlay_manager = overlay_manager
         self.preloaded_cache = preloaded_cache
@@ -144,6 +147,7 @@ class PortfolioBacktestEngine:
         # 待执行订单（信号今天生成，明天执行）
         pending_buy_signals: Dict[str, TradingSignal] = {}
         pending_sell_signals: Dict[str, TradingSignal] = {}
+        sell_confirmation_streaks: Dict[str, int] = {}
 
         benchmark_data = None
         if self.overlay_manager and self.overlay_manager.needs_benchmark_data:
@@ -415,7 +419,23 @@ class PortfolioBacktestEngine:
                         position=position,
                     )
                     if exit_signal.action == SignalAction.SELL:
-                        sell_signals_today[ticker] = exit_signal
+                        streak = sell_confirmation_streaks.get(ticker, 0) + 1
+                        sell_confirmation_streaks[ticker] = streak
+                        if streak >= self.exit_confirmation_days:
+                            exit_signal.metadata = exit_signal.metadata or {}
+                            exit_signal.metadata["exit_confirm_streak"] = streak
+                            exit_signal.metadata[
+                                "exit_confirmation_days"
+                            ] = self.exit_confirmation_days
+                            sell_signals_today[ticker] = exit_signal
+                    else:
+                        sell_confirmation_streaks[ticker] = 0
+
+            # 清理已不在持仓中的确认计数
+            active_tickers = set(portfolio.positions.keys())
+            for tracked_ticker in list(sell_confirmation_streaks.keys()):
+                if tracked_ticker not in active_tickers:
+                    del sell_confirmation_streaks[tracked_ticker]
 
             if buy_signals_today or sell_signals_today:
                 print(f"\n信号 ({current_date.date()}):")

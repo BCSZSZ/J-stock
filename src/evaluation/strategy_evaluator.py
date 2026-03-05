@@ -39,6 +39,7 @@ class AnnualStrategyResult:
     win_rate_pct: float
     avg_gain_pct: float
     avg_loss_pct: float
+    exit_confirmation_days: int = 1
 
 
 class MarketRegime:
@@ -89,6 +90,7 @@ class StrategyEvaluator:
         output_dir: str = "strategy_evaluation",
         monitor_list_file: Optional[str] = None,
         verbose: bool = False,
+        exit_confirmation_days: int = 1,
         overlay_config: Optional[Dict] = None,
         entry_filter_config: Optional[Dict] = None,
         entry_filter_variants: Optional[List[Tuple[str, Dict]]] = None,
@@ -116,6 +118,7 @@ class StrategyEvaluator:
         self.verbose = verbose  # 详细输出模式
         self.workers = workers  # Parallel workers
         self.use_cache = use_cache  # Data cache flag
+        self.exit_confirmation_days = max(1, int(exit_confirmation_days))
         self.monitor_list_file = monitor_list_file
         self.entry_filter_config = entry_filter_config or {}
         self.entry_filter_variants = self._normalize_entry_filter_variants(
@@ -367,6 +370,7 @@ class StrategyEvaluator:
                         self.data_root,
                         self._get_portfolio_limits(),
                         self._get_starting_capital(),
+                        self.exit_confirmation_days,
                         self.overlay_config,
                         self.use_cache,
                     ): task
@@ -495,6 +499,7 @@ class StrategyEvaluator:
             starting_capital=self._get_starting_capital(),
             max_positions=max_positions,
             max_position_pct=max_position_pct,
+            exit_confirmation_days=self.exit_confirmation_days,
             overlay_manager=self.overlay_manager,
             preloaded_cache=preloaded_cache,  # Pass cache to engine
             entry_filter_config=entry_filter_config,
@@ -530,6 +535,7 @@ class StrategyEvaluator:
             win_rate_pct=result.win_rate_pct,
             avg_gain_pct=result.avg_gain_pct,
             avg_loss_pct=result.avg_loss_pct,
+            exit_confirmation_days=self.exit_confirmation_days,
         )
 
     def _get_topix_return(self, start_date: str, end_date: str) -> Optional[float]:
@@ -1034,6 +1040,7 @@ def _run_backtest_worker(
     data_root: str,
     portfolio_limits: Tuple[int, float],
     starting_capital: int,
+    exit_confirmation_days: int,
     overlay_config: Dict,
     use_cache: bool,
 ) -> Optional[AnnualStrategyResult]:
@@ -1100,6 +1107,7 @@ def _run_backtest_worker(
             starting_capital=starting_capital,
             max_positions=max_positions,
             max_position_pct=max_position_pct,
+            exit_confirmation_days=exit_confirmation_days,
             overlay_manager=overlay_manager,
             preloaded_cache=preloaded_cache,
             entry_filter_config=entry_filter_config,
@@ -1135,6 +1143,7 @@ def _run_backtest_worker(
             win_rate_pct=result.win_rate_pct,
             avg_gain_pct=result.avg_gain_pct,
             avg_loss_pct=result.avg_loss_pct,
+            exit_confirmation_days=exit_confirmation_days,
         )
     except Exception:
         # Return None on error (logged by main process)

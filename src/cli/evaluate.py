@@ -191,6 +191,10 @@ def _run_once(
     enable_overlay: bool = None,
 ):
     eval_cfg = config.get("evaluation", {})
+    exit_confirm_days = getattr(args, "exit_confirm_days", None)
+    if exit_confirm_days is None:
+        exit_confirm_days = int(eval_cfg.get("exit_confirmation_days", 1))
+    exit_confirm_days = max(1, int(exit_confirm_days))
     if enable_overlay is None:
         arg_overlay = getattr(args, "enable_overlay", None)
         if arg_overlay is None:
@@ -206,11 +210,14 @@ def _run_once(
         output_dir=output_dir,
         monitor_list_file=monitor_list_file,
         verbose=args.verbose,
+        exit_confirmation_days=exit_confirm_days,
         overlay_config=overlay_config,
         entry_filter_config=config.get("evaluation", {}).get("entry_filter", {}),
         entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
     )
+
+    print(f"🧷 Exit确认天数: {exit_confirm_days}")
 
     entry_strategies = args.entry_strategies
     if not entry_strategies:

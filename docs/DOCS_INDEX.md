@@ -15,6 +15,7 @@
 - [仓位管理统一评分规则（长期可用版）](strategies/POSITION_MANAGEMENT_SCORING_RULE.md)
 - [实现接口说明](interfaces/IMPLEMENTATION_INTERFACES.md)
 - [Feature 目录与计算方法](features/FEATURE_CATALOG.md)
+- [Evaluation 退出确认与多终端同步](features/EVALUATION_EXIT_CONFIRMATION_SYNC.md)
 - [Agent 实施设计简报（Momentum + Regime）](AGENT_IMPLEMENTATION_BRIEF_MOMENTUM_REGIME.md)
 - [Overlay 基础层设计](overlays/OVERLAY_FRAMEWORK.md)
 

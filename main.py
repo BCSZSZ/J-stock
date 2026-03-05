@@ -386,6 +386,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--exit-strategies", nargs="+", help="指定出场策略（默认全部）"
     )
     evaluate_parser.add_argument(
+        "--exit-confirm-days",
+        type=int,
+        default=None,
+        help="出场确认天数（连续N天出现SELL才执行，默认读取evaluation.exit_confirmation_days）",
+    )
+    evaluate_parser.add_argument(
         "--entry-filter-mode",
         choices=["auto", "off", "single", "grid"],
         default="auto",
@@ -448,6 +454,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pos_evaluate_parser.add_argument(
         "--exit-strategies", nargs="+", help="指定出场策略（默认全部）"
+    )
+    pos_evaluate_parser.add_argument(
+        "--exit-confirm-days",
+        type=int,
+        default=None,
+        help="出场确认天数（连续N天出现SELL才执行，默认读取evaluation.exit_confirmation_days）",
     )
     pos_evaluate_parser.add_argument(
         "--entry-filter-mode",
