@@ -22,6 +22,7 @@ from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
 from ..data.market_data_builder import MarketDataBuilder
 from ..data.stock_data_manager import StockDataManager
 from ..signal_generator import generate_signal_v2
+from ..utils.signal_sizing import extract_buy_size_multiplier
 from ..utils.strategy_loader import create_strategy_instance
 from .state_manager import ProductionState, StrategyGroupState
 
@@ -393,6 +394,8 @@ class SignalGenerator:
 
                 # Calculate suggested quantity
                 max_position_pct = self.config.get("max_position_pct", 0.30)
+                signal_buy_scale = extract_buy_size_multiplier(trading_signal.metadata)
+                max_position_pct *= signal_buy_scale
                 max_position_value = group.cash * max_position_pct
 
                 suggested_qty = (

@@ -19,6 +19,7 @@ from ..data.market_data_builder import MarketDataBuilder
 from ..data.stock_data_manager import StockDataManager
 from ..overlays import OverlayContext, OverlayManager
 from ..signal_generator import generate_signal_v2
+from ..utils.signal_sizing import extract_buy_size_multiplier
 from .lot_size_manager import LotSizeManager
 from .models import BacktestResult, Trade
 from .portfolio import Portfolio, Position
@@ -86,6 +87,8 @@ class PortfolioBacktestEngine:
         end_date: str,
         show_daily_status: bool = False,
         show_signal_ranking: bool = True,
+        show_signal_details: bool = True,
+        compute_benchmark: bool = True,
     ) -> BacktestResult:
         """
         回测组合策略
@@ -98,6 +101,8 @@ class PortfolioBacktestEngine:
             end_date: 结束日期
             show_daily_status: 是否显示每日组合状态
             show_signal_ranking: 是否显示信号排序过程
+            show_signal_details: 是否显示每日交易/信号详情
+            compute_benchmark: 是否计算基准收益（批量评估可关闭以提速）
 
         Returns:
             组合回测结果
@@ -159,6 +164,14 @@ class PortfolioBacktestEngine:
             executed_buys = []
             executed_sells = []
             current_prices = self._get_current_prices(all_data, current_date)
+            market_data_today_cache: Dict[str, Optional[MarketData]] = {}
+
+            def get_market_data_for_today(target_ticker: str) -> Optional[MarketData]:
+                if target_ticker not in market_data_today_cache:
+                    market_data_today_cache[target_ticker] = self._build_market_data(
+                        target_ticker, all_data[target_ticker], current_date
+                    )
+                return market_data_today_cache[target_ticker]
 
             overlay_decision = None
             if self.overlay_manager:
@@ -284,9 +297,7 @@ class PortfolioBacktestEngine:
 
                     # 对买入信号排序
                     market_data_dict = {
-                        ticker: self._build_market_data(
-                            ticker, all_data[ticker], current_date
-                        )
+                        ticker: get_market_data_for_today(ticker)
                         for ticker in pending_buy_signals.keys()
                         if ticker in all_data
                     }
@@ -340,6 +351,12 @@ class PortfolioBacktestEngine:
                             available_exposure = max(0.0, max_invested - invested)
                             max_cash = min(max_cash, available_exposure)
 
+                        # Optional signal-level sizing (default 1.0 keeps legacy behavior).
+                        signal_buy_scale = extract_buy_size_multiplier(
+                            buy_signal.metadata
+                        )
+                        max_cash *= signal_buy_scale
+
                         # 计算可购买股数（考虑lot size）
                         shares = LotSizeManager.calculate_buyable_shares(
                             ticker, max_cash, entry_price
@@ -367,7 +384,7 @@ class PortfolioBacktestEngine:
 
                 pending_buy_signals.clear()
 
-            if executed_buys or executed_sells:
+            if show_signal_details and (executed_buys or executed_sells):
                 print(f"\n交易 ({current_date.date()}):")
                 print("  买入:")
                 if executed_buys:
@@ -392,9 +409,7 @@ class PortfolioBacktestEngine:
                 if ticker not in all_data:
                     continue
 
-                market_data = self._build_market_data(
-                    ticker, all_data[ticker], current_date
-                )
+                market_data = get_market_data_for_today(ticker)
 
                 if market_data is None:
                     continue
@@ -437,15 +452,13 @@ class PortfolioBacktestEngine:
                 if tracked_ticker not in active_tickers:
                     del sell_confirmation_streaks[tracked_ticker]
 
-            if buy_signals_today or sell_signals_today:
+            if show_signal_details and (buy_signals_today or sell_signals_today):
                 print(f"\n信号 ({current_date.date()}):")
                 print("  买入信号:")
                 if buy_signals_today:
                     if show_signal_ranking:
                         market_data_dict = {
-                            ticker: self._build_market_data(
-                                ticker, all_data[ticker], current_date
-                            )
+                            ticker: get_market_data_for_today(ticker)
                             for ticker in buy_signals_today.keys()
                             if ticker in all_data
                         }
@@ -505,6 +518,7 @@ class PortfolioBacktestEngine:
             start_date=start_date,
             end_date=end_date,
             current_prices=current_prices,
+            compute_benchmark=compute_benchmark,
         )
 
     def _calculate_sell_quantity(
@@ -622,7 +636,11 @@ class PortfolioBacktestEngine:
         if current_date not in df.index:
             return None
 
-        df_historical = df[df.index <= current_date]
+        # Use positional slice to avoid rebuilding a boolean mask on every call.
+        end_pos = df.index.searchsorted(current_date, side="right")
+        if end_pos <= 0:
+            return None
+        df_historical = df.iloc[:end_pos]
 
         return MarketDataBuilder.build_from_dataframes(
             ticker=ticker,
@@ -644,6 +662,7 @@ class PortfolioBacktestEngine:
         start_date: str,
         end_date: str,
         current_prices: Dict[str, float],
+        compute_benchmark: bool = True,
     ) -> BacktestResult:
         """构建组合回测结果"""
 
@@ -690,17 +709,18 @@ class PortfolioBacktestEngine:
         alpha = None
         beat_benchmark = None
 
-        try:
-            manager = BenchmarkManager(client=None, data_root=self.data_root)
-            benchmark_return_pct = manager.calculate_benchmark_return(
-                start_date, end_date, use_cached=True
-            )
+        if compute_benchmark:
+            try:
+                manager = BenchmarkManager(client=None, data_root=self.data_root)
+                benchmark_return_pct = manager.calculate_benchmark_return(
+                    start_date, end_date, use_cached=True
+                )
 
-            if benchmark_return_pct is not None:
-                alpha = total_return_pct - benchmark_return_pct
-                beat_benchmark = total_return_pct > benchmark_return_pct
-        except Exception as e:
-            logger.warning(f"Failed to calculate benchmark: {e}")
+                if benchmark_return_pct is not None:
+                    alpha = total_return_pct - benchmark_return_pct
+                    beat_benchmark = total_return_pct > benchmark_return_pct
+            except Exception as e:
+                logger.warning(f"Failed to calculate benchmark: {e}")
 
         ticker_display = f"Portfolio[{', '.join(tickers)}]"
 

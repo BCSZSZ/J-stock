@@ -11,6 +11,7 @@ ENTRY_STRATEGIES = {
     "SimpleScorerStrategy": "src.analysis.strategies.entry.scorer_strategy.SimpleScorerStrategy",
     "EnhancedScorerStrategy": "src.analysis.strategies.entry.scorer_strategy.EnhancedScorerStrategy",
     "MACDCrossoverStrategy": "src.analysis.strategies.entry.macd_crossover.MACDCrossoverStrategy",
+    "MACDCrossoverWithPreCrossEntry": "src.analysis.strategies.entry.macd_crossover_precross_entry.MACDCrossoverWithPreCrossEntry",
     "MACDCrossoverEnhancedA2": "src.analysis.strategies.entry.macd_crossover_enhanced_a2.MACDCrossoverEnhancedA2",
     "MACDCrossoverEnhancedA2_V11": "src.analysis.strategies.entry.macd_crossover_enhanced_a2.MACDCrossoverEnhancedA2_V11",
     "MACDCrossoverEnhancedA2_V12": "src.analysis.strategies.entry.macd_crossover_enhanced_a2.MACDCrossoverEnhancedA2_V12",
@@ -21,7 +22,29 @@ ENTRY_STRATEGIES = {
     "MACDKDJThreeStageEntryB": "src.analysis.strategies.entry.macd_kdj_three_stage_entry.MACDKDJThreeStageEntryB",
     "BollingerSqueezeStrategy": "src.analysis.strategies.entry.bollinger_squeeze_strategy.BollingerSqueezeStrategy",
     "IchimokuStochStrategy": "src.analysis.strategies.entry.ichimoku_stoch_strategy.IchimokuStochStrategy",
+    "MACDHistHysteresisEntry": "src.analysis.strategies.entry.macd_hysteresis_entry.MACDHistHysteresisEntry",
+    "MACDHistHysteresisPreCrossEntry": "src.analysis.strategies.entry.macd_hysteresis_entry.MACDHistHysteresisPreCrossEntry",
 }
+
+try:
+    from src.analysis.strategies.entry.macd_hysteresis_entry import (
+        GRID_ENTRY_STRATEGY_MAP,
+    )
+
+    ENTRY_STRATEGIES.update(GRID_ENTRY_STRATEGY_MAP)
+except Exception:
+    # Keep loader resilient if optional strategy module has runtime issues
+    pass
+
+try:
+    from src.analysis.strategies.entry.macd_crossover_precross_entry import (
+        GRID_ENTRY_STRATEGY_MAP as GRID_ENTRY_PRE_CROSS_MAP,
+    )
+
+    ENTRY_STRATEGIES.update(GRID_ENTRY_PRE_CROSS_MAP)
+except Exception:
+    # Keep loader resilient if optional strategy module has runtime issues
+    pass
 
 EXIT_STRATEGIES = {
     "ATRExitStrategy": "src.analysis.strategies.exit.atr_exit.ATRExitStrategy",

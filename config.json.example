@@ -37,6 +37,7 @@
   ],
 
   "evaluation": {
+    "exit_confirmation_days": 1,
     "entry_filters": {
       "f01_base": {
         "enabled": true,

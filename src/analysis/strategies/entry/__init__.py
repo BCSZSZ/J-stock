@@ -5,12 +5,20 @@ Entry策略实现
 """
 
 from .macd_crossover import MACDCrossoverStrategy
+from .macd_crossover_precross_entry import MACDCrossoverWithPreCrossEntry
 from .macd_enhanced_fundamental import MACDEnhancedFundamentalStrategy
+from .macd_hysteresis_entry import (
+    MACDHistHysteresisEntry,
+    MACDHistHysteresisPreCrossEntry,
+)
 from .scorer_strategy import EnhancedScorerStrategy, SimpleScorerStrategy
 
 __all__ = [
     "SimpleScorerStrategy",
     "EnhancedScorerStrategy",
     "MACDCrossoverStrategy",
+    "MACDCrossoverWithPreCrossEntry",
     "MACDEnhancedFundamentalStrategy",
+    "MACDHistHysteresisEntry",
+    "MACDHistHysteresisPreCrossEntry",
 ]

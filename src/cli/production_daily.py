@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from src.cli.production_utils import load_monitor_tickers
 from src.data.fetch_universe_builder import build_fetch_universe_file
 from src.data.sector_metrics_updater import update_sector_metrics
+from src.utils.signal_sizing import extract_buy_size_multiplier
 
 
 def run_daily_workflow(args, prod_cfg, state) -> None:
@@ -703,6 +704,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             max_position_pct = float(prod_cfg.max_position_pct)
             if overlay_decision and overlay_decision.position_scale is not None:
                 max_position_pct *= overlay_decision.position_scale
+
+            signal_buy_scale = extract_buy_size_multiplier(strategy_eval.metadata)
+            max_position_pct *= signal_buy_scale
 
             available_cash = planning_cash
             if overlay_decision and overlay_decision.target_exposure is not None:

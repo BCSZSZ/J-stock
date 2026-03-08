@@ -17,6 +17,40 @@ from .common import load_config
 DEFAULT_EVALUATION_OUTPUT_DIR = Path(r"G:\My Drive\AI-Stock-Sync\strategy_evaluation")
 
 
+def _log_step(message: str):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+
+
+def _dedupe_preserve_order(values):
+    """Remove duplicates while preserving order."""
+    if not values:
+        return []
+    seen = set()
+    deduped = []
+    for item in values:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
+def _dedupe_filter_variants(variants):
+    """Deduplicate filter variants by (name, normalized config json)."""
+    if not variants:
+        return []
+    seen = set()
+    deduped = []
+    for name, cfg in variants:
+        cfg = cfg or {}
+        key = (str(name), json.dumps(cfg, sort_keys=True, ensure_ascii=False))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((name, cfg))
+    return deduped
+
+
 def _resolve_output_dir(user_output_dir):
     if user_output_dir:
         return user_output_dir
@@ -179,6 +213,17 @@ def _resolve_universe_variants(universe_files):
     return variants
 
 
+def _resolve_effective_overlay_enabled(eval_cfg, args, override: bool = None) -> bool:
+    """Resolve final overlay switch from CLI/config/override in one place."""
+    if override is not None:
+        return bool(override)
+
+    arg_overlay = getattr(args, "enable_overlay", None)
+    if arg_overlay is None:
+        return bool(eval_cfg.get("default_overlay_enabled", False))
+    return bool(arg_overlay)
+
+
 def _run_once(
     args,
     config,
@@ -190,20 +235,25 @@ def _run_once(
     portfolio_overrides=None,
     enable_overlay: bool = None,
 ):
+    _log_step("_run_once: 开始解析本轮参数")
     eval_cfg = config.get("evaluation", {})
+    original_filter_variant_count = len(entry_filter_variants) if entry_filter_variants else 0
+    entry_filter_variants = _dedupe_filter_variants(entry_filter_variants)
+    if entry_filter_variants and len(entry_filter_variants) != original_filter_variant_count:
+        print(
+            f"⚠️ Entry Filter 变体去重: {original_filter_variant_count} -> {len(entry_filter_variants)}"
+        )
     exit_confirm_days = getattr(args, "exit_confirm_days", None)
     if exit_confirm_days is None:
         exit_confirm_days = int(eval_cfg.get("exit_confirmation_days", 1))
     exit_confirm_days = max(1, int(exit_confirm_days))
-    if enable_overlay is None:
-        arg_overlay = getattr(args, "enable_overlay", None)
-        if arg_overlay is None:
-            use_overlay = bool(eval_cfg.get("default_overlay_enabled", False))
-        else:
-            use_overlay = bool(arg_overlay)
-    else:
-        use_overlay = bool(enable_overlay)
+    use_overlay = _resolve_effective_overlay_enabled(
+        eval_cfg=eval_cfg,
+        args=args,
+        override=enable_overlay,
+    )
     overlay_config = config if use_overlay else {}
+    _log_step(f"_run_once: overlay={'on' if use_overlay else 'off'}")
 
     evaluator = StrategyEvaluator(
         data_root="data",
@@ -216,6 +266,7 @@ def _run_once(
         entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
     )
+    _log_step("_run_once: StrategyEvaluator 初始化完成")
 
     print(f"🧷 Exit确认天数: {exit_confirm_days}")
 
@@ -225,6 +276,12 @@ def _run_once(
         if entry_strategies:
             print("\n🧭 使用 evaluation.default_entry_strategies")
             print(f"   入场策略: {', '.join(entry_strategies)}")
+    original_entry_count = len(entry_strategies) if entry_strategies else 0
+    entry_strategies = _dedupe_preserve_order(entry_strategies)
+    if entry_strategies and len(entry_strategies) != original_entry_count:
+        print(
+            f"⚠️ 入场策略去重: {original_entry_count} -> {len(entry_strategies)}"
+        )
 
     exit_strategies = args.exit_strategies
     if not exit_strategies:
@@ -242,17 +299,33 @@ def _run_once(
             print(
                 "\n⚠️ 警告: 配置文件中未定义entry_eval_exit_strategies，将使用所有可用策略"
             )
+    original_exit_count = len(exit_strategies) if exit_strategies else 0
+    exit_strategies = _dedupe_preserve_order(exit_strategies)
+    if exit_strategies and len(exit_strategies) != original_exit_count:
+        print(
+            f"⚠️ 出场策略去重: {original_exit_count} -> {len(exit_strategies)}"
+        )
+
+    _log_step(
+        "_run_once: 执行评估 "
+        f"(periods={len(periods)}, entry={len(entry_strategies) if entry_strategies else 0}, "
+        f"exit={len(exit_strategies) if exit_strategies else 0}, filters={len(entry_filter_variants)})"
+    )
 
     df_results = evaluator.run_evaluation(
         periods=periods,
         entry_strategies=entry_strategies,
         exit_strategies=exit_strategies,
     )
+    _log_step("_run_once: run_evaluation 返回")
 
     if df_results.empty:
+        _log_step("_run_once: 结果为空，结束")
         return None
 
+    _log_step("_run_once: 开始保存结果文件")
     files = evaluator.save_results(prefix=prefix)
+    _log_step("_run_once: 结果文件保存完成")
     return files
 
 
@@ -261,34 +334,44 @@ def cmd_evaluate(args):
     print("\n" + "=" * 80)
     print("🔬 策略综合评价系统")
     print("=" * 80 + "\n")
+    _log_step("evaluate: 命令开始")
 
     config = load_config()
-    selected_filter_names = args.entry_filter_name or []
+    _log_step("evaluate: 配置加载完成")
+    selected_filter_names = _dedupe_preserve_order(args.entry_filter_name or [])
 
     if args.list_entry_filters:
         _print_available_entry_filters(config)
         return
 
     try:
+        _log_step("evaluate: 解析 entry filter 变体")
         entry_filter_variants = _resolve_entry_filter_variants(
             config,
             mode=args.entry_filter_mode,
             selected_names=selected_filter_names,
         )
+        _log_step("evaluate: 构建时间段")
         periods = _build_periods(args)
+        _log_step("evaluate: 解析股票池变体")
         universe_variants = _resolve_universe_variants(args.universe_file)
     except ValueError as e:
         print(f"❌ 错误: {e}")
         return
 
     output_dir = _resolve_output_dir(args.output_dir)
+    _log_step(f"evaluate: 输出目录就绪 -> {output_dir}")
+
+    eval_cfg = config.get("evaluation", {})
+    effective_overlay_on = _resolve_effective_overlay_enabled(eval_cfg, args)
 
     print(f"\n🧪 Entry Filter 变体: {len(entry_filter_variants)} 个")
     print(f"   {', '.join(name for name, _ in entry_filter_variants)}")
     print(f"🗂️ 股票池变体: {len(universe_variants)} 个")
     print(f"   {', '.join(name for name, _ in universe_variants)}")
-    print(f"🧭 Overlay: {'ENABLED' if getattr(args, 'enable_overlay', False) else 'DISABLED'}")
+    print(f"🧭 Overlay: {'ENABLED' if effective_overlay_on else 'DISABLED'}")
     print("\n🚀 开始策略评估...")
+    _log_step("evaluate: 进入按股票池循环")
 
     all_files = []
     for universe_name, universe_file in universe_variants:
@@ -302,6 +385,7 @@ def cmd_evaluate(args):
             + (f" ({universe_file})" if universe_file else " (config默认)")
         )
         print("-" * 80)
+        _log_step(f"evaluate: 开始运行股票池 {universe_name}")
 
         files = _run_once(
             args=args,
@@ -312,13 +396,17 @@ def cmd_evaluate(args):
             prefix=prefix,
             monitor_list_file=universe_file,
             portfolio_overrides=None,
+            enable_overlay=effective_overlay_on,
         )
         if files:
             all_files.append((universe_name, universe_file, files))
+            _log_step(f"evaluate: 股票池 {universe_name} 运行完成")
 
     if not all_files:
         print("❌ 评估失败: 没有生成任何结果")
         return
+
+    _log_step("evaluate: 所有股票池运行完成，开始汇总输出")
 
     print(f"\n{'=' * 80}")
     print("✅ 策略评价完成！")
@@ -339,7 +427,7 @@ def cmd_pos_evaluation(args):
 
     config = load_config()
     eval_cfg = config.get("evaluation", {})
-    selected_filter_names = args.entry_filter_name or []
+    selected_filter_names = _dedupe_preserve_order(args.entry_filter_name or [])
 
     if args.list_entry_filters:
         _print_available_entry_filters(config)

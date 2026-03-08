@@ -73,6 +73,22 @@ class SectorBreadthOverlay(BaseOverlay):
                 metadata={"status": "metrics_empty"},
             )
 
+        current_date = pd.Timestamp(context.current_date).normalize()
+        metrics = metrics[metrics["Date"] <= current_date]
+        if metrics.empty:
+            return OverlayDecision(
+                source=self.name,
+                # Conservative fallback: avoid opening new risk when no time-aligned overlay data.
+                target_exposure=float(self.config.get("risk_off_target_exposure", 0.55)),
+                max_new_positions=0,
+                block_new_entries=True,
+                metadata={
+                    "status": "no_metrics_for_date",
+                    "requested_date": current_date.strftime("%Y-%m-%d"),
+                    "metrics_file": str(metrics_path),
+                },
+            )
+
         latest_date = metrics["Date"].max()
         latest = metrics[metrics["Date"] == latest_date].copy()
         if latest.empty:
