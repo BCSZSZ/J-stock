@@ -1,0 +1,35 @@
+# Exclude local environment and caches
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Exclude local datasets and generated outputs
+.data/
+data/
+output/
+reports/
+backtest_results/
+portfolio_backtest_results/
+strategy_evaluation/
+strategy_evaluation_test/
+
+# Exclude local docs and misc artifacts not needed by Lambda runtime
+docs/
+*.csv
+*.txt
+*.md
+*.log
+*.ipynb
+
+# Exclude git and IDE metadata
+.git/
+.github/
+.vscode/
+
+# Exclude build artifacts
+.aws-sam/
+dist/
+build/
