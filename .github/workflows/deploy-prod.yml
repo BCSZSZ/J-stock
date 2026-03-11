@@ -28,16 +28,29 @@ jobs:
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
 
-      - name: Preflight CI config check
+      - name: Preflight - AWS role configured
         shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${AWS_ROLE_TO_ASSUME_INPUT}" || { echo "Missing AWS role: set AWS_ROLE_TO_ASSUME in Secrets or Variables"; exit 1; }
-          test -n "${{ vars.AWS_REGION }}" || { echo "Missing variable AWS_REGION"; exit 1; }
-          test -n "${{ vars.MONITOR_LIST_S3_URI }}" || { echo "Missing variable MONITOR_LIST_S3_URI"; exit 1; }
-          test -n "${{ vars.DATA_S3_PREFIX }}" || { echo "Missing variable DATA_S3_PREFIX"; exit 1; }
-          test -n "${{ vars.OPS_S3_PREFIX }}" || { echo "Missing variable OPS_S3_PREFIX"; exit 1; }
-          test -n "${{ secrets.JQUANTS_API_KEY }}" || { echo "Missing secret JQUANTS_API_KEY"; exit 1; }
+        run: test -n "${AWS_ROLE_TO_ASSUME_INPUT}"
+
+      - name: Preflight - AWS_REGION configured
+        shell: bash
+        run: test -n "${{ vars.AWS_REGION }}"
+
+      - name: Preflight - MONITOR_LIST_S3_URI configured
+        shell: bash
+        run: test -n "${{ vars.MONITOR_LIST_S3_URI }}"
+
+      - name: Preflight - DATA_S3_PREFIX configured
+        shell: bash
+        run: test -n "${{ vars.DATA_S3_PREFIX }}"
+
+      - name: Preflight - OPS_S3_PREFIX configured
+        shell: bash
+        run: test -n "${{ vars.OPS_S3_PREFIX }}"
+
+      - name: Preflight - JQUANTS_API_KEY configured
+        shell: bash
+        run: test -n "${{ secrets.JQUANTS_API_KEY }}"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
