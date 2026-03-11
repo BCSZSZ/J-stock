@@ -1,0 +1,50 @@
+{
+  "Comment": "J-Stock-Analyzer daily workflow",
+  "StartAt": "PrepareUniverse",
+  "States": {
+    "PrepareUniverse": {
+      "Type": "Task",
+      "Resource": "${PrepareUniverseArn}",
+      "Next": "FetchByShard"
+    },
+    "FetchByShard": {
+      "Type": "Map",
+      "ItemsPath": "$.shards",
+      "MaxConcurrency": 4,
+      "Iterator": {
+        "StartAt": "FetchShard",
+        "States": {
+          "FetchShard": {
+            "Type": "Task",
+            "Resource": "${FetchShardArn}",
+            "Retry": [
+              {
+                "ErrorEquals": ["States.TaskFailed"],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "Next": "GenerateSignals"
+    },
+    "GenerateSignals": {
+      "Type": "Task",
+      "Resource": "${GenerateSignalsArn}",
+      "Next": "BuildReport"
+    },
+    "BuildReport": {
+      "Type": "Task",
+      "Resource": "${BuildReportArn}",
+      "Next": "PersistAndNotify"
+    },
+    "PersistAndNotify": {
+      "Type": "Task",
+      "Resource": "${PersistNotifyArn}",
+      "End": true
+    }
+  }
+}

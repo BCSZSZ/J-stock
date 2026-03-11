@@ -1,0 +1,237 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: J-Stock-Analyzer serverless daily workflow (Lambda + Step Functions + S3 + DynamoDB + SNS)
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+
+  ScheduleExpression:
+    Type: String
+    Default: cron(30 7 ? * MON-FRI *)
+    Description: UTC cron. 07:30 UTC = 16:30 JST.
+
+  NotifyEmail:
+    Type: String
+    Default: ""
+
+  JQuantsApiSecretArn:
+    Type: String
+    Default: ""
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 900
+    MemorySize: 2048
+    Tracing: Active
+    Environment:
+      Variables:
+        JSA_ENV: !Ref EnvironmentName
+        OPS_BUCKET: !Ref OpsBucket
+        DATALAKE_BUCKET: !Ref DataLakeBucket
+
+Conditions:
+  HasNotifyEmail: !Not [!Equals [!Ref NotifyEmail, ""]]
+
+Resources:
+  DataLakeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub jsa-${EnvironmentName}-datalake-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+
+  OpsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub jsa-${EnvironmentName}-ops-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+
+  StateTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub jsa-${EnvironmentName}-state
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  RunsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub jsa-${EnvironmentName}-runs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: run_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: run_id
+          KeyType: HASH
+
+  PrepareUniverseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.prepare_universe.handler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref OpsBucket
+        - S3CrudPolicy:
+            BucketName: !Ref DataLakeBucket
+
+  FetchShardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.fetch_shard.handler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref OpsBucket
+        - S3CrudPolicy:
+            BucketName: !Ref DataLakeBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RunsTable
+
+  GenerateSignalsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.generate_signals.handler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref OpsBucket
+        - S3CrudPolicy:
+            BucketName: !Ref DataLakeBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref StateTable
+
+  BuildReportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.build_report.handler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref OpsBucket
+
+  PersistNotifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.persist_notify.handler
+      Environment:
+        Variables:
+          NOTIFY_SNS_TOPIC_ARN: !Ref DailyNotifyTopic
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref OpsBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref StateTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RunsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref DailyNotifyTopic
+
+  DailyNotifyTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub jsa-${EnvironmentName}-daily-notify
+
+  DailyNotifySubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotifyEmail
+    Properties:
+      Protocol: email
+      TopicArn: !Ref DailyNotifyTopic
+      Endpoint: !Ref NotifyEmail
+
+  DailyStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub jsa-${EnvironmentName}-daily
+      Type: STANDARD
+      DefinitionUri: statemachine/daily.asl.json
+      DefinitionSubstitutions:
+        PrepareUniverseArn: !GetAtt PrepareUniverseFunction.Arn
+        FetchShardArn: !GetAtt FetchShardFunction.Arn
+        GenerateSignalsArn: !GetAtt GenerateSignalsFunction.Arn
+        BuildReportArn: !GetAtt BuildReportFunction.Arn
+        PersistNotifyArn: !GetAtt PersistNotifyFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PrepareUniverseFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref FetchShardFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateSignalsFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BuildReportFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PersistNotifyFunction
+
+  DailySchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Description: Daily J-Stock-Analyzer run
+      FlexibleTimeWindow:
+        Mode: !!str OFF
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Target:
+        Arn: !Ref DailyStateMachine
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: !Sub |
+          {
+            "env": "${EnvironmentName}",
+            "notify_email": "${NotifyEmail}",
+            "secret_arn": "${JQuantsApiSecretArn}"
+          }
+
+  SchedulerInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StartStateMachineExecution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Ref DailyStateMachine
+
+Outputs:
+  DataLakeBucketName:
+    Value: !Ref DataLakeBucket
+
+  OpsBucketName:
+    Value: !Ref OpsBucket
+
+  DailyStateMachineArn:
+    Value: !Ref DailyStateMachine
+
+  DailyNotifyTopicArn:
+    Value: !Ref DailyNotifyTopic

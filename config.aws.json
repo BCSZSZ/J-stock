@@ -1,0 +1,75 @@
+{
+  "data": {
+    "monitor_list_file": "s3://jsa-prod-ops/config/monitor_list.json",
+    "data_dir": "/tmp/data"
+  },
+  "runtime": {
+    "mode": "aws",
+    "storage_backend": "s3",
+    "state_backend": "dynamodb"
+  },
+  "backtest": {
+    "start_date": "2021-01-01",
+    "end_date": "2026-01-08",
+    "starting_capital_jpy": 5000000,
+    "output_dir": "s3://jsa-prod-ops/backtest_results"
+  },
+  "portfolio": {
+    "max_positions": 8,
+    "max_position_pct": 0.2,
+    "min_position_pct": 0.05,
+    "output_dir": "s3://jsa-prod-ops/portfolio_backtest_results"
+  },
+  "lot_sizes": {
+    "1321": 1,
+    "1343": 1,
+    "default": 100
+  },
+  "default_strategies": {
+    "entry": "SimpleScorerStrategy",
+    "exit": "MVX_N9_R3p4_T1p6_D18_B20p0"
+  },
+  "evaluation": {
+    "output_dir": "s3://jsa-prod-ops/strategy_evaluation",
+    "default_entry_strategies": ["MACDCrossoverStrategy"],
+    "default_exit_strategies": ["MVX_N9_R3p6_T1p7_D18_B20p0"],
+    "exit_confirmation_days": 2,
+    "default_overlay_enabled": true,
+    "default_position_file": "s3://jsa-prod-ops/evaluation/evaluation-position.json",
+    "default_profile_names": ["p7x018"]
+  },
+  "overlays": {
+    "enabled": ["RegimeOverlay"],
+    "RegimeOverlay": {
+      "benchmark": "TOPIX",
+      "ema_window": 200,
+      "vol_lookback": 20,
+      "vol_threshold": 0.22,
+      "risk_on_target_exposure": 1.0,
+      "risk_off_target_exposure": 0.4,
+      "block_new_entries_when_off": false
+    }
+  },
+  "production": {
+    "monitor_list_file": "s3://jsa-prod-ops/config/production_monitor_list.json",
+    "state_file": "s3://jsa-prod-ops/state/production_state.json",
+    "signal_file_pattern": "s3://jsa-prod-ops/signals/{date}.json",
+    "report_file_pattern": "s3://jsa-prod-ops/reports/{date}.md",
+    "history_file": "s3://jsa-prod-ops/state/trade_history.json",
+    "cash_history_file": "s3://jsa-prod-ops/state/cash_history.json",
+    "fetch_universe_file": "s3://jsa-prod-ops/state/fetch_universe.json",
+    "sector_pool_file": "s3://jsa-prod-ops/universe/sector_pool",
+    "max_positions_per_group": 8,
+    "max_position_pct": 0.2,
+    "buy_threshold": 65,
+    "strategy_groups": [
+      {
+        "id": "group_main",
+        "name": "main",
+        "initial_capital": 3000000,
+        "entry_strategy": "MACDCrossoverStrategy",
+        "exit_strategy": "MVX_N9_R3p4_T1p6_D18_B20p0"
+      }
+    ]
+  }
+}

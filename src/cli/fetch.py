@@ -16,7 +16,7 @@ def cmd_fetch(args):
             "monitor_list_file", config["data"]["monitor_list_file"]
         )
         fetch_universe_file = production_cfg.get(
-            "fetch_universe_file", r"G:\My Drive\AI-Stock-Sync\state\fetch_universe.json"
+            "fetch_universe_file", "output/state/fetch_universe.json"
         )
 
         output_file, merged_count, sector_count = build_fetch_universe_file(

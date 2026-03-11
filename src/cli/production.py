@@ -8,6 +8,7 @@ from src.cli.production_status import (
 )
 from src.cli.production_sync import run_sync_positions
 from src.cli.production_utils import ensure_groups
+from src.config.runtime import get_config_file_path
 
 
 def cmd_production(args):
@@ -18,16 +19,14 @@ def cmd_production(args):
     print("PRODUCTION SIGNAL ENGINE")
     print("=" * 70)
 
-    config_mgr = ConfigManager("config.json")
+    config_mgr = ConfigManager(str(get_config_file_path()))
     prod_cfg = config_mgr.get_production_config()
     state = ProductionState(state_file=prod_cfg.state_file)
     ensure_groups(state, config_mgr, prod_cfg)
 
-    # 显示路径信息
-    if "G:\\" in prod_cfg.state_file:
-        print("📁 Production 工作目录: G盘 (Google Drive)")
-    else:
-        print("⚠️  Production 工作目录: 本地（G盘不可用）")
+    print(
+        f"🧭 Runtime: mode={prod_cfg.runtime_mode}, storage={prod_cfg.storage_backend}, state={prod_cfg.state_backend}"
+    )
     print(f"  State file: {prod_cfg.state_file}")
     print(f"  Monitor list: {prod_cfg.monitor_list_file}")
     print(f"  Signal pattern: {prod_cfg.signal_file_pattern}")

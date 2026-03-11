@@ -15,6 +15,7 @@ import time
 
 import pandas as pd
 
+from src.config.runtime import get_config_file_path
 from src.overlays import OverlayManager
 
 
@@ -156,7 +157,7 @@ class StrategyEvaluator:
                 pass
 
         try:
-            config_path = Path("config.json")
+            config_path = get_config_file_path()
             if config_path.exists():
                 with open(config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
@@ -217,7 +218,7 @@ class StrategyEvaluator:
                 pass
 
         try:
-            config_path = Path("config.json")
+            config_path = get_config_file_path()
             if config_path.exists():
                 with open(config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)

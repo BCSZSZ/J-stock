@@ -16,6 +16,8 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
+from src.config.runtime import get_config_file_path
+
 from ..analysis.signals import MarketData, Position, SignalAction, TradingSignal
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
@@ -477,7 +479,7 @@ if __name__ == "__main__":
     from ..data.stock_data_manager import StockDataManager
     from .state_manager import ProductionState
 
-    with open("config.json", "r", encoding="utf-8") as f:
+    with open(get_config_file_path(), "r", encoding="utf-8") as f:
         config = json.load(f)["production"]
 
     state = ProductionState()

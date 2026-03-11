@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.config.runtime import is_local_path, sample_path_from_pattern
+
 
 @dataclass
 class ProductionConfig:
@@ -38,6 +40,11 @@ class ProductionConfig:
     # Strategy groups (optional, for initialization)
     strategy_groups: Optional[List[Dict[str, Any]]] = None
 
+    # Runtime/backends
+    runtime_mode: str = "local"
+    storage_backend: str = "local_fs"
+    state_backend: str = "json"
+
 
 class ConfigManager:
     """
@@ -64,15 +71,15 @@ class ConfigManager:
         "default_strategies": ["entry", "exit"],
     }
 
-    # 默认值（严格G盘）
+    # 默认值（本地友好，可被config覆盖）
     DEFAULTS = {
-        "state_file": r"G:\My Drive\AI-Stock-Sync\state\production_state.json",
-        "signal_file_pattern": r"G:\My Drive\AI-Stock-Sync\signals\{date}.json",
-        "report_file_pattern": r"G:\My Drive\AI-Stock-Sync\reports\{date}.md",
-        "history_file": r"G:\My Drive\AI-Stock-Sync\state\trade_history.json",
-        "cash_history_file": r"G:\My Drive\AI-Stock-Sync\state\cash_history.json",
-        "fetch_universe_file": r"G:\My Drive\AI-Stock-Sync\state\fetch_universe.json",
-        "sector_pool_file": r"G:\My Drive\AI-Stock-Sync\universe\sector_pool",
+        "state_file": "output/state/production_state.json",
+        "signal_file_pattern": "output/signals/{date}.json",
+        "report_file_pattern": "output/reports/{date}.md",
+        "history_file": "output/state/trade_history.json",
+        "cash_history_file": "output/state/cash_history.json",
+        "fetch_universe_file": "output/state/fetch_universe.json",
+        "sector_pool_file": "data/universe/sector_pool",
         "buy_threshold": 65.0,
     }
 
@@ -109,20 +116,24 @@ class ConfigManager:
                 if field not in self.raw_config[section]:
                     raise ValueError(f"Missing required field: {section}.{field}")
 
-    def _ensure_path_ready(self, path_value: str) -> str:
+    def _ensure_path_ready(self, path_value: str, is_pattern: bool = False) -> str:
         """
-        严格路径检查：仅允许按配置路径写入，不做本地回退。
+        Ensure local paths have parent dirs ready.
+        S3 URI is allowed and returned as-is.
 
         Args:
             path_value: 文件路径（可含 {date} 占位符）
 
         Returns:
-            原路径
+            Original path/URI
         """
-        if not path_value.startswith("G:\\"):
-            raise ValueError(f"Strict G-drive mode requires G:\\ path, got: {path_value}")
+        if not path_value:
+            raise ValueError("Empty path is not allowed in production config")
+        if not is_local_path(path_value):
+            return path_value
 
-        path_obj = Path(path_value)
+        local_probe = sample_path_from_pattern(path_value) if is_pattern else path_value
+        path_obj = Path(local_probe)
         test_dir = path_obj.parent
         test_dir.mkdir(parents=True, exist_ok=True)
         probe = test_dir / ".write_probe.tmp"
@@ -131,8 +142,8 @@ class ConfigManager:
         return path_value
 
     def _ensure_gdrive_dir_ready(self, path_value: str) -> str:
-        if not path_value.startswith("G:\\"):
-            raise ValueError(f"Strict G-drive mode requires G:\\ path, got: {path_value}")
+        if not is_local_path(path_value):
+            return path_value
         path_obj = Path(path_value)
         path_obj.mkdir(parents=True, exist_ok=True)
         return path_value
@@ -149,6 +160,7 @@ class ConfigManager:
         portfolio_cfg = self.raw_config.get("portfolio", {})
         default_strat = self.raw_config.get("default_strategies", {})
         prod_cfg = self.raw_config.get("production", {})
+        runtime_cfg = self.raw_config.get("runtime", {})
 
         # 获取用户配置或默认值
         state_file_raw = prod_cfg.get("state_file", self.DEFAULTS["state_file"])
@@ -166,8 +178,8 @@ class ConfigManager:
         state_file = self._ensure_path_ready(state_file_raw)
         history_file = self._ensure_path_ready(history_file_raw)
         cash_history_file = self._ensure_path_ready(cash_history_file_raw)
-        signal_pattern = self._ensure_path_ready(signal_pattern_raw)
-        report_pattern = self._ensure_path_ready(report_pattern_raw)
+        signal_pattern = self._ensure_path_ready(signal_pattern_raw, is_pattern=True)
+        report_pattern = self._ensure_path_ready(report_pattern_raw, is_pattern=True)
 
         monitor_list_file_raw = prod_cfg.get(
             "monitor_list_file", data_cfg.get("monitor_list_file")
@@ -184,7 +196,7 @@ class ConfigManager:
         )
         sector_pool_file = self._ensure_gdrive_dir_ready(sector_pool_file_raw)
 
-        return ProductionConfig(
+        prod = ProductionConfig(
             # Data paths
             monitor_list_file=monitor_list_file,
             fetch_universe_file=fetch_universe_file,
@@ -209,7 +221,12 @@ class ConfigManager:
             default_exit_strategy=default_strat.get("exit", "ATRExitStrategy"),
             # Strategy groups (optional)
             strategy_groups=prod_cfg.get("strategy_groups", None),
+            runtime_mode=str(runtime_cfg.get("mode", "local")),
+            storage_backend=str(runtime_cfg.get("storage_backend", "local_fs")),
+            state_backend=str(runtime_cfg.get("state_backend", "json")),
         )
+        setattr(prod, "raw_config", self.raw_config)
+        return prod
 
     def get_monitor_list_path(self) -> Path:
         """Get path to monitor list file"""
@@ -247,11 +264,9 @@ class ConfigManager:
         print(f"Sector Pool File: {prod_cfg.sector_pool_file or 'AUTO(latest)'}")
         print(f"Data Directory:   {prod_cfg.data_dir}")
 
-        # 添加路径类型标识
-        if "G:\\" in prod_cfg.state_file:
-            print("📁 文件位置:      G盘 (Google Drive同步)")
-        else:
-            print("⚠️  文件位置:      本地（G盘不可用）")
+        print(f"Runtime Mode:     {prod_cfg.runtime_mode}")
+        print(f"Storage Backend:  {prod_cfg.storage_backend}")
+        print(f"State Backend:    {prod_cfg.state_backend}")
 
         print(f"State File:       {prod_cfg.state_file}")
         print(f"History File:     {prod_cfg.history_file}")

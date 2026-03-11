@@ -207,6 +207,27 @@ JQUANTS_API_KEY=your_actual_api_key_here
 
 ## Usage
 
+### 运行环境配置切换（Local/AWS）
+
+默认读取 `config.json`。可通过环境变量切换：
+
+```bash
+# 本地模式
+set JSA_CONFIG_FILE=config.local.json
+
+# AWS模式配置（本地模拟或Lambda容器内）
+set JSA_CONFIG_FILE=config.aws.json
+
+# AWS阶段1本地双跑模拟
+set JSA_CONFIG_FILE=config.aws-sim.json
+```
+
+AWS 部署设计与 SAM 模板见：`docs/AWS_DEPLOYMENT_PLAN.md`、`infra/sam/template.yaml`。
+
+若不使用 Step Functions，可使用：`infra/sam/template-sqs.yaml`（EventBridge + SQS + Lambda fan-out）。
+
+GitHub 到 AWS 自动部署配置见：`docs/GITHUB_AWS_CICD_SETUP.md`。
+
 ### 基本使用（CLI）
 
 ```bash
@@ -236,50 +257,50 @@ print(metadata)
 以下脚本统一放在 `tools/`，用于 MVX 出场策略的参数校验与 A/B 对照：
 
 - `tools/eval_n10r36_check_ab.py`
-    - 用途：固定 `N=10,R=3.6,T=2.2`，对比「原始 MVX」与「带 fast negative check」
-    - 输出：`strategy_evaluation/n10r36_check_ab_*_{timestamp}.csv`
-    - 示例：
-        ```bash
-        python tools/eval_n10r36_check_ab.py
-        ```
+  - 用途：固定 `N=10,R=3.6,T=2.2`，对比「原始 MVX」与「带 fast negative check」
+  - 输出：`strategy_evaluation/n10r36_check_ab_*_{timestamp}.csv`
+  - 示例：
+    ```bash
+    python tools/eval_n10r36_check_ab.py
+    ```
 
 - `tools/eval_custom_nr_5y.py`
-    - 用途：固定 `T/D/B`，扫描 `N,R`（5年分年结果）
-    - 输出：`strategy_evaluation/custom_nr_4x5_*_{timestamp}.csv`
-    - 示例：
-        ```bash
-        python tools/eval_custom_nr_5y.py --n-values 9 --r-values 3.2,3.4,3.6 --t 1.6
-        ```
+  - 用途：固定 `T/D/B`，扫描 `N,R`（5年分年结果）
+  - 输出：`strategy_evaluation/custom_nr_4x5_*_{timestamp}.csv`
+  - 示例：
+    ```bash
+    python tools/eval_custom_nr_5y.py --n-values 9 --r-values 3.2,3.4,3.6 --t 1.6
+    ```
 
 - `tools/eval_custom_nrt_5y.py`
-    - 用途：扫描 `N,R,T` 网格（5年分年结果 + trigger 统计）
-    - 输出：`strategy_evaluation/custom_{tag}_*_{timestamp}.csv`
-    - 关键参数：`--tag` 可自定义本次实验文件前缀
-    - 示例（你当前重点口径）：
-        ```bash
-        python tools/eval_custom_nrt_5y.py --n-values 9 --r-values 3.2,3.3,3.4,3.5,3.6 --t-values 1.6,1.7,1.8,1.9,2.0 --tag n9_r32_36_t16_20
-        ```
+  - 用途：扫描 `N,R,T` 网格（5年分年结果 + trigger 统计）
+  - 输出：`strategy_evaluation/custom_{tag}_*_{timestamp}.csv`
+  - 关键参数：`--tag` 可自定义本次实验文件前缀
+  - 示例（你当前重点口径）：
+    ```bash
+    python tools/eval_custom_nrt_5y.py --n-values 9 --r-values 3.2,3.3,3.4,3.5,3.6 --t-values 1.6,1.7,1.8,1.9,2.0 --tag n9_r32_36_t16_20
+    ```
 
 - `tools/analyze_phaseA_params.py`
-    - 用途：解析 PhaseA 导出的 raw 结果，做参数主效应/透视表
+  - 用途：解析 PhaseA 导出的 raw 结果，做参数主效应/透视表
 
 - `tools/analyze_sell_timing.py`
-    - 用途：按交易明细统计卖出结构（胜负、持仓、退出不对称）
+  - 用途：按交易明细统计卖出结构（胜负、持仓、退出不对称）
 
 - `tools/score_strategy_ranking.py`
-    - 用途：将多年份 raw 回测结果做归一化排名（默认风险60% / 赚钱40%）
-    - 默认模型：`risk60_profit40_v2`
-        - 风险 60%：`avg_mdd` 35% + `worst_year_return` 25%
-        - 赚钱 40%：`avg_alpha` 25% + `positive_alpha_ratio` 15%
-    - `positive_alpha_ratio` 定义：`alpha > 0` 的年份占比，用于衡量赚钱一致性
-    - 历史口径可选：`risk60_profit40_v1`（含 `residual_return` 项）
-    - 输出：
-        - `strategy_evaluation/strategy_ranking_risk60_profit40_v2_{timestamp}.csv`
-        - `strategy_evaluation/strategy_ranking_risk60_profit40_v2_{timestamp}_summary.csv`
-    - 示例：
-        ```bash
-        python tools/score_strategy_ranking.py --raw-csv strategy_evaluation/custom_db_3x3_raw_20260222_024413.csv
-        ```
+  - 用途：将多年份 raw 回测结果做归一化排名（默认风险60% / 赚钱40%）
+  - 默认模型：`risk60_profit40_v2`
+    - 风险 60%：`avg_mdd` 35% + `worst_year_return` 25%
+    - 赚钱 40%：`avg_alpha` 25% + `positive_alpha_ratio` 15%
+  - `positive_alpha_ratio` 定义：`alpha > 0` 的年份占比，用于衡量赚钱一致性
+  - 历史口径可选：`risk60_profit40_v1`（含 `residual_return` 项）
+  - 输出：
+    - `strategy_evaluation/strategy_ranking_risk60_profit40_v2_{timestamp}.csv`
+    - `strategy_evaluation/strategy_ranking_risk60_profit40_v2_{timestamp}_summary.csv`
+  - 示例：
+    ```bash
+    python tools/score_strategy_ranking.py --raw-csv strategy_evaluation/custom_db_3x3_raw_20260222_024413.csv
+    ```
 
 ### 策略比较默认打分公式（当前标准）
 
@@ -297,8 +318,8 @@ print(metadata)
 
 - 当前默认参数：`MVX_N9_R3p5_T1p6_D18_B20p0`
 - 与校验直接相关的策略实现位置：
-    - `src/analysis/strategies/exit/multiview_grid_exit.py`
-    - `tools/eval_n10r36_check_ab.py` 中 `MultiViewCompositeExitWithFastNegCheck`
+  - `src/analysis/strategies/exit/multiview_grid_exit.py`
+  - `tools/eval_n10r36_check_ab.py` 中 `MultiViewCompositeExitWithFastNegCheck`
 
 ## 当前实现（源码对齐）
 

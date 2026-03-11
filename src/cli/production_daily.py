@@ -8,6 +8,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from src.cli.production_utils import load_monitor_tickers
+from src.config.runtime import get_config_file_path, is_local_path
 from src.data.fetch_universe_builder import build_fetch_universe_file
 from src.data.sector_metrics_updater import update_sector_metrics
 from src.utils.signal_sizing import extract_buy_size_multiplier
@@ -26,8 +27,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
     load_dotenv()
     api_key = os.getenv("JQUANTS_API_KEY")
-    with open("config.json", "r", encoding="utf-8") as f:
-        raw_config = json.load(f)
+    raw_config = getattr(prod_cfg, "raw_config", None)
+    if raw_config is None:
+        with open(get_config_file_path(), "r", encoding="utf-8") as f:
+            raw_config = json.load(f)
     lot_sizes = raw_config.get("lot_sizes", {})
     default_lot_size = int(lot_sizes.get("default", 100) or 100)
     prod_runtime_cfg = raw_config.get("production", {})
@@ -96,6 +99,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         print("\n[Data Update] Fetching latest market data...")
         from src.data_fetch_manager import run_fetch
 
+        daily_fetch_aux_data = bool(prod_runtime_cfg.get("daily_fetch_aux_data", True))
+
         fetch_universe_file, merged_count, sector_count = build_fetch_universe_file(
             monitor_list_file=prod_cfg.monitor_list_file,
             output_file=prod_cfg.fetch_universe_file,
@@ -106,7 +111,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             f"{merged_count} tickers (sector pool contribution: {sector_count})"
         )
 
-        summary = run_fetch(monitor_list_file=fetch_universe_file)
+        summary = run_fetch(
+            monitor_list_file=fetch_universe_file,
+            fetch_aux_data=daily_fetch_aux_data,
+        )
         if summary:
             print(f"  Updated {summary['successful']}/{summary['total']} stocks")
 
@@ -133,8 +141,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         print("\n[Data Update] Skipped (--skip-fetch flag)")
 
     print("\n[Signal] Generating end-of-day signals...")
-    Path("output/signals").mkdir(parents=True, exist_ok=True)
-    Path("output/report").mkdir(parents=True, exist_ok=True)
+    for pattern in [prod_cfg.signal_file_pattern, prod_cfg.report_file_pattern]:
+        if not is_local_path(pattern):
+            continue
+        sample_path = pattern.replace("{date}", "1970-01-01")
+        Path(sample_path).parent.mkdir(parents=True, exist_ok=True)
 
     data_manager = StockDataManager(api_key=api_key)
     overlay_manager = OverlayManager.from_config(raw_config, data_root="data")

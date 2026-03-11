@@ -1,0 +1,226 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: J-Stock-Analyzer without Step Functions (EventBridge + SQS + Lambda workers)
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+  ScheduleExpression:
+    Type: String
+    Default: cron(30 7 ? * MON-FRI *)
+
+  MonitorListS3Uri:
+    Type: String
+    Default: ""
+
+  TickersPerJob:
+    Type: Number
+    Default: 100
+
+  UpdateAuxData:
+    Type: String
+    Default: "true"
+
+  WorkerMemoryMB:
+    Type: Number
+    Default: 2048
+
+  JQuantsApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+
+  DataS3Prefix:
+    Type: String
+    Default: ""
+
+  OpsS3Prefix:
+    Type: String
+    Default: ""
+
+  DailyNoFetchScheduleExpression:
+    Type: String
+    Default: cron(0 11 ? * MON-FRI *)
+
+  NotifyEmail:
+    Type: String
+    Default: ""
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Tracing: Active
+
+Conditions:
+  HasNotifyEmail: !Not [!Equals [!Ref NotifyEmail, ""]]
+
+Resources:
+  FetchJobQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub jsa-${EnvironmentName}-fetch-jobs
+      VisibilityTimeout: 1200
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FetchJobDLQ.Arn
+        maxReceiveCount: 3
+
+  FetchJobDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub jsa-${EnvironmentName}-fetch-jobs-dlq
+
+  DispatchFetchJobsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.dispatch_fetch_jobs.handler
+      Timeout: 120
+      MemorySize: 512
+      Environment:
+        Variables:
+          FETCH_JOB_QUEUE_URL: !Ref FetchJobQueue
+          MONITOR_LIST_S3_URI: !Ref MonitorListS3Uri
+          TICKERS_PER_JOB: !Ref TickersPerJob
+          UPDATE_AUX_DATA: !Ref UpdateAuxData
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt FetchJobQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: "*"
+
+  FetchWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.fetch_worker.handler
+      Timeout: 900
+      MemorySize: !Ref WorkerMemoryMB
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          DATA_ROOT: /tmp/data
+          JQUANTS_API_KEY: !Ref JQuantsApiKey
+          DATA_S3_PREFIX: !Ref DataS3Prefix
+      Events:
+        FetchQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt FetchJobQueue.Arn
+            BatchSize: 1
+            Enabled: true
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: "*"
+
+  DailyNoFetchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.run_daily_no_fetch.handler
+      Timeout: 900
+      MemorySize: 2048
+      Environment:
+        Variables:
+          MONITOR_LIST_S3_URI: !Ref MonitorListS3Uri
+          DATA_S3_PREFIX: !Ref DataS3Prefix
+          OPS_S3_PREFIX: !Ref OpsS3Prefix
+          JQUANTS_API_KEY: !Ref JQuantsApiKey
+          NOTIFY_SNS_TOPIC_ARN: !Ref DailyNotifyTopic
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref DailyNotifyTopic
+
+  DailyNotifyTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub jsa-${EnvironmentName}-daily-notify
+
+  DailyNotifySubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotifyEmail
+    Properties:
+      Protocol: email
+      TopicArn: !Ref DailyNotifyTopic
+      Endpoint: !Ref NotifyEmail
+
+  DailyDispatchSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Description: Dispatch daily fetch jobs to SQS
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Target:
+        Arn: !GetAtt DispatchFetchJobsFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeLambdaRole.Arn
+        Input: !Sub |
+          {
+            "tickers_per_job": ${TickersPerJob},
+            "update_aux_data": ${UpdateAuxData}
+          }
+
+  DailyNoFetchSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Description: Run production daily with --no-fetch at fixed time
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: !Ref DailyNoFetchScheduleExpression
+      State: ENABLED
+      Target:
+        Arn: !GetAtt DailyNoFetchFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeLambdaRole.Arn
+        Input: "{}"
+
+  SchedulerInvokeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeDispatchFunction
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt DispatchFetchJobsFunction.Arn
+                  - !GetAtt DailyNoFetchFunction.Arn
+
+Outputs:
+  FetchJobQueueUrl:
+    Value: !Ref FetchJobQueue
+  DispatchFunctionArn:
+    Value: !GetAtt DispatchFetchJobsFunction.Arn
+  FetchWorkerArn:
+    Value: !GetAtt FetchWorkerFunction.Arn
+  DailyNoFetchArn:
+    Value: !GetAtt DailyNoFetchFunction.Arn
+  DailyNotifyTopicArn:
+    Value: !Ref DailyNotifyTopic

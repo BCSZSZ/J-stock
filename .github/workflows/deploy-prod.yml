@@ -1,0 +1,61 @@
+name: Deploy AWS Main (SQS)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: SAM Validate
+        run: sam validate --template-file infra/sam/template-sqs.yaml
+
+      - name: SAM Build
+        run: sam build --template-file infra/sam/template-sqs.yaml
+
+      - name: SAM Deploy (main)
+        run: |
+          sam deploy \
+            --stack-name jsa-main-sqs \
+            --template-file .aws-sam/build/template.yaml \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --resolve-s3 \
+            --parameter-overrides \
+              EnvironmentName=prod \
+              MonitorListS3Uri=${{ vars.MONITOR_LIST_S3_URI }} \
+              DataS3Prefix=${{ vars.DATA_S3_PREFIX }} \
+              OpsS3Prefix=${{ vars.OPS_S3_PREFIX }} \
+              TickersPerJob=${{ vars.TICKERS_PER_JOB }} \
+              UpdateAuxData='${{ vars.UPDATE_AUX_DATA }}' \
+              ScheduleExpression='${{ vars.SCHEDULE_EXPRESSION }}' \
+              DailyNoFetchScheduleExpression='${{ vars.DAILY_NO_FETCH_SCHEDULE_EXPRESSION }}' \
+              WorkerMemoryMB=${{ vars.WORKER_MEMORY_MB }} \
+              NotifyEmail='${{ vars.NOTIFY_EMAIL }}' \
+              JQuantsApiKey=${{ secrets.JQUANTS_API_KEY }}

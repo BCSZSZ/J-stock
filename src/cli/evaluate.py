@@ -10,11 +10,12 @@ from src.evaluation import (
     create_monthly_periods,
     create_quarterly_periods,
 )
+from src.config.runtime import is_local_path
 
 from .common import load_config
 
 
-DEFAULT_EVALUATION_OUTPUT_DIR = Path(r"G:\My Drive\AI-Stock-Sync\strategy_evaluation")
+DEFAULT_EVALUATION_OUTPUT_DIR = Path("strategy_evaluation")
 
 
 def _log_step(message: str):
@@ -55,8 +56,16 @@ def _resolve_output_dir(user_output_dir):
     if user_output_dir:
         return user_output_dir
 
+    cfg = load_config()
+    configured = cfg.get("evaluation", {}).get("output_dir")
+    if configured:
+        if is_local_path(configured):
+            Path(configured).mkdir(parents=True, exist_ok=True)
+        print(f"📁 输出目录: {configured} (from config)")
+        return str(configured)
+
     DEFAULT_EVALUATION_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"📁 输出目录: {DEFAULT_EVALUATION_OUTPUT_DIR} (Google Drive)")
+    print(f"📁 输出目录: {DEFAULT_EVALUATION_OUTPUT_DIR}")
     return str(DEFAULT_EVALUATION_OUTPUT_DIR)
 
 

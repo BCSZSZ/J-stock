@@ -2,12 +2,14 @@ import json
 import sys
 from pathlib import Path
 
+from src.config.runtime import get_config_file_path
+
 
 def load_config() -> dict:
     """Load config.json or exit with error."""
-    config_path = Path("config.json")
+    config_path = get_config_file_path()
     if not config_path.exists():
-        print("❌ 错误: config.json 不存在")
+        print(f"❌ 错误: 配置文件不存在 {config_path}")
         sys.exit(1)
 
     with open(config_path, "r", encoding="utf-8") as f:
