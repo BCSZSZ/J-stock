@@ -71,6 +71,10 @@ jobs:
       - name: SAM Validate
         run: sam validate --template-file infra/sam/template-sqs.yaml
 
+      - name: Prepare slim lambda requirements
+        shell: bash
+        run: cp requirements-lambda.txt requirements.txt
+
       - name: SAM Build
         run: sam build --template-file infra/sam/template-sqs.yaml
 
