@@ -141,8 +141,9 @@ ticker,action,qty,price,date
 
 ### 输出位置
 
-- 信号文件: `G:/My Drive/AI-Stock-Sync/signals/YYYY-MM-DD.json`
-- 日报文件: `G:/My Drive/AI-Stock-Sync/reports/YYYY-MM-DD.md`
+- 本地信号文件: `output/signals/YYYY-MM-DD.json`
+- 本地日报文件: `output/reports/YYYY-MM-DD.md`
+- AWS 生产落盘（S3）: `s3://bcszsz-ai-j-stock-bucket/prod/ops/signals/` 与 `s3://bcszsz-ai-j-stock-bucket/prod/ops/reports/`
 
 ### 完成判定
 
@@ -205,4 +206,33 @@ ticker,action,qty,price,date
 
 ```powershell
 .venv/Scripts/python.exe tools/config_sync.py push
+```
+
+## Task 6: G盘 state 迁移到 S3（一次性 + 日常）
+
+### 目标
+
+把历史 G 盘 state 文件迁移到 `prod/ops`，并建立本地与 S3 的日常同步。
+
+### 一次性迁移（已验证可用）
+
+```powershell
+aws s3 cp "G:/My Drive/AI-Stock-Sync/state/production_state.json" s3://bcszsz-ai-j-stock-bucket/prod/ops/state/production_state.json
+aws s3 cp "G:/My Drive/AI-Stock-Sync/state/trade_history.json" s3://bcszsz-ai-j-stock-bucket/prod/ops/state/trade_history.json
+aws s3 cp "G:/My Drive/AI-Stock-Sync/state/fetch_universe.json" s3://bcszsz-ai-j-stock-bucket/prod/ops/state/fetch_universe.json
+aws s3 cp "G:/My Drive/AI-Stock-Sync/state/production_monitor_list.json" s3://bcszsz-ai-j-stock-bucket/prod/ops/config/production_monitor_list.json
+```
+
+### 日常同步（推荐）
+
+本地手动录入后推送到 S3：
+
+```powershell
+.venv/Scripts/python.exe tools/sync_ops_state_s3.py push --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops --config config.local.json
+```
+
+需要从 S3 拉回本地时：
+
+```powershell
+.venv/Scripts/python.exe tools/sync_ops_state_s3.py pull --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops --config config.local.json
 ```
