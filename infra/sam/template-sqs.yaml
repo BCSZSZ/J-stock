@@ -111,7 +111,6 @@ Resources:
       Handler: src.aws.handlers.fetch_worker.handler
       Timeout: 900
       MemorySize: !Ref WorkerMemoryMB
-      ReservedConcurrentExecutions: 1
       Layers:
         - !Ref DataProcessingLayer
       Environment:
