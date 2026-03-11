@@ -28,6 +28,7 @@ jobs:
             config.json
             config.json.example
             requirements.txt
+            requirements-lambda.txt
           sparse-checkout-cone-mode: false
 
       - name: Set up Python
