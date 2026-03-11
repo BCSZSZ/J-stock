@@ -89,10 +89,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SCHEDULE_EXPRESSION_INPUT="${{ vars.SCHEDULE_EXPRESSION }}"
-          DAILY_NO_FETCH_SCHEDULE_INPUT="${{ vars.DAILY_NO_FETCH_SCHEDULE_EXPRESSION }}"
-          SCHEDULE_EXPRESSION_INPUT="${SCHEDULE_EXPRESSION_INPUT:-cron(30 7 ? * MON-FRI *)}"
-          DAILY_NO_FETCH_SCHEDULE_INPUT="${DAILY_NO_FETCH_SCHEDULE_INPUT:-cron(0 11 ? * MON-FRI *)}"
+          SCHEDULE_EXPRESSION_INPUT="cron(30 7 ? * MON-FRI *)"
+          DAILY_NO_FETCH_SCHEDULE_INPUT="cron(0 11 ? * MON-FRI *)"
 
           sam deploy \
             --stack-name jsa-main-sqs \
