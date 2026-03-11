@@ -113,7 +113,6 @@
 .venv/Scripts/python.exe main.py production --daily
 ```
 
-
 ```powershell
 .venv/Scripts/python.exe main.py production --daily --no-fetch
 ```
