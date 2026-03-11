@@ -1,0 +1,34 @@
+# Exclude workspace-only assets when building from template directory context
+../../.venv/
+../../__pycache__/
+../../**/__pycache__/
+../../*.pyc
+../../.pytest_cache/
+../../.mypy_cache/
+
+# Exclude large local data/output folders
+../../data/
+../../output/
+../../reports/
+../../backtest_results/
+../../portfolio_backtest_results/
+../../strategy_evaluation/
+../../strategy_evaluation_test/
+
+# Exclude docs and misc files not needed in Lambda runtime
+../../docs/
+../../*.csv
+../../*.txt
+../../*.md
+../../*.log
+../../*.ipynb
+
+# Exclude VCS/editor metadata
+../../.git/
+../../.github/
+../../.vscode/
+
+# Exclude build artifacts
+../../.aws-sam/
+../../dist/
+../../build/

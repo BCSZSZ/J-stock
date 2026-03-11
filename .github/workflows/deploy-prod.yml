@@ -64,6 +64,12 @@ jobs:
       - name: SAM Build
         run: sam build --template-file infra/sam/template-sqs.yaml
 
+      - name: Inspect build artifact sizes
+        shell: bash
+        run: |
+          set -euo pipefail
+          du -sh .aws-sam/build/* | sort -h
+
       - name: SAM Deploy (main)
         run: |
           sam deploy \
