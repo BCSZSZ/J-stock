@@ -86,7 +86,14 @@ jobs:
           du -sh .aws-sam/build/* | sort -h
 
       - name: SAM Deploy (main)
+        shell: bash
         run: |
+          set -euo pipefail
+          SCHEDULE_EXPRESSION_INPUT="${{ vars.SCHEDULE_EXPRESSION }}"
+          DAILY_NO_FETCH_SCHEDULE_INPUT="${{ vars.DAILY_NO_FETCH_SCHEDULE_EXPRESSION }}"
+          SCHEDULE_EXPRESSION_INPUT="${SCHEDULE_EXPRESSION_INPUT:-cron(30 7 ? * MON-FRI *)}"
+          DAILY_NO_FETCH_SCHEDULE_INPUT="${DAILY_NO_FETCH_SCHEDULE_INPUT:-cron(0 11 ? * MON-FRI *)}"
+
           sam deploy \
             --stack-name jsa-main-sqs \
             --template-file .aws-sam/build/template.yaml \
@@ -101,8 +108,8 @@ jobs:
               OpsS3Prefix=${{ vars.OPS_S3_PREFIX }} \
               TickersPerJob=${{ vars.TICKERS_PER_JOB }} \
               UpdateAuxData='${{ vars.UPDATE_AUX_DATA }}' \
-              ScheduleExpression='${{ vars.SCHEDULE_EXPRESSION }}' \
-              DailyNoFetchScheduleExpression='${{ vars.DAILY_NO_FETCH_SCHEDULE_EXPRESSION }}' \
+              ScheduleExpression="${SCHEDULE_EXPRESSION_INPUT}" \
+              DailyNoFetchScheduleExpression="${DAILY_NO_FETCH_SCHEDULE_INPUT}" \
               WorkerMemoryMB=${{ vars.WORKER_MEMORY_MB }} \
               NotifyEmail='${{ vars.NOTIFY_EMAIL }}' \
               JQuantsApiKey=${{ secrets.JQUANTS_API_KEY }}
