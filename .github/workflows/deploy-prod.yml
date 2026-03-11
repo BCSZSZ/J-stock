@@ -103,8 +103,6 @@ jobs:
               OpsS3Prefix=${{ vars.OPS_S3_PREFIX }} \
               TickersPerJob=${{ vars.TICKERS_PER_JOB }} \
               UpdateAuxData='${{ vars.UPDATE_AUX_DATA }}' \
-              ScheduleExpression='cron(30 7 ? * MON-FRI *)' \
-              DailyNoFetchScheduleExpression='cron(0 11 ? * MON-FRI *)' \
               WorkerMemoryMB=${{ vars.WORKER_MEMORY_MB }} \
               NotifyEmail='${{ vars.NOTIFY_EMAIL }}' \
               JQuantsApiKey=${{ secrets.JQUANTS_API_KEY }}
