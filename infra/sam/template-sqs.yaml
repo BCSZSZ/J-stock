@@ -58,6 +58,16 @@ Conditions:
   HasNotifyEmail: !Not [!Equals [!Ref NotifyEmail, ""]]
 
 Resources:
+  DataProcessingLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub jsa-${EnvironmentName}-data-processing
+      Description: Shared runtime dependencies for data processing lambdas
+      ContentUri: layers/data
+      CompatibleRuntimes:
+        - python3.12
+      RetentionPolicy: Delete
+
   FetchJobQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -102,6 +112,8 @@ Resources:
       Timeout: 900
       MemorySize: !Ref WorkerMemoryMB
       ReservedConcurrentExecutions: 1
+      Layers:
+        - !Ref DataProcessingLayer
       Environment:
         Variables:
           DATA_ROOT: /tmp/data
@@ -129,6 +141,8 @@ Resources:
       Handler: src.aws.handlers.run_daily_no_fetch.handler
       Timeout: 900
       MemorySize: 2048
+      Layers:
+        - !Ref DataProcessingLayer
       Environment:
         Variables:
           MONITOR_LIST_S3_URI: !Ref MonitorListS3Uri
@@ -213,6 +227,54 @@ Resources:
                   - !GetAtt DispatchFetchJobsFunction.Arn
                   - !GetAtt DailyNoFetchFunction.Arn
 
+  FetchWorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub jsa-${EnvironmentName}-fetch-worker-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref FetchWorkerFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  DailyNoFetchErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub jsa-${EnvironmentName}-daily-no-fetch-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref DailyNoFetchFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  FetchJobDLQDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub jsa-${EnvironmentName}-fetch-dlq-depth
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt FetchJobDLQ.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
 Outputs:
   FetchJobQueueUrl:
     Value: !Ref FetchJobQueue
@@ -224,3 +286,5 @@ Outputs:
     Value: !GetAtt DailyNoFetchFunction.Arn
   DailyNotifyTopicArn:
     Value: !Ref DailyNotifyTopic
+  DataProcessingLayerArn:
+    Value: !Ref DataProcessingLayer
