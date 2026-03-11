@@ -77,6 +77,8 @@ Resources:
       CompatibleRuntimes:
         - python3.12
       RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.12
 
   FetchJobQueue:
     Type: AWS::SQS::Queue
