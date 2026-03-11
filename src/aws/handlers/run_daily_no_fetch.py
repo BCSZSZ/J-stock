@@ -123,6 +123,18 @@ def _read_readiness(ops_s3_prefix: str, run_date: str) -> Dict[str, Any] | None:
     return json.loads(body)
 
 
+def _format_readiness_summary(readiness: Dict[str, Any] | None) -> str:
+    if not readiness:
+        return "readiness: missing"
+    return (
+        f"readiness.ready={bool(readiness.get('ready', False))}, "
+        f"missing_prices_count={int(readiness.get('missing_prices_count', 0))}, "
+        f"missing_features_count={int(readiness.get('missing_features_count', 0))}, "
+        f"benchmark_ok={bool(readiness.get('benchmark_ok', False))}, "
+        f"redispatched={bool(readiness.get('redispatched', False))}"
+    )
+
+
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     monitor_s3_uri = os.getenv("MONITOR_LIST_S3_URI", "").strip()
     data_s3_prefix = os.getenv("DATA_S3_PREFIX", "").strip()
@@ -142,7 +154,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         _send_notification_if_configured(
             subject=f"[JSA] daily --no-fetch SKIPPED {run_date}",
             body=f"Skipped daily run because readiness gate failed: {reason}\n"
-            f"readiness={json.dumps(readiness, ensure_ascii=False) if readiness else 'null'}",
+            f"{_format_readiness_summary(readiness)}\n"
+            f"readiness_raw={json.dumps(readiness, ensure_ascii=False) if readiness else 'null'}",
         )
         return {
             "status": "skipped",
@@ -181,9 +194,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     _upload_file(f"{ops_s3_prefix.rstrip('/')}/reports/{run_date}.md", runtime_root / "output" / "reports" / f"{run_date}.md")
 
     ok = run.returncode == 0
+    result_summary = run.stdout[-3000:] if ok else (run.stderr or run.stdout)[-3000:]
     _send_notification_if_configured(
         subject=f"[JSA] daily --no-fetch {'SUCCESS' if ok else 'FAILED'} {run_date}",
-        body=(run.stdout[-3000:] if ok else (run.stderr or run.stdout)[-3000:]),
+        body=f"{_format_readiness_summary(readiness)}\n\n{result_summary}",
     )
 
     return {

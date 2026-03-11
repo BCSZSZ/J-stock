@@ -110,4 +110,5 @@ jobs:
 
           sam deploy \
             --config-file .aws-samconfig.resolved.toml \
-            --config-env prod
+            --config-env prod \
+            --tags Project=AI-stock

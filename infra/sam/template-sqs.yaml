@@ -61,6 +61,8 @@ Globals:
   Function:
     Runtime: python3.12
     Tracing: Active
+    Tags:
+      Project: AI-stock
 
 Conditions:
   HasNotifyEmail: !Not [!Equals [!Ref NotifyEmail, ""]]
