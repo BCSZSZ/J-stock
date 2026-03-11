@@ -14,6 +14,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    env:
+      AWS_ROLE_TO_ASSUME_INPUT: ${{ secrets.AWS_ROLE_TO_ASSUME || vars.AWS_ROLE_TO_ASSUME }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,10 +28,21 @@ jobs:
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
 
+      - name: Preflight CI config check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${AWS_ROLE_TO_ASSUME_INPUT}" || { echo "Missing AWS role: set AWS_ROLE_TO_ASSUME in Secrets or Variables"; exit 1; }
+          test -n "${{ vars.AWS_REGION }}" || { echo "Missing variable AWS_REGION"; exit 1; }
+          test -n "${{ vars.MONITOR_LIST_S3_URI }}" || { echo "Missing variable MONITOR_LIST_S3_URI"; exit 1; }
+          test -n "${{ vars.DATA_S3_PREFIX }}" || { echo "Missing variable DATA_S3_PREFIX"; exit 1; }
+          test -n "${{ vars.OPS_S3_PREFIX }}" || { echo "Missing variable OPS_S3_PREFIX"; exit 1; }
+          test -n "${{ secrets.JQUANTS_API_KEY }}" || { echo "Missing secret JQUANTS_API_KEY"; exit 1; }
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME_INPUT }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: SAM Validate
