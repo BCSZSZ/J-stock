@@ -137,7 +137,7 @@ Resources:
             Queue: !GetAtt FetchJobQueue.Arn
             BatchSize: 1
             ScalingConfig:
-              MaximumConcurrency: 1
+              MaximumConcurrency: 2
             Enabled: true
       Policies:
         - Statement:
