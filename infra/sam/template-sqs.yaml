@@ -22,7 +22,7 @@ Parameters:
 
   UpdateAuxData:
     Type: String
-    Default: "true"
+    Default: "false"
 
   WorkerMemoryMB:
     Type: Number
@@ -237,7 +237,7 @@ Resources:
         Input: !Sub |
           {
             "tickers_per_job": ${TickersPerJob},
-            "update_aux_data": ${UpdateAuxData}
+            "update_aux_data": false
           }
 
   DailyNoFetchSchedule:

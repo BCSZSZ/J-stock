@@ -48,7 +48,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     tickers = _resolve_tickers(event)
     tickers_per_job = int(event.get("tickers_per_job", os.getenv("TICKERS_PER_JOB", "100")))
     update_aux_data = bool(
-        event.get("update_aux_data", str(os.getenv("UPDATE_AUX_DATA", "true")).lower() == "true")
+        event.get("update_aux_data", str(os.getenv("UPDATE_AUX_DATA", "false")).lower() == "true")
     )
     jobs = build_fetch_jobs(tickers=tickers, tickers_per_job=tickers_per_job)
 

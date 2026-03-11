@@ -105,7 +105,7 @@ def _maybe_redispatch(event: Dict[str, Any], run_date: str) -> bool:
 
     tickers_per_job = int(event.get("tickers_per_job", os.getenv("TICKERS_PER_JOB", "100")))
     update_aux_data = bool(
-        event.get("update_aux_data", str(os.getenv("UPDATE_AUX_DATA", "true")).lower() == "true")
+        event.get("update_aux_data", str(os.getenv("UPDATE_AUX_DATA", "false")).lower() == "true")
     )
 
     payload = {

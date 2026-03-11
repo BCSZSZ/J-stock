@@ -99,7 +99,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         print("\n[Data Update] Fetching latest market data...")
         from src.data_fetch_manager import run_fetch
 
-        daily_fetch_aux_data = bool(prod_runtime_cfg.get("daily_fetch_aux_data", True))
+        # Production daily path is optimized for price/features only.
+        # Auxiliary datasets (financials/trades/earnings) are fetched via explicit fetch-all runs.
+        daily_fetch_aux_data = False
 
         fetch_universe_file, merged_count, sector_count = build_fetch_universe_file(
             monitor_list_file=prod_cfg.monitor_list_file,
