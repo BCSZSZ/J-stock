@@ -45,6 +45,14 @@ Parameters:
     Type: String
     Default: cron(0 11 ? * MON-FRI *)
 
+  Validation1830ScheduleExpression:
+    Type: String
+    Default: cron(30 9 ? * MON-FRI *)
+
+  Validation1900ScheduleExpression:
+    Type: String
+    Default: cron(0 10 ? * MON-FRI *)
+
   NotifyEmail:
     Type: String
     Default: ""
@@ -161,6 +169,33 @@ Resources:
                 - sns:Publish
               Resource: !Ref DailyNotifyTopic
 
+  ValidateReadinessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../
+      Handler: src.aws.handlers.validate_readiness.handler
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          MONITOR_LIST_S3_URI: !Ref MonitorListS3Uri
+          DATA_S3_PREFIX: !Ref DataS3Prefix
+          OPS_S3_PREFIX: !Ref OpsS3Prefix
+          DISPATCH_FUNCTION_NAME: !Ref DispatchFetchJobsFunction
+          TICKERS_PER_JOB: !Ref TickersPerJob
+          UPDATE_AUX_DATA: !Ref UpdateAuxData
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt DispatchFetchJobsFunction.Arn
+
   DailyNotifyTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -204,6 +239,32 @@ Resources:
         RoleArn: !GetAtt SchedulerInvokeLambdaRole.Arn
         Input: "{}"
 
+  Validation1830Schedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Description: Validate data readiness at 18:30 JST and re-dispatch if needed
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: !Ref Validation1830ScheduleExpression
+      State: ENABLED
+      Target:
+        Arn: !GetAtt ValidateReadinessFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeLambdaRole.Arn
+        Input: '{"attempt":"1830","allow_redispatch":true}'
+
+  Validation1900Schedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Description: Validate data readiness at 19:00 JST and lock final state
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: !Ref Validation1900ScheduleExpression
+      State: ENABLED
+      Target:
+        Arn: !GetAtt ValidateReadinessFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeLambdaRole.Arn
+        Input: '{"attempt":"1900","allow_redispatch":false}'
+
   SchedulerInvokeLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -225,6 +286,7 @@ Resources:
                 Resource:
                   - !GetAtt DispatchFetchJobsFunction.Arn
                   - !GetAtt DailyNoFetchFunction.Arn
+                  - !GetAtt ValidateReadinessFunction.Arn
 
   FetchWorkerErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -274,6 +336,22 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
 
+  ValidateReadinessErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub jsa-${EnvironmentName}-validate-readiness-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ValidateReadinessFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
 Outputs:
   FetchJobQueueUrl:
     Value: !Ref FetchJobQueue
@@ -283,6 +361,8 @@ Outputs:
     Value: !GetAtt FetchWorkerFunction.Arn
   DailyNoFetchArn:
     Value: !GetAtt DailyNoFetchFunction.Arn
+  ValidateReadinessArn:
+    Value: !GetAtt ValidateReadinessFunction.Arn
   DailyNotifyTopicArn:
     Value: !Ref DailyNotifyTopic
   DataProcessingLayerArn:

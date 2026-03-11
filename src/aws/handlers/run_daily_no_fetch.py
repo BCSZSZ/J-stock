@@ -2,7 +2,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -10,6 +10,9 @@ from urllib.parse import urlparse
 import boto3
 
 from src.aws.s3_data_sync import download_seed_for_job, is_s3_prefix
+
+
+JST = timezone(timedelta(hours=9))
 
 
 def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
@@ -104,6 +107,22 @@ def _send_notification_if_configured(subject: str, body: str) -> None:
     sns.publish(TopicArn=topic_arn, Subject=subject[:100], Message=body)
 
 
+def _jst_today_str() -> str:
+    return datetime.now(timezone.utc).astimezone(JST).strftime("%Y-%m-%d")
+
+
+def _read_readiness(ops_s3_prefix: str, run_date: str) -> Dict[str, Any] | None:
+    bucket, prefix = _parse_s3_uri(ops_s3_prefix)
+    key_prefix = prefix.rstrip("/")
+    key = f"{key_prefix}/run_status/date={run_date}/readiness.json" if key_prefix else f"run_status/date={run_date}/readiness.json"
+    s3 = boto3.client("s3")
+    try:
+        body = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
+    except Exception:
+        return None
+    return json.loads(body)
+
+
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     monitor_s3_uri = os.getenv("MONITOR_LIST_S3_URI", "").strip()
     data_s3_prefix = os.getenv("DATA_S3_PREFIX", "").strip()
@@ -115,6 +134,22 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         raise ValueError("DATA_S3_PREFIX must be s3://...")
     if not is_s3_prefix(ops_s3_prefix):
         raise ValueError("OPS_S3_PREFIX must be s3://...")
+
+    run_date = event.get("run_date") or _jst_today_str()
+    readiness = _read_readiness(ops_s3_prefix, run_date)
+    if not readiness or not bool(readiness.get("ready", False)):
+        reason = "missing_readiness" if readiness is None else "readiness_not_ready"
+        _send_notification_if_configured(
+            subject=f"[JSA] daily --no-fetch SKIPPED {run_date}",
+            body=f"Skipped daily run because readiness gate failed: {reason}\n"
+            f"readiness={json.dumps(readiness, ensure_ascii=False) if readiness else 'null'}",
+        )
+        return {
+            "status": "skipped",
+            "run_date": run_date,
+            "reason": reason,
+            "readiness": readiness,
+        }
 
     repo_root = Path(__file__).resolve().parents[3]
     runtime_root = Path("/tmp/jsa_runtime")
@@ -142,7 +177,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     _upload_file(f"{ops_s3_prefix.rstrip('/')}/state/trade_history.json", runtime_root / "output" / "state" / "trade_history.json")
     _upload_file(f"{ops_s3_prefix.rstrip('/')}/state/cash_history.json", runtime_root / "output" / "state" / "cash_history.json")
 
-    run_date = event.get("run_date") or datetime.utcnow().strftime("%Y-%m-%d")
     _upload_file(f"{ops_s3_prefix.rstrip('/')}/signals/{run_date}.json", runtime_root / "output" / "signals" / f"{run_date}.json")
     _upload_file(f"{ops_s3_prefix.rstrip('/')}/reports/{run_date}.md", runtime_root / "output" / "reports" / f"{run_date}.md")
 

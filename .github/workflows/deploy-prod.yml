@@ -87,22 +87,27 @@ jobs:
 
       - name: SAM Deploy (main)
         shell: bash
+        env:
+          MONITOR_LIST_S3_URI_INPUT: ${{ vars.MONITOR_LIST_S3_URI }}
+          DATA_S3_PREFIX_INPUT: ${{ vars.DATA_S3_PREFIX }}
+          OPS_S3_PREFIX_INPUT: ${{ vars.OPS_S3_PREFIX }}
+          TICKERS_PER_JOB_INPUT: ${{ vars.TICKERS_PER_JOB }}
+          UPDATE_AUX_DATA_INPUT: ${{ vars.UPDATE_AUX_DATA }}
+          WORKER_MEMORY_MB_INPUT: ${{ vars.WORKER_MEMORY_MB }}
+          NOTIFY_EMAIL_INPUT: ${{ vars.NOTIFY_EMAIL }}
+          JQUANTS_API_KEY_INPUT: ${{ secrets.JQUANTS_API_KEY }}
         run: |
           set -euo pipefail
+          cp infra/sam/samconfig.toml .aws-samconfig.resolved.toml
+          sed -i "s|__MONITOR_LIST_S3_URI__|${MONITOR_LIST_S3_URI_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__DATA_S3_PREFIX__|${DATA_S3_PREFIX_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__OPS_S3_PREFIX__|${OPS_S3_PREFIX_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__TICKERS_PER_JOB__|${TICKERS_PER_JOB_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__UPDATE_AUX_DATA__|${UPDATE_AUX_DATA_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__WORKER_MEMORY_MB__|${WORKER_MEMORY_MB_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__NOTIFY_EMAIL__|${NOTIFY_EMAIL_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__JQUANTS_API_KEY__|${JQUANTS_API_KEY_INPUT}|g" .aws-samconfig.resolved.toml
+
           sam deploy \
-            --stack-name jsa-main-sqs \
-            --template-file .aws-sam/build/template.yaml \
-            --capabilities CAPABILITY_IAM \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --resolve-s3 \
-            --parameter-overrides \
-              EnvironmentName=prod \
-              MonitorListS3Uri=${{ vars.MONITOR_LIST_S3_URI }} \
-              DataS3Prefix=${{ vars.DATA_S3_PREFIX }} \
-              OpsS3Prefix=${{ vars.OPS_S3_PREFIX }} \
-              TickersPerJob=${{ vars.TICKERS_PER_JOB }} \
-              UpdateAuxData='${{ vars.UPDATE_AUX_DATA }}' \
-              WorkerMemoryMB=${{ vars.WORKER_MEMORY_MB }} \
-              NotifyEmail='${{ vars.NOTIFY_EMAIL }}' \
-              JQuantsApiKey=${{ secrets.JQUANTS_API_KEY }}
+            --config-file .aws-samconfig.resolved.toml \
+            --config-env prod
