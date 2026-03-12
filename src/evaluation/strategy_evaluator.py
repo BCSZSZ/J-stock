@@ -17,6 +17,7 @@ from collections import defaultdict
 import pandas as pd
 
 from src.config.service import load_config
+from src.config.runtime import get_config_file_path
 from src.overlays import OverlayManager
 
 
@@ -680,7 +681,7 @@ class StrategyEvaluator:
             if self.monitor_list_file:
                 monitor_file = Path(self.monitor_list_file)
             else:
-                config_path = Path("config.json")
+                config_path = get_config_file_path()
                 if config_path.exists():
                     with open(config_path, "r", encoding="utf-8") as f:
                         config = json.load(f)

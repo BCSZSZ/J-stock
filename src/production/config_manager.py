@@ -79,7 +79,7 @@ class ConfigManager:
         "history_file": "output/state/trade_history.json",
         "cash_history_file": "output/state/cash_history.json",
         "fetch_universe_file": "output/state/fetch_universe.json",
-        "sector_pool_file": "data/universe/sector_pool",
+        "sector_pool_file": "G:/My Drive/AI-Stock-Sync/universe/sector_pool",
         "buy_threshold": 65.0,
     }
 

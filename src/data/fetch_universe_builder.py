@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 
-DEFAULT_SECTOR_POOL_DIR = Path("data/universe/sector_pool")
+DEFAULT_SECTOR_POOL_DIR = Path("G:/My Drive/AI-Stock-Sync/universe/sector_pool")
 
 
 def _load_tickers_from_json(path: Path) -> List[str]:

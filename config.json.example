@@ -31,12 +31,8 @@
   },
   "evaluation": {
     "output_dir": "strategy_evaluation",
-    "default_entry_strategies": [
-      "MACDCrossoverStrategy"
-    ],
-    "default_exit_strategies": [
-      "MVX_N9_R3p6_T1p7_D18_B20p0"
-    ],
+    "default_entry_strategies": ["MACDCrossoverStrategy"],
+    "default_exit_strategies": ["MVX_N9_R3p6_T1p7_D18_B20p0"],
     "exit_confirmation_days": 2,
     "filters": {
       "mode": "single",
@@ -68,15 +64,11 @@
       }
     },
     "default_position_file": "evaluation-position-1x9x4.json",
-    "default_profile_names": [
-      "p7x018"
-    ]
+    "default_profile_names": ["p7x018"]
   },
   "overlays": {
     "enabled": false,
-    "active": [
-      "SectorBreadthOverlay"
-    ],
+    "active": ["SectorBreadthOverlay"],
     "SectorBreadthOverlay": {
       "metrics_file": "data/features/sector_daily_metrics.parquet",
       "snapshot_dir": "data/metadata/sector_overlay",
@@ -99,7 +91,7 @@
   "production": {
     "monitor_list_file": "data/production_monitor_list.json",
     "fetch_universe_file": "output/state/fetch_universe.json",
-    "sector_pool_file": "data/universe/sector_pool",
+    "sector_pool_file": "G:/My Drive/AI-Stock-Sync/universe/sector_pool",
     "state_file": "output/state/production_state.json",
     "signal_file_pattern": "output/signals/{date}.json",
     "report_file_pattern": "output/reports/{date}.md",

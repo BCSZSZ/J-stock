@@ -5,12 +5,20 @@ from typing import Any, Dict
 
 
 DEFAULT_CONFIG_FILE = "config.json"
+GDRIVE_DEFAULT_CONFIG_FILE = Path("G:/My Drive/AI-Stock-Sync/config.json")
 CONFIG_ENV_VAR = "JSA_CONFIG_FILE"
 
 
 def get_config_file_path() -> Path:
-    """Return config path from env override or default file name."""
-    return Path(os.getenv(CONFIG_ENV_VAR, DEFAULT_CONFIG_FILE))
+    """Return config path with priority: env override > G-drive config > local config."""
+    env_value = os.getenv(CONFIG_ENV_VAR)
+    if env_value:
+        return Path(env_value)
+
+    if GDRIVE_DEFAULT_CONFIG_FILE.exists():
+        return GDRIVE_DEFAULT_CONFIG_FILE
+
+    return Path(DEFAULT_CONFIG_FILE)
 
 
 def load_runtime_config() -> Dict[str, Any]:
