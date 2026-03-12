@@ -139,7 +139,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="跳过数据抓取步骤（兼容参数: --no-fetch）",
     )
-    production_parser.set_defaults(func=cmd_production)
+    production_overlay_mode = production_parser.add_mutually_exclusive_group()
+    production_overlay_mode.add_argument(
+        "--enable-overlay",
+        dest="production_overlay",
+        action="store_true",
+        help="启用 overlay 参与 production 信号计算（默认按配置，通常为关闭）",
+    )
+    production_overlay_mode.add_argument(
+        "--disable-overlay",
+        dest="production_overlay",
+        action="store_false",
+        help="禁用 overlay 参与 production 信号计算",
+    )
+    production_parser.set_defaults(func=cmd_production, production_overlay=None)
 
     fetch_parser = subparsers.add_parser("fetch", help="抓取股票数据")
     fetch_group = fetch_parser.add_mutually_exclusive_group(required=True)

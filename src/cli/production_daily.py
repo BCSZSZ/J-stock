@@ -150,15 +150,24 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         Path(sample_path).parent.mkdir(parents=True, exist_ok=True)
 
     data_manager = StockDataManager(api_key=api_key)
-    # Production policy: keep overlay datasets updated, but do not apply overlay decisions to live signals.
     overlay_runtime_config = dict(raw_config)
     overlay_cfg = dict(overlay_runtime_config.get("overlays", {}))
     overlay_enabled_in_config = bool(overlay_cfg.get("enabled", False))
-    overlay_cfg["enabled"] = False
+    overlay_override = getattr(args, "production_overlay", None)
+    overlay_enabled_effective = (
+        bool(overlay_override)
+        if overlay_override is not None
+        else overlay_enabled_in_config
+    )
+    overlay_cfg["enabled"] = overlay_enabled_effective
     overlay_runtime_config["overlays"] = overlay_cfg
     overlay_manager = OverlayManager.from_config(overlay_runtime_config, data_root="data")
-    if overlay_enabled_in_config:
-        print("  Overlay signal integration: disabled (data pipeline retained)")
+    overlay_source = "cli" if overlay_override is not None else "config"
+    print(
+        "  Overlay signal integration: "
+        f"{'enabled' if overlay_enabled_effective else 'disabled'}"
+        f" (source: {overlay_source})"
+    )
     print(f"  Monitoring {len(monitor_tickers)} stocks for signal evaluation")
 
     # 自动检测全市场最新可用数据日
