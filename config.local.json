@@ -58,7 +58,7 @@
     "history_file": "G:/My Drive/AI-Stock-Sync/state/trade_history.json",
     "cash_history_file": "G:/My Drive/AI-Stock-Sync/state/cash_history.json",
     "fetch_universe_file": "G:/My Drive/AI-Stock-Sync/state/fetch_universe.json",
-    "sector_pool_file": "data/universe/sector_pool",
+    "sector_pool_file": "G:/My Drive/AI-Stock-Sync/universe/sector_pool",
     "max_positions_per_group": 8,
     "max_position_pct": 0.2,
     "buy_threshold": 65,
