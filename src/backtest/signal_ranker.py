@@ -2,6 +2,7 @@
 Signal Ranker - 买入信号优先级排序
 Ranks buy signals when multiple stocks trigger simultaneously
 """
+import heapq
 from typing import List, Dict, Tuple
 from ..analysis.signals import TradingSignal, SignalAction, MarketData
 
@@ -38,7 +39,8 @@ class SignalRanker:
     def rank_buy_signals(
         self,
         signals: Dict[str, TradingSignal],
-        market_data_dict: Dict[str, MarketData]
+        market_data_dict: Dict[str, MarketData],
+        top_k: int = None,
     ) -> List[Tuple[str, TradingSignal, float]]:
         """
         对买入信号进行排序
@@ -62,10 +64,17 @@ class SignalRanker:
             priority = self._calculate_priority(ticker, signal, market_data_dict)
             scored_signals.append((ticker, signal, priority))
         
-        # 按优先级降序排序
-        scored_signals.sort(key=lambda x: x[2], reverse=True)
+        # 按需使用Top-K，避免对大样本做全量排序。
+        if top_k is not None and top_k > 0 and len(scored_signals) > top_k:
+            scored_signals = heapq.nlargest(top_k, scored_signals, key=lambda x: x[2])
+        else:
+            scored_signals.sort(key=lambda x: x[2], reverse=True)
         
         return scored_signals
+
+    def requires_market_data(self) -> bool:
+        """Whether selected ranking method needs market_data_dict."""
+        return self.method in {"risk_adjusted", "composite"}
     
     def _calculate_priority(
         self,

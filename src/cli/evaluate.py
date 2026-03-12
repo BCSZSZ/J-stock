@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -245,6 +246,7 @@ def _run_once(
     enable_overlay: bool = None,
 ):
     _log_step("_run_once: 开始解析本轮参数")
+    run_started = time.perf_counter()
     eval_cfg = config.get("evaluation", {})
     original_filter_variant_count = len(entry_filter_variants) if entry_filter_variants else 0
     entry_filter_variants = _dedupe_filter_variants(entry_filter_variants)
@@ -321,11 +323,13 @@ def _run_once(
         f"exit={len(exit_strategies) if exit_strategies else 0}, filters={len(entry_filter_variants)})"
     )
 
+    eval_started = time.perf_counter()
     df_results = evaluator.run_evaluation(
         periods=periods,
         entry_strategies=entry_strategies,
         exit_strategies=exit_strategies,
     )
+    eval_elapsed = time.perf_counter() - eval_started
     _log_step("_run_once: run_evaluation 返回")
 
     if df_results.empty:
@@ -333,8 +337,28 @@ def _run_once(
         return None
 
     _log_step("_run_once: 开始保存结果文件")
+    save_started = time.perf_counter()
     files = evaluator.save_results(prefix=prefix)
+    save_elapsed = time.perf_counter() - save_started
+    total_elapsed = time.perf_counter() - run_started
     _log_step("_run_once: 结果文件保存完成")
+
+    print("\n⏱️ 本轮运行计时汇总:")
+    print(f"   - evaluate阶段: {eval_elapsed:.2f}s")
+    print(f"   - save_results阶段: {save_elapsed:.2f}s")
+    print(f"   - _run_once总耗时: {total_elapsed:.2f}s")
+
+    timing_summary = getattr(evaluator, "last_timing_summary", None)
+    if isinstance(timing_summary, dict) and timing_summary:
+        total_eval_sec = float(timing_summary.get("total_elapsed_sec", 0.0) or 0.0)
+        completed = int(timing_summary.get("completed_tasks", 0) or 0)
+        ok = int(timing_summary.get("success_count", 0) or 0)
+        err = int(timing_summary.get("error_count", 0) or 0)
+        print("\n⏱️ evaluator内部计时摘要:")
+        print(
+            f"   - total_elapsed_sec={total_eval_sec:.2f}, tasks={completed}, ok={ok}, err={err}"
+        )
+
     return files
 
 

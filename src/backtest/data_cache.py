@@ -39,6 +39,7 @@ class BacktestDataCache:
         """
         self.data_root = Path(data_root)
         self.features_cache: Dict[str, pd.DataFrame] = {}
+        self.date_pos_cache: Dict[str, Dict[pd.Timestamp, int]] = {}
         self.metadata_cache: Dict[str, Dict] = {}
         self.trades_cache: Dict[str, pd.DataFrame] = {}
         self.financials_cache: Dict[str, pd.DataFrame] = {}
@@ -51,6 +52,9 @@ class BacktestDataCache:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         optimize_memory: bool = True,
+        include_trades: bool = True,
+        include_financials: bool = True,
+        include_metadata: bool = True,
     ) -> Dict[str, bool]:
         """
         批量预加载股票数据到内存
@@ -60,6 +64,9 @@ class BacktestDataCache:
             start_date: 回测开始日期（可选，用于数据过滤）
             end_date: 回测结束日期（可选，用于数据过滤）
             optimize_memory: 是否优化内存占用（float64->float32）
+            include_trades: 是否预加载交易数据
+            include_financials: 是否预加载财务数据
+            include_metadata: 是否预加载元数据
 
         Returns:
             加载状态字典 {ticker: success}
@@ -76,13 +83,22 @@ class BacktestDataCache:
                 )
 
                 # 加载元数据（可选）
-                self._load_metadata(ticker)
+                if include_metadata:
+                    self._load_metadata(ticker)
+                else:
+                    self.metadata_cache[ticker] = {}
 
                 # 加载交易数据（可选）
-                self._load_trades(ticker, start_date, end_date)
+                if include_trades:
+                    self._load_trades(ticker, start_date, end_date)
+                else:
+                    self.trades_cache[ticker] = pd.DataFrame()
 
                 # 加载财务数据（可选）
-                self._load_financials(ticker, start_date, end_date)
+                if include_financials:
+                    self._load_financials(ticker, start_date, end_date)
+                else:
+                    self.financials_cache[ticker] = pd.DataFrame()
 
                 load_status[ticker] = features_loaded
 
@@ -131,6 +147,8 @@ class BacktestDataCache:
             df = self._optimize_dataframe_memory(df)
 
         self.features_cache[ticker] = df
+        # Cache date->row position mapping for fast lookup in backtest loops.
+        self.date_pos_cache[ticker] = {ts: idx for idx, ts in enumerate(df.index)}
         return True
 
     def _load_metadata(self, ticker: str) -> bool:
@@ -257,6 +275,34 @@ class BacktestDataCache:
         """
         return self.features_cache.get(ticker)
 
+    def get_date_pos_map(self, ticker: str) -> Dict[pd.Timestamp, int]:
+        """
+        获取缓存的日期->行号映射
+
+        Args:
+            ticker: 股票代码
+
+        Returns:
+            日期到行号的字典；未缓存返回空字典
+        """
+        return self.date_pos_cache.get(ticker, {})
+
+    def get_date_position(self, ticker: str, date: pd.Timestamp) -> Optional[int]:
+        """
+        获取指定日期在特征表中的行号
+
+        Args:
+            ticker: 股票代码
+            date: 目标日期
+
+        Returns:
+            行号；若不存在返回None
+        """
+        pos_map = self.date_pos_cache.get(ticker)
+        if not pos_map:
+            return None
+        return pos_map.get(date)
+
     def get_metadata(self, ticker: str) -> Dict:
         """
         获取缓存的元数据
@@ -317,6 +363,7 @@ class BacktestDataCache:
     def clear(self):
         """清空所有缓存"""
         self.features_cache.clear()
+        self.date_pos_cache.clear()
         self.metadata_cache.clear()
         self.trades_cache.clear()
         self.financials_cache.clear()
@@ -342,6 +389,7 @@ class BacktestDataCache:
 
         return {
             "features_mb": get_size_mb(self.features_cache),
+            "date_pos_mb": get_size_mb(self.date_pos_cache),
             "metadata_mb": get_size_mb(self.metadata_cache),
             "trades_mb": get_size_mb(self.trades_cache),
             "financials_mb": get_size_mb(self.financials_cache),
@@ -358,6 +406,7 @@ class BacktestDataCache:
         print(f"Cached tickers: {len(self.features_cache)}")
         print("\nMemory usage:")
         print(f"  Features:   {memory['features_mb']:.1f} MB")
+        print(f"  DatePos:    {memory['date_pos_mb']:.1f} MB")
         print(f"  Metadata:   {memory['metadata_mb']:.3f} MB")
         print(f"  Trades:     {memory['trades_mb']:.1f} MB")
         print(f"  Financials: {memory['financials_mb']:.1f} MB")

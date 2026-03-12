@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 
 from ..analysis.signals import MarketData, SignalAction, TradingSignal
@@ -15,7 +16,6 @@ from ..analysis.filters import EntrySecondaryFilter
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
 from ..data.benchmark_manager import BenchmarkManager
-from ..data.market_data_builder import MarketDataBuilder
 from ..data.stock_data_manager import StockDataManager
 from ..overlays import OverlayContext, OverlayManager
 from ..signal_generator import generate_signal_v2
@@ -51,6 +51,7 @@ class PortfolioBacktestEngine:
         overlay_manager: Optional[OverlayManager] = None,
         preloaded_cache: Optional["BacktestDataCache"] = None,
         entry_filter_config: Optional[Dict] = None,
+        buy_rank_buffer: int = 2,
     ):
         """
         Args:
@@ -64,6 +65,7 @@ class PortfolioBacktestEngine:
             overlay_manager: Overlay管理器
             preloaded_cache: 预加载的数据缓存（可选，用于性能优化）
             entry_filter_config: 入场二级过滤配置（可选）
+            buy_rank_buffer: 买入排序额外缓冲数量（TopN+buffer）
         """
         self.starting_capital = starting_capital
         self.max_positions = max_positions
@@ -74,6 +76,7 @@ class PortfolioBacktestEngine:
         self.overlay_manager = overlay_manager
         self.preloaded_cache = preloaded_cache
         self.entry_filter = EntrySecondaryFilter.from_dict(entry_filter_config)
+        self.buy_rank_buffer = max(0, int(buy_rank_buffer))
 
         # 创建信号排序器
         self.signal_ranker = SignalRanker(method=signal_ranking_method)
@@ -113,6 +116,11 @@ class PortfolioBacktestEngine:
         logger.info(f"Backtesting Portfolio: {strategy_name}")
         logger.info(f"Stock pool: {tickers}")
 
+        need_trades, need_financials, need_metadata = self._resolve_data_requirements(
+            entry_strategy=entry_strategy,
+            exit_strategy=exit_strategy,
+        )
+
         # 创建组合
         portfolio = Portfolio(
             starting_cash=self.starting_capital,
@@ -125,7 +133,12 @@ class PortfolioBacktestEngine:
         all_data = {}
         for ticker in tickers:
             try:
-                data = self._load_stock_data(ticker)
+                data = self._load_stock_data(
+                    ticker,
+                    need_trades=need_trades,
+                    need_financials=need_financials,
+                    need_metadata=need_metadata,
+                )
                 all_data[ticker] = data
             except Exception as e:
                 logger.warning(f"Failed to load {ticker}: {e}")
@@ -296,14 +309,19 @@ class PortfolioBacktestEngine:
                     new_positions_opened = 0
 
                     # 对买入信号排序
-                    market_data_dict = {
-                        ticker: get_market_data_for_today(ticker)
-                        for ticker in pending_buy_signals.keys()
-                        if ticker in all_data
-                    }
+                    if self.signal_ranker.requires_market_data():
+                        market_data_dict = {
+                            ticker: get_market_data_for_today(ticker)
+                            for ticker in pending_buy_signals.keys()
+                            if ticker in all_data
+                        }
+                    else:
+                        market_data_dict = {}
 
                     ranked_signals = self.signal_ranker.rank_buy_signals(
-                        pending_buy_signals, market_data_dict
+                        pending_buy_signals,
+                        market_data_dict,
+                        top_k=max(1, self.max_positions + self.buy_rank_buffer),
                     )
 
                     # 依次尝试买入
@@ -405,17 +423,19 @@ class PortfolioBacktestEngine:
             buy_signals_today: Dict[str, TradingSignal] = {}
             sell_signals_today: Dict[str, TradingSignal] = {}
 
-            for ticker in tickers:
-                if ticker not in all_data:
-                    continue
+            positions = portfolio.positions
+            has_position = positions.__contains__
+            for ticker in all_data.keys():
 
                 market_data = get_market_data_for_today(ticker)
 
                 if market_data is None:
                     continue
 
+                in_position = has_position(ticker)
+
                 # 生成入场信号（对所有未持仓的股票）
-                if not portfolio.has_position(ticker):
+                if not in_position:
                     entry_signal = generate_signal_v2(
                         market_data=market_data, entry_strategy=entry_strategy
                     )
@@ -425,8 +445,8 @@ class PortfolioBacktestEngine:
                         buy_signals_today[ticker] = entry_signal
 
                 # 生成出场信号（仅对已持仓的股票）
-                if portfolio.has_position(ticker):
-                    position = portfolio.positions[ticker]
+                if in_position:
+                    position = positions[ticker]
                     exit_signal = generate_signal_v2(
                         market_data=market_data,
                         entry_strategy=entry_strategy,
@@ -457,11 +477,14 @@ class PortfolioBacktestEngine:
                 print("  买入信号:")
                 if buy_signals_today:
                     if show_signal_ranking:
-                        market_data_dict = {
-                            ticker: get_market_data_for_today(ticker)
-                            for ticker in buy_signals_today.keys()
-                            if ticker in all_data
-                        }
+                        if self.signal_ranker.requires_market_data():
+                            market_data_dict = {
+                                ticker: get_market_data_for_today(ticker)
+                                for ticker in buy_signals_today.keys()
+                                if ticker in all_data
+                            }
+                        else:
+                            market_data_dict = {}
                         ranked_signals = self.signal_ranker.rank_buy_signals(
                             buy_signals_today, market_data_dict
                         )
@@ -541,7 +564,13 @@ class PortfolioBacktestEngine:
 
         return rounded_qty
 
-    def _load_stock_data(self, ticker: str) -> Dict:
+    def _load_stock_data(
+        self,
+        ticker: str,
+        need_trades: bool = True,
+        need_financials: bool = True,
+        need_metadata: bool = True,
+    ) -> Dict:
         """
         加载单只股票的数据
 
@@ -549,11 +578,38 @@ class PortfolioBacktestEngine:
         """
         # 优先使用预加载缓存（性能优化）
         if self.preloaded_cache and self.preloaded_cache.has_ticker(ticker):
+            features = self.preloaded_cache.get_features(ticker)
+            open_col_pos = (
+                features.columns.get_loc("Open") if "Open" in features.columns else None
+            )
+            close_col_pos = (
+                features.columns.get_loc("Close")
+                if "Close" in features.columns
+                else None
+            )
+            trades_df = self.preloaded_cache.get_trades(ticker) if need_trades else pd.DataFrame()
+            financials_df = (
+                self.preloaded_cache.get_financials(ticker)
+                if need_financials
+                else pd.DataFrame()
+            )
+            trades_df = self._prepare_trades_fast(trades_df)
+            financials_df = self._prepare_financials_fast(financials_df)
+            metadata = (
+                self.preloaded_cache.get_metadata(ticker)
+                if need_metadata
+                else {}
+            )
             return {
-                "features": self.preloaded_cache.get_features(ticker),
-                "trades": self.preloaded_cache.get_trades(ticker),
-                "financials": self.preloaded_cache.get_financials(ticker),
-                "metadata": self.preloaded_cache.get_metadata(ticker),
+                "features": features,
+                "date_pos_map": self.preloaded_cache.get_date_pos_map(ticker),
+                "open_col_pos": open_col_pos,
+                "close_col_pos": close_col_pos,
+                "trades": trades_df,
+                "trade_dates": self._extract_date_array(trades_df, "EnDate"),
+                "financials": financials_df,
+                "financial_dates": self._extract_date_array(financials_df, "DiscDate"),
+                "metadata": metadata,
             }
 
         # 缓存未命中，从磁盘加载（传统方式）
@@ -574,21 +630,28 @@ class PortfolioBacktestEngine:
         df_features["Date"] = pd.to_datetime(df_features["Date"])
         df_features.set_index("Date", inplace=True)
 
-        df_trades = (
-            pd.read_parquet(trades_path) if trades_path.exists() else pd.DataFrame()
-        )
-        df_financials = (
-            pd.read_parquet(financials_path)
-            if financials_path.exists()
-            else pd.DataFrame()
-        )
+        df_trades = pd.DataFrame()
+        if need_trades and trades_path.exists():
+            df_trades = pd.read_parquet(trades_path)
 
-        metadata = data_manager.load_metadata(ticker)
+        df_financials = pd.DataFrame()
+        if need_financials and financials_path.exists():
+            df_financials = pd.read_parquet(financials_path)
+
+        metadata = data_manager.load_metadata(ticker) if need_metadata else {}
+
+        prepared_trades = self._prepare_trades_fast(df_trades)
+        prepared_financials = self._prepare_financials_fast(df_financials)
 
         return {
             "features": df_features,
-            "trades": df_trades,
-            "financials": df_financials,
+            "date_pos_map": {ts: idx for idx, ts in enumerate(df_features.index)},
+            "open_col_pos": df_features.columns.get_loc("Open") if "Open" in df_features.columns else None,
+            "close_col_pos": df_features.columns.get_loc("Close") if "Close" in df_features.columns else None,
+            "trades": prepared_trades,
+            "trade_dates": self._extract_date_array(prepared_trades, "EnDate"),
+            "financials": prepared_financials,
+            "financial_dates": self._extract_date_array(prepared_financials, "DiscDate"),
             "metadata": metadata,
         }
 
@@ -614,8 +677,14 @@ class PortfolioBacktestEngine:
         prices = {}
         for ticker, data in all_data.items():
             df = data["features"]
-            if current_date in df.index:
-                prices[ticker] = df.loc[current_date, "Close"]
+            pos_map = data.get("date_pos_map") or {}
+            row_pos = pos_map.get(current_date)
+            close_col_pos = data.get("close_col_pos")
+            if row_pos is None:
+                continue
+            if close_col_pos is None:
+                continue
+            prices[ticker] = float(df.iat[row_pos, close_col_pos])
         return prices
 
     def _get_next_open_price(
@@ -623,33 +692,100 @@ class PortfolioBacktestEngine:
     ) -> Optional[float]:
         """获取下一个交易日的开盘价"""
         df = data["features"]
-        if current_date not in df.index:
+        pos_map = data.get("date_pos_map") or {}
+        row_pos = pos_map.get(current_date)
+        open_col_pos = data.get("open_col_pos")
+        if row_pos is None:
             return None
-        return df.loc[current_date, "Open"]
+        if open_col_pos is None:
+            return None
+        return float(df.iat[row_pos, open_col_pos])
 
     def _build_market_data(
         self, ticker: str, data: Dict, current_date: pd.Timestamp
     ) -> Optional[MarketData]:
-        """使用 MarketDataBuilder 构建 MarketData 对象"""
+        """构建 MarketData（避免每次循环重复标准化和全表过滤）"""
         df = data["features"]
 
         if current_date not in df.index:
             return None
 
-        # Use positional slice to avoid rebuilding a boolean mask on every call.
+        # searchsorted on DatetimeIndex is implemented in C and is usually faster
+        # than Python dict lookup for this hot path.
         end_pos = df.index.searchsorted(current_date, side="right")
         if end_pos <= 0:
             return None
         df_historical = df.iloc[:end_pos]
 
-        return MarketDataBuilder.build_from_dataframes(
+        trades_df = data.get("trades", pd.DataFrame())
+        trades_end = None
+        if not trades_df.empty:
+            trade_dates = data.get("trade_dates")
+            if trade_dates is not None:
+                ts = np.datetime64(current_date.to_datetime64())
+                trades_end = int(np.searchsorted(trade_dates, ts, side="right"))
+        trades_slice = trades_df if trades_end is None else trades_df.iloc[:trades_end]
+
+        fin_df = data.get("financials", pd.DataFrame())
+        fin_end = None
+        if not fin_df.empty:
+            fin_dates = data.get("financial_dates")
+            if fin_dates is not None:
+                ts = np.datetime64(current_date.to_datetime64())
+                fin_end = int(np.searchsorted(fin_dates, ts, side="right"))
+        fin_slice = fin_df if fin_end is None else fin_df.iloc[:fin_end]
+
+        return MarketData(
             ticker=ticker,
             current_date=current_date,
             df_features=df_historical,
-            df_trades=data["trades"],
-            df_financials=data["financials"],
-            metadata=data["metadata"],
+            df_trades=trades_slice,
+            df_financials=fin_slice,
+            metadata=data.get("metadata", {}),
         )
+
+    def _prepare_trades_fast(self, df_trades: pd.DataFrame) -> pd.DataFrame:
+        if df_trades is None or df_trades.empty:
+            return pd.DataFrame()
+        df = df_trades
+        if "Section" in df.columns:
+            df = df[df["Section"] == "TSEPrime"]
+        if "EnDate" in df.columns:
+            df = df.copy()
+            df["EnDate"] = pd.to_datetime(df["EnDate"])
+            df = df.sort_values("EnDate")
+        return df
+
+    def _prepare_financials_fast(self, df_financials: pd.DataFrame) -> pd.DataFrame:
+        if df_financials is None or df_financials.empty:
+            return pd.DataFrame()
+        df = df_financials
+        if "DiscDate" in df.columns:
+            df = df.copy()
+            df["DiscDate"] = pd.to_datetime(df["DiscDate"])
+            df = df.sort_values("DiscDate")
+        return df
+
+    @staticmethod
+    def _extract_date_array(df: pd.DataFrame, column: str):
+        if df is None or df.empty or column not in df.columns:
+            return None
+        series = pd.to_datetime(df[column], errors="coerce").dropna()
+        if series.empty:
+            return None
+        return series.to_numpy(dtype="datetime64[ns]")
+
+    def _resolve_data_requirements(self, entry_strategy, exit_strategy) -> tuple[bool, bool, bool]:
+        entry_module = getattr(entry_strategy.__class__, "__module__", "")
+        exit_module = getattr(exit_strategy.__class__, "__module__", "")
+
+        entry_feature_only = entry_module.endswith("entry.macd_crossover")
+        exit_feature_only = exit_module.endswith("exit.multiview_grid_exit")
+
+        if entry_feature_only and exit_feature_only:
+            return False, False, False
+
+        return True, True, True
 
     def _build_portfolio_result(
         self,

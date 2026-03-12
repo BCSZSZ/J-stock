@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import time
+from collections import defaultdict
 
 import pandas as pd
 
@@ -127,6 +128,11 @@ class StrategyEvaluator:
             self.overlay_config,
             data_root=self.data_root,
         )
+
+        # 计时统计（单次run_evaluation内）
+        self._timing_counters: Dict[str, float] = defaultdict(float)
+        self._timing_counts: Dict[str, int] = defaultdict(int)
+        self.last_timing_summary: Dict[str, object] = {}
 
         # 缓存层（单次运行内有效）
         self._monitor_list_cache = None  # Monitor list 缓存
@@ -271,9 +277,21 @@ class StrategyEvaluator:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
 
         _log_step("evaluator: run_evaluation 启动")
+        run_started = time.perf_counter()
+        self._timing_counters = defaultdict(float)
+        self._timing_counts = defaultdict(int)
+
+        def _phase_timer_start() -> float:
+            return time.perf_counter()
+
+        def _phase_timer_end(name: str, started: float):
+            self._timing_counters[name] += time.perf_counter() - started
+            self._timing_counts[name] += 1
 
         _log_step("evaluator: 开始加载 monitor list")
+        phase_started = _phase_timer_start()
         tickers = self._load_monitor_list()
+        _phase_timer_end("phase_load_monitor_list", phase_started)
         _log_step(f"evaluator: monitor list 完成 (tickers={len(tickers)})")
 
         total_backtests = (
@@ -300,6 +318,7 @@ class StrategyEvaluator:
         preloaded_cache = None
         if self.use_cache:
             _log_step("evaluator: 开始预加载数据缓存")
+            phase_started = _phase_timer_start()
             print("📦 预加载数据缓存...")
             try:
                 from src.backtest.data_cache import BacktestDataCache
@@ -310,26 +329,46 @@ class StrategyEvaluator:
                 min_date = min(p[1] for p in periods)  # Earliest start_date
                 max_date = max(p[2] for p in periods)  # Latest end_date
 
+                include_trades, include_financials, include_metadata = (
+                    self._resolve_aux_preload_flags(
+                        entry_strategies=entry_strategies,
+                        exit_strategies=exit_strategies,
+                        entry_mapping=ENTRY_STRATEGIES,
+                        exit_mapping=EXIT_STRATEGIES,
+                    )
+                )
+
                 preloaded_cache.preload_tickers(
                     tickers=tickers,
                     start_date=min_date,
                     end_date=max_date,
                     optimize_memory=True,
+                    include_trades=include_trades,
+                    include_financials=include_financials,
+                    include_metadata=include_metadata,
                 )
 
                 memory_dict = preloaded_cache.get_memory_usage()
                 total_mb = sum(memory_dict.values())
                 print(f"✅ 缓存加载完成: {len(tickers)}只股票, {total_mb:.2f} MB\n")
+                print(
+                    "   缓存内容: "
+                    f"trades={'on' if include_trades else 'off'}, "
+                    f"financials={'on' if include_financials else 'off'}, "
+                    f"metadata={'on' if include_metadata else 'off'}"
+                )
                 _log_step(f"evaluator: 数据缓存完成 ({total_mb:.2f} MB)")
             except Exception as e:
                 print(f"⚠️  缓存加载失败，继续串行并禁用缓存: {e}\n")
                 preloaded_cache = None
                 _log_step("evaluator: 缓存加载失败，已禁用缓存")
+            _phase_timer_end("phase_preload_cache", phase_started)
         else:
             _log_step("evaluator: 数据缓存关闭")
 
         # Step 2: Prepare TOPIX cache
         _log_step("evaluator: 开始预加载 TOPIX")
+        phase_started = _phase_timer_start()
         print("📊 预加载TOPIX基准数据...")
         for period_label, start_date, end_date in periods:
             cache_key = (start_date, end_date)
@@ -338,9 +377,11 @@ class StrategyEvaluator:
                     start_date, end_date
                 )
         print("✅ TOPIX数据缓存完成\n")
+        _phase_timer_end("phase_preload_topix", phase_started)
         _log_step("evaluator: TOPIX 预加载完成")
 
         # Step 3: Create task list
+        phase_started = _phase_timer_start()
         tasks = []
         for period_label, start_date, end_date in periods:
             topix_return = self._topix_cache.get((start_date, end_date))
@@ -359,9 +400,11 @@ class StrategyEvaluator:
                                 "topix_return": topix_return,
                             }
                         )
+        _phase_timer_end("phase_build_tasks", phase_started)
         _log_step(f"evaluator: 任务列表完成 (tasks={len(tasks)})")
 
         # Step 4: Execute backtests (serial)
+        phase_started = _phase_timer_start()
         print(f"🚀 开始执行 {len(tasks)} 个回测任务...")
         print("   进度字段: 完成数/总数, 成功, 失败, 百分比, 已耗时, 吞吐, ETA, 预计完成时刻")
         completed = 0
@@ -444,6 +487,8 @@ class StrategyEvaluator:
                     )
                     last_progress_print = now
 
+        _phase_timer_end("phase_execute_tasks", phase_started)
+
         total_elapsed_sec = time.monotonic() - run_started_monotonic
         avg_sec_per_task = (
             total_elapsed_sec / completed if completed > 0 else 0.0
@@ -454,10 +499,76 @@ class StrategyEvaluator:
             f"   执行统计: elapsed={_fmt_hms(total_elapsed_sec)}, "
             f"avg={avg_sec_per_task:.2f}s/task, ok={success_count}, err={error_count}"
         )
+
+        total_phases = [
+            "phase_load_monitor_list",
+            "phase_preload_cache",
+            "phase_preload_topix",
+            "phase_build_tasks",
+            "phase_execute_tasks",
+        ]
+        print("\n⏱️ 阶段耗时明细:")
+        for key in total_phases:
+            sec = self._timing_counters.get(key, 0.0)
+            pct = (sec / total_elapsed_sec * 100.0) if total_elapsed_sec > 0 else 0.0
+            print(f"   - {key}: {sec:.2f}s ({pct:.1f}%)")
+
+        per_task_keys = [
+            "task_strategy_load",
+            "task_monitor_list_load",
+            "task_engine_init",
+            "task_engine_backtest",
+        ]
+        if completed > 0:
+            print("\n⏱️ 单任务关键子步骤累计:")
+            for key in per_task_keys:
+                sec = self._timing_counters.get(key, 0.0)
+                avg = sec / completed
+                print(f"   - {key}: total={sec:.2f}s, avg={avg:.4f}s/task")
+
+        self.last_timing_summary = {
+            "total_elapsed_sec": time.perf_counter() - run_started,
+            "completed_tasks": completed,
+            "success_count": success_count,
+            "error_count": error_count,
+            "phase_seconds": {k: float(self._timing_counters.get(k, 0.0)) for k in total_phases},
+            "task_step_seconds": {
+                k: float(self._timing_counters.get(k, 0.0)) for k in per_task_keys
+            },
+        }
         print(f"{'=' * 80}\n")
         _log_step("evaluator: run_evaluation 结束")
 
         return self._create_results_dataframe()
+
+    @staticmethod
+    def _resolve_aux_preload_flags(
+        entry_strategies: List[str],
+        exit_strategies: List[str],
+        entry_mapping: Dict[str, str],
+        exit_mapping: Dict[str, str],
+    ) -> Tuple[bool, bool, bool]:
+        """
+        Determine whether auxiliary datasets should be preloaded based on
+        selected strategy modules.
+        """
+
+        def _entry_feature_only(name: str) -> bool:
+            path = entry_mapping.get(name, "")
+            return path.endswith("entry.macd_crossover.MACDCrossoverStrategy")
+
+        def _exit_feature_only(name: str) -> bool:
+            path = exit_mapping.get(name, "")
+            return "exit.multiview_grid_exit" in path
+
+        if entry_strategies and exit_strategies:
+            all_feature_only = all(_entry_feature_only(e) for e in entry_strategies) and all(
+                _exit_feature_only(x) for x in exit_strategies
+            )
+            if all_feature_only:
+                return False, False, False
+
+        return True, True, True
 
     def _run_single_backtest(
         self,
@@ -482,14 +593,19 @@ class StrategyEvaluator:
         from src.utils.strategy_loader import load_entry_strategy, load_exit_strategy
 
         # 加载策略实例
+        phase_started = time.perf_counter()
         entry = load_entry_strategy(entry_strategy)
         exit_inst = load_exit_strategy(exit_strategy)
+        self._timing_counters["task_strategy_load"] += time.perf_counter() - phase_started
 
         # 加载监视列表
+        phase_started = time.perf_counter()
         tickers = self._load_monitor_list()
+        self._timing_counters["task_monitor_list_load"] += time.perf_counter() - phase_started
 
         # 运行回测（调用现有功能，不做任何修改）
         max_positions, max_position_pct = self._get_portfolio_limits()
+        phase_started = time.perf_counter()
         engine = PortfolioBacktestEngine(
             data_root=self.data_root,
             starting_capital=self._get_starting_capital(),
@@ -500,7 +616,9 @@ class StrategyEvaluator:
             preloaded_cache=preloaded_cache,  # Pass cache to engine
             entry_filter_config=entry_filter_config,
         )
+        self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 
+        phase_started = time.perf_counter()
         result = engine.backtest_portfolio_strategy(
             tickers=tickers,
             entry_strategy=entry,
@@ -511,6 +629,7 @@ class StrategyEvaluator:
             show_signal_details=False,
             compute_benchmark=False,
         )
+        self._timing_counters["task_engine_backtest"] += time.perf_counter() - phase_started
 
         # 计算alpha：如果没有TOPIX数据，则设为None
         alpha = None
