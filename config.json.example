@@ -3,86 +3,89 @@
     "monitor_list_file": "data/monitor_list.json",
     "data_dir": "data"
   },
-
   "runtime": {
     "mode": "local",
     "storage_backend": "local_fs",
     "state_backend": "json"
   },
-
   "backtest": {
     "start_date": "2021-01-01",
     "end_date": "2026-01-08",
     "starting_capital_jpy": 5000000,
     "output_dir": "backtest_results"
   },
-
   "portfolio": {
-    "starting_capital_jpy": 8000000,
     "max_positions": 8,
     "max_position_pct": 0.2,
     "min_position_pct": 0.05,
     "output_dir": "portfolio_backtest_results"
   },
-
   "lot_sizes": {
     "1321": 1,
     "1343": 1,
     "default": 100
   },
-
   "default_strategies": {
     "entry": "SimpleScorerStrategy",
     "exit": "MVX_N9_R3p4_T1p6_D18_B20p0"
   },
-
-  "entry_eval_exit_strategies": [
-    "MVX_N9_R3p4_T1p6_D18_B20p0",
-    "MVX_N9_R3p4_T1p5_D18_B20p0",
-    "MVX_N9_R3p4_T1p6_D18_B20p5"
-  ],
-
   "evaluation": {
     "output_dir": "strategy_evaluation",
-    "exit_confirmation_days": 1,
-    "entry_filters": {
-      "f01_base": {
-        "enabled": true,
+    "default_entry_strategies": [
+      "MACDCrossoverStrategy"
+    ],
+    "default_exit_strategies": [
+      "MVX_N9_R3p6_T1p7_D18_B20p0"
+    ],
+    "exit_confirmation_days": 2,
+    "filters": {
+      "mode": "single",
+      "default": {
+        "enabled": false,
         "require_ema_bull_stack": true,
         "rsi_min": 55,
         "rsi_max": 75,
         "atr_price_max": 0.04,
         "min_price": 1000
       },
-      "f02_rsi_tight": {
-        "enabled": true,
-        "require_ema_bull_stack": true,
-        "rsi_min": 58,
-        "rsi_max": 70,
-        "atr_price_max": 0.04,
-        "min_price": 1000
-      },
-      "f03_vol_relaxed": {
-        "enabled": true,
-        "require_ema_bull_stack": true,
-        "rsi_min": 55,
-        "rsi_max": 75,
-        "atr_price_max": 0.05,
-        "min_price": 1000
+      "variants": {
+        "f01_base": {
+          "enabled": true,
+          "require_ema_bull_stack": true,
+          "rsi_min": 55,
+          "rsi_max": 75,
+          "atr_price_max": 0.04,
+          "min_price": 1000
+        },
+        "f02_rsi_tight": {
+          "enabled": true,
+          "require_ema_bull_stack": true,
+          "rsi_min": 58,
+          "rsi_max": 70,
+          "atr_price_max": 0.04,
+          "min_price": 1000
+        }
       }
     },
-    "entry_filter": {
-      "enabled": false,
-      "require_ema_bull_stack": true,
-      "rsi_min": 55,
-      "rsi_max": 75,
-      "atr_price_max": 0.04,
-      "min_price": 1000
-    }
+    "default_position_file": "evaluation-position-1x9x4.json",
+    "default_profile_names": [
+      "p7x018"
+    ]
   },
-
   "overlays": {
-    "enabled": ["RegimeOverlay"],
+    "enabled": false,
+    "active": [
+      "SectorBreadthOverlay"
+    ],
+    "SectorBreadthOverlay": {
+      "metrics_file": "data/features/sector_daily_metrics.parquet",
+      "snapshot_dir": "data/metadata/sector_overlay",
+      "risk_on_target_exposure": 1.0,
+      "neutral_target_exposure": 0.8,
+      "risk_off_target_exposure": 0.55,
+      "block_new_entries_when_risk_off": true,
+      "enable_exit_overrides": true
+    },
     "RegimeOverlay": {
       "benchmark": "TOPIX",
       "ema_window": 200,
@@ -93,7 +96,6 @@
       "block_new_entries_when_off": false
     }
   },
-
   "production": {
     "monitor_list_file": "data/production_monitor_list.json",
     "fetch_universe_file": "output/state/fetch_universe.json",
@@ -109,7 +111,7 @@
     "strategy_groups": [
       {
         "id": "group_main",
-        "name": "主策略组",
+        "name": "main",
         "initial_capital": 3000000,
         "entry_strategy": "MACDCrossoverStrategy",
         "exit_strategy": "MVX_N9_R3p4_T1p6_D18_B20p0"

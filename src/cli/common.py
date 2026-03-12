@@ -1,8 +1,8 @@
-import json
 import sys
 from pathlib import Path
 
 from src.config.runtime import get_config_file_path
+from src.config.service import load_config as load_config_service
 
 
 def load_config() -> dict:
@@ -12,8 +12,7 @@ def load_config() -> dict:
         print(f"❌ 错误: 配置文件不存在 {config_path}")
         sys.exit(1)
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return load_config_service(str(config_path))
 
 
 def load_monitor_list(config: dict) -> list:

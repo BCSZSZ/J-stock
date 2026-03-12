@@ -16,8 +16,6 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from src.config.runtime import get_config_file_path
-
 from ..analysis.signals import MarketData, Position, SignalAction, TradingSignal
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
@@ -474,13 +472,11 @@ class SignalGenerator:
 
 if __name__ == "__main__":
     # Quick test
-    import json
-
     from ..data.stock_data_manager import StockDataManager
+    from ..config.service import load_config
     from .state_manager import ProductionState
 
-    with open(get_config_file_path(), "r", encoding="utf-8") as f:
-        config = json.load(f)["production"]
+    config = load_config().get("production", {})
 
     state = ProductionState()
     data_manager = StockDataManager()

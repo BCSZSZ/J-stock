@@ -1,4 +1,3 @@
-import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +7,8 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from src.cli.production_utils import load_monitor_tickers
-from src.config.runtime import get_config_file_path, is_local_path
+from src.config.runtime import is_local_path
+from src.config.service import load_config
 from src.data.fetch_universe_builder import build_fetch_universe_file
 from src.data.sector_metrics_updater import update_sector_metrics
 from src.utils.signal_sizing import extract_buy_size_multiplier
@@ -29,8 +29,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     api_key = os.getenv("JQUANTS_API_KEY")
     raw_config = getattr(prod_cfg, "raw_config", None)
     if raw_config is None:
-        with open(get_config_file_path(), "r", encoding="utf-8") as f:
-            raw_config = json.load(f)
+        raw_config = load_config()
     lot_sizes = raw_config.get("lot_sizes", {})
     default_lot_size = int(lot_sizes.get("default", 100) or 100)
     prod_runtime_cfg = raw_config.get("production", {})

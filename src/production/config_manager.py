@@ -3,12 +3,12 @@ Phase 1: Configuration Manager
 负责从 config.json 读取系统初始化参数
 """
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.config.runtime import is_local_path, sample_path_from_pattern
+from src.config.service import load_config
 
 
 @dataclass
@@ -103,8 +103,7 @@ class ConfigManager:
 
     def _load_config(self) -> Dict[str, Any]:
         """Load config from JSON file"""
-        with open(self.config_file, "r", encoding="utf-8") as f:
-            return json.load(f)
+        return load_config(str(self.config_file))
 
     def _validate_config(self) -> None:
         """Validate that required fields exist"""

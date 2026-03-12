@@ -31,9 +31,9 @@
 
 - `--entry-filter-mode off|single|grid|auto`
   - `off`: 关闭过滤层（不启用二级过滤）
-  - `single`: 只使用单一过滤器（默认 `evaluation.entry_filter`）
-  - `grid`: 使用 `evaluation.entry_filters` 做网格评估
-  - `auto`: 有 `entry_filters` 就走网格，否则走单一（默认）
+  - `single`: 只使用单一过滤器（默认 `evaluation.filters.default`）
+  - `grid`: 使用 `evaluation.filters.variants` 做网格评估
+  - `auto`: 有 `filters.variants` 就走网格，否则走单一（默认）
 - `--entry-filter-name ...`
   - `single` 模式下指定 1 个过滤器名
   - `grid` 模式下可指定多个过滤器名作为子集
@@ -117,7 +117,7 @@
 .venv/Scripts/python.exe main.py production --daily --no-fetch
 ```
 
-说明：production 流程已接入 overlay，并在日报 `Overlay Summary` 区块输出 overlay 指标与判断结果（含 regime、阈值指标、组合决策与触发动作）。
+说明：production 流程已接入 overlay，并在日报 `Overlay Summary` 区块输出 overlay 指标与判断结果（默认主用 SectorBreadthOverlay；RegimeOverlay 为 deprecated 兼容项）。
 
 ### 外部文件导入成交（production --input）
 

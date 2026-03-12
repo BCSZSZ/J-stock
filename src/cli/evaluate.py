@@ -72,18 +72,7 @@ def _resolve_output_dir(user_output_dir):
 
 def _load_entry_filter_variants(cfg):
     eval_cfg = cfg.get("evaluation", {})
-    variants_cfg = eval_cfg.get("entry_filters")
-    if isinstance(variants_cfg, list) and variants_cfg:
-        variants = []
-        for idx, item in enumerate(variants_cfg, 1):
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or f"filter_{idx}")
-            filter_cfg = {k: v for k, v in item.items() if k != "name"}
-            variants.append((name, filter_cfg))
-        if variants:
-            return variants
-
+    variants_cfg = eval_cfg.get("filters", {}).get("variants", {})
     if isinstance(variants_cfg, dict) and variants_cfg:
         variants = []
         for name, filter_cfg in variants_cfg.items():
@@ -97,7 +86,7 @@ def _load_entry_filter_variants(cfg):
 
 def _resolve_entry_filter_variants(cfg, mode, selected_names):
     eval_cfg = cfg.get("evaluation", {})
-    default_filter_cfg = eval_cfg.get("entry_filter", {})
+    default_filter_cfg = eval_cfg.get("filters", {}).get("default", {})
     named_variants = _load_entry_filter_variants(cfg)
     named_map = {name: variant_cfg for name, variant_cfg in named_variants}
 
@@ -117,7 +106,7 @@ def _resolve_entry_filter_variants(cfg, mode, selected_names):
     if mode == "grid":
         if not named_variants:
             raise ValueError(
-                "grid模式需要在config.evaluation.entry_filters中定义至少1个过滤器"
+                "grid模式需要在config.evaluation.filters.variants中定义至少1个过滤器"
             )
         if not selected_names:
             return named_variants
@@ -128,7 +117,7 @@ def _resolve_entry_filter_variants(cfg, mode, selected_names):
 
     if selected_names:
         if not named_variants:
-            raise ValueError("当前配置未定义entry_filters，无法按名称选择")
+            raise ValueError("当前配置未定义filters.variants，无法按名称选择")
         missing = [name for name in selected_names if name not in named_map]
         if missing:
             raise ValueError(f"未找到entry filter: {', '.join(missing)}")
@@ -140,7 +129,7 @@ def _resolve_entry_filter_variants(cfg, mode, selected_names):
 
 def _print_available_entry_filters(cfg):
     eval_cfg = cfg.get("evaluation", {})
-    default_filter_cfg = eval_cfg.get("entry_filter", {})
+    default_filter_cfg = eval_cfg.get("filters", {}).get("default", {})
     named_variants = _load_entry_filter_variants(cfg)
 
     print("\n🧪 可用 Entry Filter:")
@@ -151,7 +140,7 @@ def _print_available_entry_filters(cfg):
         for name, variant_cfg in named_variants:
             print(f"   - {name}: enabled={variant_cfg.get('enabled', False)}")
     else:
-        print("   - (未定义 evaluation.entry_filters)")
+        print("   - (未定义 evaluation.filters.variants)")
 
 
 def _build_periods(args):
@@ -223,14 +212,14 @@ def _resolve_universe_variants(universe_files):
     return variants
 
 
-def _resolve_effective_overlay_enabled(eval_cfg, args, override: bool = None) -> bool:
+def _resolve_effective_overlay_enabled(config, args, override: bool = None) -> bool:
     """Resolve final overlay switch from CLI/config/override in one place."""
     if override is not None:
         return bool(override)
 
     arg_overlay = getattr(args, "enable_overlay", None)
     if arg_overlay is None:
-        return bool(eval_cfg.get("default_overlay_enabled", False))
+        return bool(config.get("overlays", {}).get("enabled", False))
     return bool(arg_overlay)
 
 
@@ -258,12 +247,14 @@ def _run_once(
     if exit_confirm_days is None:
         exit_confirm_days = int(eval_cfg.get("exit_confirmation_days", 1))
     exit_confirm_days = max(1, int(exit_confirm_days))
-    use_overlay = _resolve_effective_overlay_enabled(
-        eval_cfg=eval_cfg,
-        args=args,
-        override=enable_overlay,
-    )
-    overlay_config = config if use_overlay else {}
+    use_overlay = _resolve_effective_overlay_enabled(config=config, args=args, override=enable_overlay)
+    if use_overlay:
+        overlay_config = dict(config)
+        overlays_cfg = dict(config.get("overlays", {}))
+        overlays_cfg["enabled"] = True
+        overlay_config["overlays"] = overlays_cfg
+    else:
+        overlay_config = {}
     _log_step(f"_run_once: overlay={'on' if use_overlay else 'off'}")
 
     evaluator = StrategyEvaluator(
@@ -273,7 +264,7 @@ def _run_once(
         verbose=args.verbose,
         exit_confirmation_days=exit_confirm_days,
         overlay_config=overlay_config,
-        entry_filter_config=config.get("evaluation", {}).get("entry_filter", {}),
+        entry_filter_config=config.get("evaluation", {}).get("filters", {}).get("default", {}),
         entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
     )
@@ -302,14 +293,9 @@ def _run_once(
             print(f"   出场策略: {', '.join(exit_strategies)}")
 
     if not exit_strategies:
-        exit_strategies = config.get("entry_eval_exit_strategies")
-        if exit_strategies:
-            print("\n🧭 使用配置文件中的评估出场策略 (entry_eval_exit_strategies)")
-            print(f"   出场策略: {', '.join(exit_strategies)}")
-        else:
-            print(
-                "\n⚠️ 警告: 配置文件中未定义entry_eval_exit_strategies，将使用所有可用策略"
-            )
+        print(
+            "\n⚠️ 警告: 未定义 evaluation.default_exit_strategies，将使用所有可用策略"
+        )
     original_exit_count = len(exit_strategies) if exit_strategies else 0
     exit_strategies = _dedupe_preserve_order(exit_strategies)
     if exit_strategies and len(exit_strategies) != original_exit_count:
@@ -395,8 +381,7 @@ def cmd_evaluate(args):
     output_dir = _resolve_output_dir(args.output_dir)
     _log_step(f"evaluate: 输出目录就绪 -> {output_dir}")
 
-    eval_cfg = config.get("evaluation", {})
-    effective_overlay_on = _resolve_effective_overlay_enabled(eval_cfg, args)
+    effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
 
     print(f"\n🧪 Entry Filter 变体: {len(entry_filter_variants)} 个")
     print(f"   {', '.join(name for name, _ in entry_filter_variants)}")
@@ -548,11 +533,7 @@ def cmd_pos_evaluation(args):
     if args.overlay_modes:
         overlay_modes = args.overlay_modes
     else:
-        overlay_default_on = (
-            eval_cfg.get("default_overlay_enabled", False)
-            if args.enable_overlay is None
-            else bool(args.enable_overlay)
-        )
+        overlay_default_on = _resolve_effective_overlay_enabled(config, args)
         overlay_modes = ["on"] if overlay_default_on else ["off"]
     overlay_modes = [m.lower() for m in overlay_modes]
 

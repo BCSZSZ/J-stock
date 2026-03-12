@@ -34,12 +34,28 @@
     "default_entry_strategies": ["MACDCrossoverStrategy"],
     "default_exit_strategies": ["MVX_N9_R3p6_T1p7_D18_B20p0"],
     "exit_confirmation_days": 2,
-    "default_overlay_enabled": true,
+    "filters": {
+      "mode": "single",
+      "default": {
+        "enabled": false
+      },
+      "variants": {}
+    },
     "default_position_file": "s3://jsa-prod-ops/evaluation/evaluation-position.json",
     "default_profile_names": ["p7x018"]
   },
   "overlays": {
-    "enabled": ["RegimeOverlay"],
+    "enabled": false,
+    "active": ["SectorBreadthOverlay"],
+    "SectorBreadthOverlay": {
+      "metrics_file": "/tmp/data/features/sector_daily_metrics.parquet",
+      "snapshot_dir": "/tmp/data/metadata/sector_overlay",
+      "risk_on_target_exposure": 1.0,
+      "neutral_target_exposure": 0.8,
+      "risk_off_target_exposure": 0.55,
+      "block_new_entries_when_risk_off": true,
+      "enable_exit_overrides": true
+    },
     "RegimeOverlay": {
       "benchmark": "TOPIX",
       "ema_window": 200,

@@ -37,7 +37,21 @@
 - block_new_entries / force_exit: 任一触发即为 True
 - exit_overrides: 合并并去重
 
-## 4. 当前实现: RegimeOverlay
+## 4. 当前默认实现: SectorBreadthOverlay
+
+判断逻辑 (默认):
+
+- 使用 `sector_daily_metrics` 计算板块广度与强弱占比
+- 输出风险档位: `RISK_ON / NEUTRAL / RISK_OFF / DATA_GUARD`
+
+输出:
+
+- `target_exposure`
+- `max_new_positions`
+- `block_new_entries`
+- `exit_overrides` (可选)
+
+## 4.1 RegimeOverlay（deprecated，兼容保留）
 
 判断逻辑 (默认):
 
@@ -62,7 +76,17 @@
 
 ```json
 "overlays": {
-  "enabled": ["RegimeOverlay"],
+  "enabled": false,
+  "active": ["SectorBreadthOverlay"],
+  "SectorBreadthOverlay": {
+    "metrics_file": "data/features/sector_daily_metrics.parquet",
+    "snapshot_dir": "data/metadata/sector_overlay",
+    "risk_on_target_exposure": 1.0,
+    "neutral_target_exposure": 0.8,
+    "risk_off_target_exposure": 0.55,
+    "block_new_entries_when_risk_off": true,
+    "enable_exit_overrides": true
+  },
   "RegimeOverlay": {
     "benchmark": "TOPIX",
     "ema_window": 200,
@@ -74,6 +98,11 @@
   }
 }
 ```
+
+开启 Overlay 时:
+
+- 将 `overlays.enabled` 改为 `true`
+- 默认将按 `active` 中的 `SectorBreadthOverlay` 生效
 
 ## 7. 后续扩展示例
 

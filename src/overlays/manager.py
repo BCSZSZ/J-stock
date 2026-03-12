@@ -1,3 +1,4 @@
+import logging
 from dataclasses import asdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -10,6 +11,9 @@ OVERLAY_REGISTRY = {
     "RegimeOverlay": RegimeOverlay,
     "SectorBreadthOverlay": SectorBreadthOverlay,
 }
+
+
+logger = logging.getLogger(__name__)
 
 
 class OverlayManager:
@@ -84,8 +88,21 @@ class OverlayManager:
     @staticmethod
     def from_config(config: Dict[str, Any], data_root: str = "data") -> "OverlayManager":
         overlays_cfg = config.get("overlays", {}) if config else {}
-        enabled = set(overlays_cfg.get("enabled", []))
+        global_enabled = bool(overlays_cfg.get("enabled", False))
+
+        if not global_enabled:
+            return OverlayManager([])
+
+        active = overlays_cfg.get("active", [])
+
+        enabled = set(active if isinstance(active, list) else [])
         overlays: List[BaseOverlay] = []
+
+        if "RegimeOverlay" in enabled:
+            logger.warning(
+                "RegimeOverlay is deprecated and kept for backward compatibility. "
+                "Use SectorBreadthOverlay as the primary overlay."
+            )
 
         for name in enabled:
             overlay_class = OVERLAY_REGISTRY.get(name)

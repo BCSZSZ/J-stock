@@ -7,7 +7,7 @@ from .base import BaseOverlay, OverlayContext, OverlayDecision
 
 
 class RegimeOverlay(BaseOverlay):
-    """Risk on/off overlay based on benchmark trend and volatility."""
+    """Deprecated: risk on/off overlay based on benchmark trend and volatility."""
 
     name = "RegimeOverlay"
     priority = 10

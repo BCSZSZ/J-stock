@@ -60,7 +60,9 @@
 ### 8) Overlay 全局风控层
 
 - Overlay 作为全局控制层，可统一调节仓位、限制新开仓、触发强制减仓
-- 默认提供 RegimeOverlay（TOPIX 趋势 + 波动过滤）
+- 默认不开启（`overlays.enabled = false`）
+- 默认主用 SectorBreadthOverlay（板块广度/趋势）
+- RegimeOverlay 已标记为 deprecated，仅保留兼容用途
 - 配置见 `config.json` 的 `overlays` 区块，详细说明见 `docs/overlays/OVERLAY_FRAMEWORK.md`
 
 ## 🚀 命令行大全

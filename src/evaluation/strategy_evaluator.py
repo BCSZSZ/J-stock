@@ -16,7 +16,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from src.config.runtime import get_config_file_path
+from src.config.service import load_config
 from src.overlays import OverlayManager
 
 
@@ -163,15 +163,12 @@ class StrategyEvaluator:
                 pass
 
         try:
-            config_path = get_config_file_path()
-            if config_path.exists():
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                eval_cfg = config.get("evaluation", {})
-                value = int(eval_cfg.get("starting_capital_jpy", 8_000_000))
-                if value > 0:
-                    self._starting_capital_cache = value
-                    return self._starting_capital_cache
+            config = load_config()
+            eval_cfg = config.get("evaluation", {})
+            value = int(eval_cfg.get("starting_capital_jpy", 8_000_000))
+            if value > 0:
+                self._starting_capital_cache = value
+                return self._starting_capital_cache
         except Exception:
             pass
 
@@ -224,15 +221,12 @@ class StrategyEvaluator:
                 pass
 
         try:
-            config_path = get_config_file_path()
-            if config_path.exists():
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                portfolio_cfg = config.get("portfolio", {})
-                max_positions = int(portfolio_cfg.get("max_positions", 7))
-                max_position_pct = float(portfolio_cfg.get("max_position_pct", 0.18))
-                self._portfolio_limits_cache = (max_positions, max_position_pct)
-                return self._portfolio_limits_cache
+            config = load_config()
+            portfolio_cfg = config.get("portfolio", {})
+            max_positions = int(portfolio_cfg.get("max_positions", 7))
+            max_position_pct = float(portfolio_cfg.get("max_position_pct", 0.18))
+            self._portfolio_limits_cache = (max_positions, max_position_pct)
+            return self._portfolio_limits_cache
         except Exception:
             pass
 

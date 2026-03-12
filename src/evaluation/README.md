@@ -11,15 +11,16 @@ Applied defaults:
 
 - Exit strategy: `MVX_N9_R3p6_T1p7_D18_B20p0`
 - Position profile source file: `evaluation-position-1x9x4.json`
-- Overlay mode: enabled (`ovl=on`)
+- Overlay mode: disabled by default (`ovl=off`)
 
 ## Config keys
 
 These defaults are defined in `config.json` under `evaluation`:
 
 - `default_position_file`
-- `default_overlay_enabled`
 - `default_exit_strategies`
+
+Overlay default switch is defined in `config.json` under `overlays.enabled`.
 
 ## Notes
 
