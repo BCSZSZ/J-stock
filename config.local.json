@@ -15,8 +15,9 @@
     "output_dir": "backtest_results"
   },
   "portfolio": {
-    "max_positions": 8,
-    "max_position_pct": 0.2,
+    "starting_capital_jpy": 8000000,
+    "max_positions": 7,
+    "max_position_pct": 0.18,
     "min_position_pct": 0.05,
     "output_dir": "portfolio_backtest_results"
   },
@@ -75,14 +76,14 @@
     "cash_history_file": "G:/My Drive/AI-Stock-Sync/state/cash_history.json",
     "fetch_universe_file": "G:/My Drive/AI-Stock-Sync/state/fetch_universe.json",
     "sector_pool_file": "G:/My Drive/AI-Stock-Sync/universe/sector_pool",
-    "max_positions_per_group": 8,
-    "max_position_pct": 0.2,
+    "max_positions_per_group": 7,
+    "max_position_pct": 0.18,
     "buy_threshold": 65,
     "strategy_groups": [
       {
         "id": "group_main",
         "name": "主策略组",
-        "initial_capital": 3000000,
+        "initial_capital": 8000000,
         "entry_strategy": "MACDCrossoverStrategy",
         "exit_strategy": "MVX_N9_R3p4_T1p6_D18_B20p0"
       }
