@@ -129,6 +129,7 @@ Resources:
             - Effect: Allow
               Action:
                 - s3:GetObject
+                - s3:ListBucket
               Resource: "*"
 
   FetchWorkerFunction:
@@ -221,6 +222,7 @@ Resources:
               Action:
                 - s3:GetObject
                 - s3:PutObject
+                - s3:ListBucket
               Resource: "*"
             - Effect: Allow
               Action:

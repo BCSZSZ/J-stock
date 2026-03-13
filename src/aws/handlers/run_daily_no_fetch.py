@@ -90,6 +90,7 @@ def _build_runtime_config(base_config_path: Path, runtime_root: Path, monitor_lo
     base["production"]["history_file"] = str(state_root / "trade_history.json")
     base["production"]["cash_history_file"] = str(state_root / "cash_history.json")
     base["production"]["fetch_universe_file"] = str(state_root / "fetch_universe.json")
+    base["production"]["sector_pool_file"] = str(data_dir / "universe" / "sector_pool")
     base["production"]["signal_file_pattern"] = str(output_root / "signals" / "{date}.json")
     base["production"]["report_file_pattern"] = str(output_root / "reports" / "{date}.md")
 
