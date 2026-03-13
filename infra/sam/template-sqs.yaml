@@ -20,6 +20,19 @@ Parameters:
     Type: Number
     Default: 100
 
+  FetchWorkerMaxConcurrency:
+    Type: Number
+    Default: 2
+    MinValue: 2
+
+  JQuantsRateLimitRpm:
+    Type: Number
+    Default: 24
+
+  SectorPoolS3Uri:
+    Type: String
+    Default: ""
+
   UpdateAuxData:
     Type: String
     Default: "false"
@@ -107,6 +120,8 @@ Resources:
           MONITOR_LIST_S3_URI: !Ref MonitorListS3Uri
           TICKERS_PER_JOB: !Ref TickersPerJob
           UPDATE_AUX_DATA: !Ref UpdateAuxData
+          DATA_S3_PREFIX: !Ref DataS3Prefix
+          SECTOR_POOL_S3_URI: !Ref SectorPoolS3Uri
       Policies:
         - SQSSendMessagePolicy:
             QueueName: !GetAtt FetchJobQueue.QueueName
@@ -130,6 +145,7 @@ Resources:
           DATA_ROOT: /tmp/data
           JQUANTS_API_KEY: !Ref JQuantsApiKey
           DATA_S3_PREFIX: !Ref DataS3Prefix
+          JQUANTS_RATE_LIMIT_RPM: !Ref JQuantsRateLimitRpm
       Events:
         FetchQueueEvent:
           Type: SQS
@@ -137,7 +153,7 @@ Resources:
             Queue: !GetAtt FetchJobQueue.Arn
             BatchSize: 1
             ScalingConfig:
-              MaximumConcurrency: 2
+              MaximumConcurrency: !Ref FetchWorkerMaxConcurrency
             Enabled: true
       Policies:
         - Statement:
@@ -198,6 +214,7 @@ Resources:
           DISPATCH_FUNCTION_NAME: !Ref DispatchFetchJobsFunction
           TICKERS_PER_JOB: !Ref TickersPerJob
           UPDATE_AUX_DATA: !Ref UpdateAuxData
+          SECTOR_POOL_S3_URI: !Ref SectorPoolS3Uri
       Policies:
         - Statement:
             - Effect: Allow

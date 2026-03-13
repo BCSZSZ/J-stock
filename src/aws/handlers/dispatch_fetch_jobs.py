@@ -2,42 +2,9 @@ import json
 import os
 from datetime import datetime
 from typing import Any, Dict, List
-from urllib.parse import urlparse
 
+from src.aws.ticker_universe import resolve_fetch_tickers
 from src.aws.job_splitter import build_fetch_jobs
-
-
-def _load_monitor_list_from_s3(s3_uri: str) -> List[str]:
-    parsed = urlparse(s3_uri)
-    bucket = parsed.netloc
-    key = parsed.path.lstrip("/")
-
-    import boto3
-
-    s3 = boto3.client("s3")
-    body = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
-    payload = json.loads(body)
-    raw = payload.get("tickers", []) if isinstance(payload, dict) else payload
-    result: List[str] = []
-    for item in raw:
-        if isinstance(item, dict):
-            code = item.get("code")
-        else:
-            code = item
-        if code:
-            result.append(str(code).strip())
-    return result
-
-
-def _resolve_tickers(event: Dict[str, Any]) -> List[str]:
-    if event.get("tickers"):
-        return [str(t).strip() for t in event["tickers"] if str(t).strip()]
-
-    monitor_s3_uri = event.get("monitor_list_s3_uri") or os.getenv("MONITOR_LIST_S3_URI", "")
-    if monitor_s3_uri.startswith("s3://"):
-        return _load_monitor_list_from_s3(monitor_s3_uri)
-
-    return []
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -45,7 +12,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     if not queue_url:
         raise ValueError("FETCH_JOB_QUEUE_URL is required")
 
-    tickers = _resolve_tickers(event)
+    universe = resolve_fetch_tickers(event)
+    tickers = universe["tickers"]
     tickers_per_job = int(event.get("tickers_per_job", os.getenv("TICKERS_PER_JOB", "100")))
     update_aux_data = bool(
         event.get("update_aux_data", str(os.getenv("UPDATE_AUX_DATA", "false")).lower() == "true")
@@ -75,6 +43,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         "status": "ok",
         "run_date": run_date,
         "total_tickers": len(tickers),
+        "monitor_tickers": universe["monitor_count"],
+        "sector_pool_tickers": universe["sector_pool_count"],
+        "sector_pool_s3_uri": universe["sector_pool_s3_uri"],
         "jobs_sent": sent,
         "tickers_per_job": tickers_per_job,
         "update_aux_data": update_aux_data,

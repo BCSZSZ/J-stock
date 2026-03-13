@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 import boto3
 from botocore.exceptions import ClientError
 
+from src.aws.ticker_universe import resolve_fetch_tickers
+
 
 JST = timezone(timedelta(hours=9))
 
@@ -25,21 +27,6 @@ def _parse_s3_prefix(s3_uri: str) -> Tuple[str, str]:
 
 def _jst_today_str() -> str:
     return datetime.now(timezone.utc).astimezone(JST).strftime("%Y-%m-%d")
-
-
-def _load_monitor_tickers(monitor_s3_uri: str) -> List[str]:
-    bucket, key = _parse_s3_uri(monitor_s3_uri)
-    s3 = boto3.client("s3")
-    body = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
-    payload = json.loads(body)
-    raw = payload.get("tickers", []) if isinstance(payload, dict) else payload
-
-    out: List[str] = []
-    for item in raw:
-        code = item.get("code") if isinstance(item, dict) else item
-        if code:
-            out.append(str(code).strip())
-    return [x for x in out if x]
 
 
 def _head_ok_for_date(s3, bucket: str, key: str, run_date: str) -> bool:
@@ -134,7 +121,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         raise ValueError("OPS_S3_PREFIX must be s3://...")
 
     run_date = str(event.get("run_date") or _jst_today_str())
-    tickers = _load_monitor_tickers(monitor_s3_uri)
+    universe = resolve_fetch_tickers(event)
+    tickers = universe["tickers"]
 
     check = _validate_data_freshness(data_s3_prefix, tickers, run_date)
     re_dispatched = False
@@ -148,6 +136,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         "ready": bool(check["ready"]),
         "redispatched": re_dispatched,
         "total_tickers": len(tickers),
+        "monitor_tickers": universe["monitor_count"],
+        "sector_pool_tickers": universe["sector_pool_count"],
+        "sector_pool_s3_uri": universe["sector_pool_s3_uri"],
         **check,
     }
     readiness_uri = _write_readiness(ops_s3_prefix, run_date, readiness_payload)

@@ -181,6 +181,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     env = os.environ.copy()
     env["JSA_CONFIG_FILE"] = str(cfg_path)
+    layer_python_path = "/opt/python"
+    existing_python_path = env.get("PYTHONPATH", "").strip()
+    env["PYTHONPATH"] = (
+        f"{layer_python_path}:{existing_python_path}" if existing_python_path else layer_python_path
+    )
 
     cmd = [sys.executable, "main.py", "production", "--daily", "--skip-fetch"]
     run = subprocess.run(cmd, cwd=str(repo_root), env=env, capture_output=True, text=True)

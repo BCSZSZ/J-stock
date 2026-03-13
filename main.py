@@ -9,17 +9,27 @@ import os
 import sys
 
 from src.cli.backtest import cmd_backtest
-from src.cli.evaluate import (
-    DEFAULT_EVALUATION_OUTPUT_DIR,
-    cmd_evaluate,
-    cmd_pos_evaluation,
-)
 from src.cli.fetch import cmd_fetch
 from src.cli.portfolio import cmd_portfolio
 from src.cli.production import cmd_production
 from src.cli.signal import cmd_signal
 from src.cli.universe import cmd_universe, cmd_universe_sector
 from src.utils.strategy_loader import ENTRY_STRATEGIES, EXIT_STRATEGIES
+
+
+DEFAULT_EVALUATION_OUTPUT_DIR = "strategy_evaluation"
+
+
+def _cmd_evaluate(args):
+    from src.cli.evaluate import cmd_evaluate
+
+    return cmd_evaluate(args)
+
+
+def _cmd_pos_evaluation(args):
+    from src.cli.evaluate import cmd_pos_evaluation
+
+    return cmd_pos_evaluation(args)
 
 # Force UTF-8 output on Windows (一劳永逸解决 emoji 编码问题)
 if sys.platform == "win32":
@@ -440,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="按需启用overlay参与evaluation（默认关闭）",
     )
-    evaluate_parser.set_defaults(func=cmd_evaluate)
+    evaluate_parser.set_defaults(func=_cmd_evaluate)
 
     pos_evaluate_parser = subparsers.add_parser(
         "pos-evaluation", help="仓位参数批量评价（读取evaluation-position.json）"
@@ -527,7 +537,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="pos-evaluation叠加维度：一次运行多个overlay模式（off/on）",
     )
-    pos_evaluate_parser.set_defaults(func=cmd_pos_evaluation)
+    pos_evaluate_parser.set_defaults(func=_cmd_pos_evaluation)
 
     return parser
 
