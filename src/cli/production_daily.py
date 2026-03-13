@@ -34,6 +34,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     lot_sizes = raw_config.get("lot_sizes", {})
     default_lot_size = int(lot_sizes.get("default", 100) or 100)
     prod_runtime_cfg = raw_config.get("production", {})
+    runtime_data_root = str(getattr(prod_cfg, "data_dir", raw_config.get("data", {}).get("data_dir", "data")) or "data")
     buy_price_buffer_pct = float(
         prod_runtime_cfg.get("report_buy_price_buffer_pct", 0.02)
     )
@@ -124,7 +125,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         min_names = int(prod_runtime_cfg.get("sector_metrics_min_names", 5))
         metrics_summary = update_sector_metrics(
             sector_pool_file=prod_cfg.sector_pool_file,
-            data_root="data",
+            data_root=runtime_data_root,
             lookback_days=lookback_days,
             min_names_per_sector=min_names,
         )
@@ -149,7 +150,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         sample_path = pattern.replace("{date}", "1970-01-01")
         Path(sample_path).parent.mkdir(parents=True, exist_ok=True)
 
-    data_manager = StockDataManager(api_key=api_key)
+    data_manager = StockDataManager(api_key=api_key, data_root=runtime_data_root)
     overlay_runtime_config = dict(raw_config)
     overlay_cfg = dict(overlay_runtime_config.get("overlays", {}))
     overlay_enabled_in_config = bool(overlay_cfg.get("enabled", False))
@@ -161,7 +162,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     )
     overlay_cfg["enabled"] = overlay_enabled_effective
     overlay_runtime_config["overlays"] = overlay_cfg
-    overlay_manager = OverlayManager.from_config(overlay_runtime_config, data_root="data")
+    overlay_manager = OverlayManager.from_config(
+        overlay_runtime_config,
+        data_root=runtime_data_root,
+    )
     overlay_source = "cli" if overlay_override is not None else "config"
     print(
         "  Overlay signal integration: "
