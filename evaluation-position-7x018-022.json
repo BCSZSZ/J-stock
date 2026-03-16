@@ -1,0 +1,29 @@
+{
+  "portfolios": [
+    {
+      "name": "p7x018",
+      "max_positions": 7,
+      "max_position_pct": 0.18
+    },
+    {
+      "name": "p7x019",
+      "max_positions": 7,
+      "max_position_pct": 0.19
+    },
+    {
+      "name": "p7x020",
+      "max_positions": 7,
+      "max_position_pct": 0.20
+    },
+    {
+      "name": "p7x021",
+      "max_positions": 7,
+      "max_position_pct": 0.21
+    },
+    {
+      "name": "p7x022",
+      "max_positions": 7,
+      "max_position_pct": 0.22
+    }
+  ]
+}

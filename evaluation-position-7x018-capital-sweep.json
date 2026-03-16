@@ -1,0 +1,28 @@
+{
+  "portfolios": [
+    {
+      "name": "cap7m_7x018",
+      "max_positions": 7,
+      "max_position_pct": 0.18,
+      "starting_capital_jpy": 7000000
+    },
+    {
+      "name": "cap8m_7x018",
+      "max_positions": 7,
+      "max_position_pct": 0.18,
+      "starting_capital_jpy": 8000000
+    },
+    {
+      "name": "cap9m_7x018",
+      "max_positions": 7,
+      "max_position_pct": 0.18,
+      "starting_capital_jpy": 9000000
+    },
+    {
+      "name": "cap10m_7x018",
+      "max_positions": 7,
+      "max_position_pct": 0.18,
+      "starting_capital_jpy": 10000000
+    }
+  ]
+}
