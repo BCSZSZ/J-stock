@@ -194,3 +194,68 @@ e:/Code/AI-stock/J-stock/.venv/Scripts/python.exe tools/wf_fine_scan.py --raw-cs
 - Current unconstrained optimum: lambda=0, w=0
 - Reproducible artifacts saved under `strategy_evaluation/`
 - This log saved for checkpoint and handoff
+
+## 9. Reference Data Snapshot (from artifacts)
+
+This section records direct values extracted from generated CSVs for quick validation.
+
+### 9.1 Fine scan best rows (CSV first row)
+
+Source files:
+
+- `strategy_evaluation/wf_fine_scan_20260317_002708.csv`
+- `strategy_evaluation/wf_fine_scan_20260317_002821.csv`
+- `strategy_evaluation/wf_fine_scan_20260317_002957.csv`
+
+| round | lambda | w | top_strategy_label | top_stability | top_oos_utility_mean | top_oos_utility_std | top_oos_positive_alpha_rate | top_oos_return_mean | top_oos_alpha_mean |
+|---|---:|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 (`002708`) | 0.30 | 0.10 | entry_strategy=MACDCrossoverStrategy \| exit_strategy=MVX_N8_R3p4_T1p6_D18_B19p5 \| entry_filter=off | 72.6459880469 | 0.7496817287 | 0.0552605260 | 0.6666666667 | 39.6384807943 | 17.1655411451 |
+| 2 (`002821`) | 0.15 | 0.02 | entry_strategy=MACDCrossoverStrategy \| exit_strategy=MVX_N8_R3p4_T1p6_D18_B19p5 \| entry_filter=off | 73.9898130126 | 0.7496817287 | 0.0552605260 | 0.6666666667 | 39.6384807943 | 17.1655411451 |
+| 3 (`002957`) | 0.00 | 0.00 | entry_strategy=MACDCrossoverStrategy \| exit_strategy=MVX_N8_R3p6_T1p5_D18_B19p5 \| entry_filter=off | 76.4051925133 | 0.7640519251 | 0.1603147542 | 0.6666666667 | 41.0535566406 | 18.5806169914 |
+
+### 9.2 Canonical stability top-3 (`003156`)
+
+Source file:
+
+- `strategy_evaluation/walk_forward_stability_20260317_003156.csv`
+
+| rank | entry_strategy | exit_strategy | entry_filter | oos_utility_mean | oos_utility_std | oos_positive_alpha_rate | stability_score |
+|---:|---|---|---|---:|---:|---:|---:|
+| 1 | MACDCrossoverStrategy | MVX_N8_R3p6_T1p5_D18_B19p5 | off | 0.7640519251 | 0.1603147542 | 0.6666666667 | 76.4051925133 |
+| 2 | MACDCrossoverStrategy | MVX_N8_R3p4_T1p6_D18_B19p5 | off | 0.7496817287 | 0.0552605260 | 0.6666666667 | 74.9681728687 |
+| 3 | MACDCrossoverStrategy | MVX_N8_R3p6_T1p5_D18_B20p0 | off | 0.7278351300 | 0.1526429755 | 0.6666666667 | 72.7835129987 |
+
+### 9.3 Top strategy OOS panel by fold (`003156`)
+
+Source file:
+
+- `strategy_evaluation/walk_forward_oos_panel_20260317_003156.csv`
+
+Filter applied:
+
+- `entry_strategy=MACDCrossoverStrategy`
+- `exit_strategy=MVX_N8_R3p6_T1p5_D18_B19p5`
+- `entry_filter=off`
+
+| test_year | train_years | return_mean | alpha_mean | sharpe_mean | mdd_mean | oos_utility | oos_rank | oos_rank_pct |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 2023 | 2021,2022 | 26.2110449677 | -0.4591902918 | 1.4319961969 | 10.8264137325 | 0.8472933762 | 5 | 0.0617283951 |
+| 2024 | 2021,2022,2023 | 20.7496249390 | 3.6766592715 | 0.8112318371 | 24.3946449475 | 0.8656232596 | 12 | 0.1481481481 |
+| 2025 | 2021,2022,2023,2024 | 76.2000000153 | 52.5243819945 | 2.7768216371 | 8.8971202819 | 0.5792391397 | 43 | 0.5308641975 |
+
+### 9.4 Fold winners from train selection (`003156`)
+
+Source file:
+
+- `strategy_evaluation/walk_forward_fold_winners_20260317_003156.csv`
+
+| test_year | train_years | winner_label | test_return | test_alpha | test_sharpe | test_mdd | test_oos_utility | test_oos_rank | test_oos_rank_pct |
+|---:|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 2023 | 2021,2022 | entry_strategy=MACDCrossoverStrategy \| exit_strategy=MVX_N8_R3p6_T1p6_D18_B19p5 \| entry_filter=off | 20.8336764526 | -5.8365588068 | 1.2171881270 | 10.0905045248 | 0.7642118415 | 15 | 0.1851851852 |
+| 2024 | 2021,2022,2023 | entry_strategy=MACDCrossoverStrategy \| exit_strategy=MVX_N8_R3p6_T1p6_D18_B19p5 \| entry_filter=off | 7.4116249390 | -9.6613407285 | 0.4011549593 | 26.2534637579 | 0.2851125167 | 60 | 0.7407407407 |
+| 2025 | 2021,2022,2023,2024 | entry_strategy=MACDCrossoverStrategy \| exit_strategy=MVX_N8_R3p4_T1p6_D18_B19p5 \| entry_filter=off | 79.8891252747 | 56.2135072539 | 3.0232691452 | 7.3796765716 | 0.7713452376 | 5 | 0.0617283951 |
+
+### 9.5 Quick consistency note
+
+- The global unconstrained optimum from scan round-3 (`lambda=0`, `w=0`) is consistent with canonical stability rank #1.
+- Fold winner labels are not fully identical to the global top strategy in all folds, which confirms train-time selection can differ by fold even under a fixed global `lambda/w` scoring setting.
