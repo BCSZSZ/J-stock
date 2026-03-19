@@ -13,6 +13,7 @@ from src.aws.s3_data_sync import download_seed_for_job, is_s3_prefix
 
 
 JST = timezone(timedelta(hours=9))
+DEFAULT_REPORT_URL_TTL_SECONDS = 60 * 60 * 24 * 3
 
 
 def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
@@ -49,6 +50,23 @@ def _upload_file(s3_uri: str, source: Path) -> None:
     bucket, key = _parse_s3_uri(s3_uri)
     s3 = boto3.client("s3")
     s3.put_object(Bucket=bucket, Key=key, Body=source.read_bytes())
+
+
+def _build_presigned_download_url(s3_uri: str, expires_in: int | None = None) -> str | None:
+    bucket, key = _parse_s3_uri(s3_uri)
+    ttl = expires_in or int(
+        os.getenv("REPORT_URL_TTL_SECONDS", DEFAULT_REPORT_URL_TTL_SECONDS)
+    )
+    ttl = max(60, min(int(ttl), 60 * 60 * 24 * 7))
+    try:
+        s3 = boto3.client("s3")
+        return s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=ttl,
+        )
+    except Exception:
+        return None
 
 
 def _resolve_monitor_tickers(monitor_file: Path) -> List[str]:
@@ -136,6 +154,30 @@ def _format_readiness_summary(readiness: Dict[str, Any] | None) -> str:
     )
 
 
+def _build_notification_body(
+    readiness: Dict[str, Any] | None,
+    result_summary: str,
+    report_s3_uri: str | None = None,
+    report_download_url: str | None = None,
+) -> str:
+    lines = [_format_readiness_summary(readiness), "", result_summary]
+
+    if report_s3_uri:
+        ttl_seconds = max(
+            60,
+            min(
+                int(os.getenv("REPORT_URL_TTL_SECONDS", DEFAULT_REPORT_URL_TTL_SECONDS)),
+                60 * 60 * 24 * 7,
+            ),
+        )
+        ttl_hours = ttl_seconds / 3600
+        lines.extend(["", f"Report S3: {report_s3_uri}"])
+        if report_download_url:
+            lines.append(f"Report Download URL (expires in {ttl_hours:.0f}h): {report_download_url}")
+
+    return "\n".join(lines)
+
+
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     monitor_s3_uri = os.getenv("MONITOR_LIST_S3_URI", "").strip()
     data_s3_prefix = os.getenv("DATA_S3_PREFIX", "").strip()
@@ -196,14 +238,25 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     _upload_file(f"{ops_s3_prefix.rstrip('/')}/state/trade_history.json", runtime_root / "output" / "state" / "trade_history.json")
     _upload_file(f"{ops_s3_prefix.rstrip('/')}/state/cash_history.json", runtime_root / "output" / "state" / "cash_history.json")
 
-    _upload_file(f"{ops_s3_prefix.rstrip('/')}/signals/{run_date}.json", runtime_root / "output" / "signals" / f"{run_date}.json")
-    _upload_file(f"{ops_s3_prefix.rstrip('/')}/reports/{run_date}.md", runtime_root / "output" / "reports" / f"{run_date}.md")
+    signals_s3_uri = f"{ops_s3_prefix.rstrip('/')}/signals/{run_date}.json"
+    report_s3_uri = f"{ops_s3_prefix.rstrip('/')}/reports/{run_date}.md"
+    _upload_file(signals_s3_uri, runtime_root / "output" / "signals" / f"{run_date}.json")
+    _upload_file(report_s3_uri, runtime_root / "output" / "reports" / f"{run_date}.md")
 
     ok = run.returncode == 0
     result_summary = run.stdout[-3000:] if ok else (run.stderr or run.stdout)[-3000:]
+    report_download_url = None
+    report_local_path = runtime_root / "output" / "reports" / f"{run_date}.md"
+    if report_local_path.exists():
+        report_download_url = _build_presigned_download_url(report_s3_uri)
     _send_notification_if_configured(
         subject=f"[JSA] daily --no-fetch {'SUCCESS' if ok else 'FAILED'} {run_date}",
-        body=f"{_format_readiness_summary(readiness)}\n\n{result_summary}",
+        body=_build_notification_body(
+            readiness=readiness,
+            result_summary=result_summary,
+            report_s3_uri=report_s3_uri if report_local_path.exists() else None,
+            report_download_url=report_download_url,
+        ),
     )
 
     return {
