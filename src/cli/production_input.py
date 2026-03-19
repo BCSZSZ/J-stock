@@ -1,4 +1,5 @@
 import csv
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -51,6 +52,37 @@ def _resolve_manual_group(groups: dict):
         return next(iter(groups.values()))
     print("[WARN] Multiple groups detected; cannot resolve manual target group.")
     return None
+
+
+def _try_sync_state_to_s3(args, prod_cfg) -> None:
+    """Upload production_state.json and trade_history.json to S3 after --input save."""
+    aws_profile = getattr(args, "aws_profile", None)
+    ops_s3_prefix = getattr(prod_cfg, "ops_s3_prefix", None)
+    if not aws_profile or not ops_s3_prefix:
+        return
+
+    prefix = ops_s3_prefix.rstrip("/")
+    uploads = [
+        (prod_cfg.state_file, f"{prefix}/state/production_state.json"),
+        (prod_cfg.history_file, f"{prefix}/state/trade_history.json"),
+    ]
+
+    print(f"\n[S3 Sync] Uploading state to {prefix} (profile={aws_profile})")
+    all_ok = True
+    for local_path, s3_uri in uploads:
+        cmd = ["aws", "s3", "cp", str(local_path), s3_uri, "--profile", aws_profile]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"  ✅ {Path(local_path).name} → {s3_uri}")
+        else:
+            err = (result.stderr or result.stdout).strip()
+            print(f"  ❌ Failed to upload {Path(local_path).name}: {err}")
+            all_ok = False
+
+    if all_ok:
+        print("[S3 Sync] Done.")
+    else:
+        print("[S3 Sync] Some uploads failed. Run sync_ops_state_s3.py push manually.")
 
 
 def run_input_workflow(args, prod_cfg, state) -> None:
@@ -165,6 +197,8 @@ def run_input_workflow(args, prod_cfg, state) -> None:
         print(f"\n✅ Manual input completed. Recorded trades: {recorded}")
         print(f"  State saved: {prod_cfg.state_file}")
         print(f"  History saved: {prod_cfg.history_file}")
+
+        _try_sync_state_to_s3(args, prod_cfg)
         return
 
     signal_path = find_latest_signal_file(

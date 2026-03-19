@@ -40,6 +40,9 @@ class ProductionConfig:
     # Strategy groups (optional, for initialization)
     strategy_groups: Optional[List[Dict[str, Any]]] = None
 
+    # S3 sync (optional, for local → S3 push after --input)
+    ops_s3_prefix: Optional[str] = None
+
     # Runtime/backends
     runtime_mode: str = "local"
     storage_backend: str = "local_fs"
@@ -220,6 +223,7 @@ class ConfigManager:
             default_exit_strategy=default_strat.get("exit", "ATRExitStrategy"),
             # Strategy groups (optional)
             strategy_groups=prod_cfg.get("strategy_groups", None),
+            ops_s3_prefix=prod_cfg.get("ops_s3_prefix", None),
             runtime_mode=str(runtime_cfg.get("mode", "local")),
             storage_backend=str(runtime_cfg.get("storage_backend", "local_fs")),
             state_backend=str(runtime_cfg.get("state_backend", "json")),

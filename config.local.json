@@ -68,6 +68,7 @@
     }
   },
   "production": {
+    "ops_s3_prefix": "s3://bcszsz-ai-j-stock-bucket/prod/ops",
     "monitor_list_file": "G:/My Drive/AI-Stock-Sync/state/production_monitor_list.json",
     "state_file": "G:/My Drive/AI-Stock-Sync/state/production_state.json",
     "signal_file_pattern": "G:/My Drive/AI-Stock-Sync/signals/{date}.json",

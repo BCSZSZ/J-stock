@@ -143,6 +143,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="配合 --input --manual 使用：CSV文件路径",
     )
     production_parser.add_argument(
+        "--aws-profile",
+        dest="aws_profile",
+        default=None,
+        help="配合 --input 使用：完成后自动将 state 上传至 S3（需在 config 中配置 ops_s3_prefix）",
+    )
+    production_parser.add_argument(
         "--skip-fetch",
         "--no-fetch",
         dest="skip_fetch",
