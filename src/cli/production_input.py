@@ -102,6 +102,64 @@ def _try_sync_state_to_s3(args, prod_cfg) -> None:
         print("[S3 Sync] Some uploads failed. Run sync_ops_state_s3.py push manually.")
 
 
+def _find_trade(history, date: str, ticker: str, action: str):
+    """Returns the Trade object if found in history, else None."""
+    for t in history.trades:
+        if t.date == date and t.ticker == ticker and t.action == action:
+            return t
+    return None
+
+
+def _undo_buy_in_state(target_group, history, old_trade) -> None:
+    """Remove existing BUY position from state, refund cash, and remove trade from history."""
+    ticker, buy_date = old_trade.ticker, old_trade.date
+    to_remove = [
+        p for p in target_group.positions
+        if p.ticker == ticker and p.entry_date == buy_date
+    ]
+    for p in to_remove:
+        target_group.positions.remove(p)
+        target_group.cash += p.quantity * p.entry_price
+    history.trades.remove(old_trade)
+
+
+def _undo_sell_in_state(target_group, history, old_trade) -> bool:
+    """
+    Restore sold qty back into positions and undo cash proceeds.
+    Returns True on success, False if restore is not possible.
+    """
+    from src.production.state_manager import Position
+
+    ticker = old_trade.ticker
+    old_qty = old_trade.quantity
+    old_exit_price = old_trade.price
+
+    existing = target_group.get_positions_by_ticker(ticker)
+    if existing:
+        # Partial sell: add qty back to the oldest (first FIFO) position
+        existing[0].quantity += old_qty
+    else:
+        # Full sell: position was completely removed — restore using most recent BUY
+        buy_trades = [t for t in history.trades if t.ticker == ticker and t.action == "BUY"]
+        if not buy_trades:
+            return False
+        last_buy = buy_trades[-1]
+        target_group.positions.append(
+            Position(
+                ticker=ticker,
+                quantity=old_qty,
+                entry_price=last_buy.price,
+                entry_date=last_buy.date,
+                entry_score=0.0,
+                peak_price=last_buy.price,
+            )
+        )
+
+    target_group.cash -= old_qty * old_exit_price
+    history.trades.remove(old_trade)
+    return True
+
+
 def run_input_workflow(args, prod_cfg, state) -> None:
     from src.production import TradeHistoryManager
 
@@ -134,12 +192,6 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             print("[Manual Input] Skipped: group resolution failed")
             return
 
-        # Build a set of already-recorded (date, ticker, action) from history for fast lookup
-        recorded_keys = {
-            (t.date, t.ticker, t.action)
-            for t in history.trades
-        }
-
         for row in manual_rows:
             if len(row) < 4:
                 print(f"  ⚠️ invalid row (need 4 columns): {row}")
@@ -164,10 +216,20 @@ def run_input_workflow(args, prod_cfg, state) -> None:
 
             effective_date = date_raw or trade_date
 
-            # Idempotency check: skip if (date, ticker, action) already in history
-            if (effective_date, ticker, action) in recorded_keys:
-                print(f"  ⏭️  SKIP (already recorded): {action} {ticker} on {effective_date}")
-                continue
+            # Overwrite check: if same (date, ticker, action) already exists, undo it first
+            existing_trade = _find_trade(history, effective_date, ticker, action)
+            if existing_trade is not None:
+                if action == "BUY":
+                    old_info = f"{existing_trade.quantity}@{existing_trade.price}"
+                    _undo_buy_in_state(target_group, history, existing_trade)
+                    print(f"  ⚠️  OVERWRITE! BUY {ticker}: previous={old_info} → new={qty}@{price}")
+                elif action == "SELL":
+                    old_info = f"{existing_trade.quantity}@{existing_trade.price}"
+                    ok = _undo_sell_in_state(target_group, history, existing_trade)
+                    if not ok:
+                        print(f"  ⚠️  Cannot overwrite SELL {ticker}: no BUY history to restore position. Skipped.")
+                        continue
+                    print(f"  ⚠️  OVERWRITE! SELL {ticker}: previous={old_info} → new={qty}@{price}")
 
             if action == "BUY":
                 target_group.add_position(
@@ -186,7 +248,6 @@ def run_input_workflow(args, prod_cfg, state) -> None:
                     price=price,
                     entry_score=0.0,
                 )
-                recorded_keys.add((effective_date, ticker, action))
                 recorded += 1
                 print(f"  ✅ BUY recorded: {ticker} {qty} @ {price}")
             elif action == "SELL":
@@ -216,7 +277,6 @@ def run_input_workflow(args, prod_cfg, state) -> None:
                     exit_reason="Manual input",
                     exit_score=0.0,
                 )
-                recorded_keys.add((effective_date, ticker, action))
                 recorded += 1
                 print(f"  ✅ SELL recorded: {ticker} {qty} @ {price}")
             else:
