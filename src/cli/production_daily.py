@@ -2,7 +2,7 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -151,6 +151,18 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         Path(sample_path).parent.mkdir(parents=True, exist_ok=True)
 
     data_manager = StockDataManager(api_key=api_key, data_root=runtime_data_root)
+
+    # Load ticker name lookup from jpx_final_list.csv (Code -> 銘柄名)
+    import csv as _csv
+    _ticker_name_map: Dict[str, str] = {}
+    try:
+        _jpx_csv = Path(runtime_data_root) / "jpx_final_list.csv"
+        if _jpx_csv.exists():
+            with open(_jpx_csv, encoding="utf-8-sig") as _f:
+                for _row in _csv.DictReader(_f):
+                    _ticker_name_map[_row["Code"]] = _row["銘柄名"]
+    except Exception:
+        pass
     overlay_runtime_config = dict(raw_config)
     overlay_cfg = dict(overlay_runtime_config.get("overlays", {}))
     overlay_enabled_in_config = bool(overlay_cfg.get("enabled", False))
@@ -398,8 +410,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             ),
             "- 金叉判定：`Hist[-1] < 0` 且 `Hist[0] > 0`",
             "",
-            "| Ticker | " + " | ".join(headers) + " | GoldCrossToday |",
-            "|---|" + "---|" * (len(headers) + 1),
+            "| Ticker | Name | " + " | ".join(headers) + " | GoldCrossToday |",
+            "|---|---|" + "---|" * (len(headers) + 1),
         ]
 
         for ticker in sorted(tickers):
@@ -434,7 +446,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             )
 
             lines.append(
-                f"| {ticker} | "
+                f"| {ticker} | {_ticker_name_map.get(ticker, ticker)} | "
                 + " | ".join(formatted)
                 + f" | {'YES' if is_cross else 'NO'} |"
             )

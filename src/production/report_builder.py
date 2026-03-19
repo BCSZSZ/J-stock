@@ -83,6 +83,22 @@ class ReportBuilder:
             except Exception:
                 self.cash_history_manager = None
 
+        # Load ticker name lookup from jpx_final_list.csv (Code -> 銘柄名)
+        self._ticker_name_map: Dict[str, str] = {}
+        try:
+            import csv as _csv
+            _jpx_csv = Path(self.data_manager.data_root) / "jpx_final_list.csv"
+            if _jpx_csv.exists():
+                with open(_jpx_csv, encoding="utf-8-sig") as _f:
+                    for _row in _csv.DictReader(_f):
+                        self._ticker_name_map[_row["Code"]] = _row["銘柄名"]
+        except Exception:
+            pass
+
+    def _get_ticker_name(self, ticker: str) -> str:
+        """Return company name for ticker from jpx_final_list.csv, fallback to ticker code."""
+        return self._ticker_name_map.get(ticker, ticker)
+
     def generate_daily_report(
         self,
         signals: List[Signal] = None,
@@ -563,7 +579,7 @@ class ReportBuilder:
 
             strategy_row = " | ".join(strategy_cells)
             lines.append(
-                f"| {ticker} | {eval_obj.ticker_name[:15]} | {price} | "
+                f"| {ticker} | {self._get_ticker_name(ticker)[:15]} | {price} | "
                 f"{strategy_row} | {ema20} | {ema50} | {ema200} | {rsi} | {atr} | {overall} |"
             )
 
@@ -578,10 +594,10 @@ class ReportBuilder:
             lines.append(f"**Total BUY/STRONG_BUY:** {len(buy_evals)}")
             lines.append("")
             lines.append(
-                "| Rank | Ticker | Strategy | Score | Confidence | Qty | Capital (¥) | Reason |"
+                "| Rank | Ticker | Name | Strategy | Score | Confidence | Qty | Capital (¥) | Reason |"
             )
             lines.append(
-                "|------|--------|----------|-------|------------|-----|-------------|--------|"
+                "|------|--------|------|----------|-------|------------|-----|-------------|--------|"
             )
 
             ranked_signals = []
@@ -608,7 +624,7 @@ class ReportBuilder:
                 )
                 reason = (sig.reason or "...").replace("|", "/")
                 lines.append(
-                    f"| {rank} | {sig.ticker} | {sig.strategy_name} | "
+                    f"| {rank} | {sig.ticker} | {self._get_ticker_name(sig.ticker)} | {sig.strategy_name} | "
                     f"{sig.score:.1f} | {confidence_pct} | {qty_str} | {capital_str} | {reason} |"
                 )
 
@@ -637,10 +653,10 @@ class ReportBuilder:
                 ),
             )
             lines.append(
-                "| Rank | Group | Ticker | Price | Strategy | Score | Confidence | Qty | Capital (¥) | Reason |"
+                "| Rank | Group | Ticker | Name | Price | Strategy | Score | Confidence | Qty | Capital (¥) | Reason |"
             )
             lines.append(
-                "|------|-------|--------|-------|----------|-------|------------|-----|-------------|--------|"
+                "|------|-------|--------|------|-------|----------|-------|------------|-----|-------------|--------|"
             )
             for rank, sig in enumerate(sorted_buy, 1):
                 confidence_pct = (
@@ -654,7 +670,7 @@ class ReportBuilder:
                 )
                 reason = (sig.reason or "...").replace("|", "/")
                 lines.append(
-                    f"| {rank} | {sig.group_id} | {sig.ticker} | "
+                    f"| {rank} | {sig.group_id} | {sig.ticker} | {self._get_ticker_name(sig.ticker)} | "
                     f"¥{sig.current_price:,.0f} | {sig.strategy_name} | {sig.score:.1f} | "
                     f"{confidence_pct} | {qty_str} | {capital_str} | {reason} |"
                 )
@@ -673,10 +689,10 @@ class ReportBuilder:
                 signal_by_key[key] = sig
 
         lines.append(
-            "| Group | Ticker | Shares | Sell Qty | Est. Proceeds (¥) | Current Price | P&L (%) | Recommend | Action | Exit Evaluation |"
+            "| Group | Ticker | Name | Shares | Sell Qty | Est. Proceeds (¥) | Current Price | P&L (%) | Recommend | Action | Exit Evaluation |"
         )
         lines.append(
-            "|-------|--------|--------|----------|-------------------|---------------|---------|-----------|--------|-----------------|"
+            "|-------|--------|------|--------|----------|-------------------|---------------|---------|-----------|--------|-----------------|"
         )
 
         holdings_found = False
@@ -750,7 +766,7 @@ class ReportBuilder:
                     ).replace("|", "/")
 
                 lines.append(
-                    f"| {group.id} | {pos.ticker} | {pos.quantity} | {sell_qty} | {est_proceeds} | "
+                    f"| {group.id} | {pos.ticker} | {self._get_ticker_name(pos.ticker)} | {pos.quantity} | {sell_qty} | {est_proceeds} | "
                     f"¥{current_price:,.0f} | {pnl_pct_str} | {recommend} | {action} | {eval_text} |"
                 )
 
@@ -934,10 +950,10 @@ class ReportBuilder:
             if executable_sells:
                 any_operations = True
                 lines.append(
-                    "| Rank | Ticker | Action | Close Price | Planned Sell Price (Close*SellFactor) | Sell Qty | Est. Proceeds (¥) | Reason |"
+                    "| Rank | Ticker | Name | Action | Close Price | Planned Sell Price (Close*SellFactor) | Sell Qty | Est. Proceeds (¥) | Reason |"
                 )
                 lines.append(
-                    "|------|--------|--------|-------------|--------------------------------------|----------|-------------------|--------|"
+                    "|------|--------|------|--------|-------------|--------------------------------------|----------|-------------------|--------|"
                 )
                 for rank, sig in enumerate(executable_sells, 1):
                     planned_qty = int(getattr(sig, "planned_sell_qty", 0) or 0)
@@ -952,7 +968,7 @@ class ReportBuilder:
                         planned_sell_price = planned_value / planned_qty
                     reason = (sig.reason or "...").replace("|", "/")
                     lines.append(
-                        f"| {rank} | {sig.ticker} | {sig.action} | ¥{close_price:,.2f} | "
+                        f"| {rank} | {sig.ticker} | {self._get_ticker_name(sig.ticker)} | {sig.action} | ¥{close_price:,.2f} | "
                         f"¥{float(planned_sell_price or 0.0):,.2f} | {planned_qty} | {planned_value:,.0f} | {reason} |"
                     )
             else:
@@ -968,10 +984,10 @@ class ReportBuilder:
             if executable_buys:
                 any_operations = True
                 lines.append(
-                    "| Rank | Ticker | Close Price | Planning Price (Close*PlanningFactor) | Score | Confidence | Qty | Capital (¥) | Reason |"
+                    "| Rank | Ticker | Name | Close Price | Planning Price (Close*PlanningFactor) | Score | Confidence | Qty | Capital (¥) | Reason |"
                 )
                 lines.append(
-                    "|------|--------|-------------|---------------------------------------|-------|------------|-----|-------------|--------|"
+                    "|------|--------|------|-------------|---------------------------------------|-------|------------|-----|-------------|--------|"
                 )
                 for rank, sig in enumerate(executable_buys, 1):
                     confidence_pct = (
@@ -998,7 +1014,7 @@ class ReportBuilder:
                         close_price = planning_price / factor if factor else planning_price
                     reason = (sig.reason or "...").replace("|", "/")
                     lines.append(
-                        f"| {rank} | {sig.ticker} | ¥{float(close_price):,.2f} | ¥{planning_price:,.2f} | {sig.score:.1f} | "
+                        f"| {rank} | {sig.ticker} | {self._get_ticker_name(sig.ticker)} | ¥{float(close_price):,.2f} | ¥{planning_price:,.2f} | {sig.score:.1f} | "
                         f"{confidence_pct} | {qty_str} | {capital_str} | {reason} |"
                     )
             else:
@@ -1306,10 +1322,10 @@ class ReportBuilder:
             group_obj = self.state_manager.get_group(group_status["id"])
             if group_obj and group_obj.positions:
                 lines.append(
-                    "| Ticker | Shares | Avg Price | Current Price | P&L (¥) | P&L (%) | Value (¥) |"
+                    "| Ticker | Name | Shares | Avg Price | Current Price | P&L (¥) | P&L (%) | Value (¥) |"
                 )
                 lines.append(
-                    "|--------|--------|-----------|---------------|---------|---------|-----------|"
+                    "|--------|------|--------|-----------|---------------|---------|---------|-----------|" 
                 )
 
                 for pos in group_obj.positions:
@@ -1323,7 +1339,7 @@ class ReportBuilder:
                     pnl_pct_str = f"{pnl_pct:+.2f}%"
 
                     lines.append(
-                        f"| {pos.ticker} | {pos.quantity} | "
+                        f"| {pos.ticker} | {self._get_ticker_name(pos.ticker)} | {pos.quantity} | "
                         f"¥{pos.entry_price:,.0f} | ¥{current_price:,.0f} | "
                         f"{pnl_jpy_str} | {pnl_pct_str} | ¥{current_value:,.0f} |"
                     )
@@ -1358,15 +1374,15 @@ class ReportBuilder:
         ticker_rows = realized["ticker_rows"]
         if ticker_rows:
             lines.append(
-                "| 股票代码 | 分组 | 买入金额 (¥) | 卖出金额 (¥) | 已实现盈亏 (¥) | 已实现收益率 (%) | 卖出笔数 | 胜率 |"
+                "| 股票代码 | 名称 | 分组 | 买入金额 (¥) | 卖出金额 (¥) | 已实现盈亏 (¥) | 已实现收益率 (%) | 卖出笔数 | 胜率 |"
             )
             lines.append(
-                "|----------|------|---------------|---------------|----------------|------------------|---------|------|"
+                "|----------|------|------|---------------|---------------|----------------|------------------|---------|------|"
             )
             for row in ticker_rows:
                 win_rate_str = f"{row['win_rate']:.1f}%" if row["win_rate"] is not None else "N/A"
                 lines.append(
-                    f"| {row['ticker']} | {row['group_id']} | {row['buy_amount']:,.0f} | {row['sell_amount']:,.0f} | "
+                    f"| {row['ticker']} | {self._get_ticker_name(row['ticker'])} | {row['group_id']} | {row['buy_amount']:,.0f} | {row['sell_amount']:,.0f} | "
                     f"{row['realized_pnl']:+,.0f} | {row['realized_return_pct']:+.2f}% | {row['sell_trades']} | {win_rate_str} |"
                 )
             lines.append("")
@@ -1383,14 +1399,14 @@ class ReportBuilder:
         position_rows = unrealized["position_rows"]
         if position_rows:
             lines.append(
-                "| 股票代码 | 分组 | 持仓数量 | 持仓成本 (¥) | 市值 (¥) | 未实现盈亏 (¥) | 未实现收益率 (%) |"
+                "| 股票代码 | 名称 | 分组 | 持仓数量 | 持仓成本 (¥) | 市值 (¥) | 未实现盈亏 (¥) | 未实现收益率 (%) |"
             )
             lines.append(
-                "|----------|------|----------|--------------|----------|----------------|------------------|"
+                "|----------|------|------|----------|--------------|----------|----------------|------------------|"
             )
             for row in position_rows:
                 lines.append(
-                    f"| {row['ticker']} | {row['group_id']} | {row['quantity']} | {row['cost_basis']:,.0f} | "
+                    f"| {row['ticker']} | {self._get_ticker_name(row['ticker'])} | {row['group_id']} | {row['quantity']} | {row['cost_basis']:,.0f} | "
                     f"{row['market_value']:,.0f} | {row['unrealized_pnl']:+,.0f} | {row['unrealized_return_pct']:+.2f}% |"
                 )
             lines.append("")
@@ -1450,14 +1466,14 @@ class ReportBuilder:
         daily_pnl = self._calculate_daily_pnl(report_date, current_prices)
         if daily_pnl["ticker_rows"]:
             lines.append(
-                "| 股票代码 | 分组 | 昨收 | 今收 | 开盘前持仓 | 当日买入 | 当日卖出 | 持仓贡献 (¥) | 当日成交贡献 (¥) | 今日盈亏 (¥) |"
+                "| 股票代码 | 名称 | 分组 | 昨收 | 今收 | 开盘前持仓 | 当日买入 | 当日卖出 | 持仓贡献 (¥) | 当日成交贡献 (¥) | 今日盈亏 (¥) |"
             )
             lines.append(
-                "|----------|------|------|------|------------|----------|----------|---------------|------------------|-------------|"
+                "|----------|------|------|------|------|------------|----------|----------|---------------|------------------|-------------|"
             )
             for row in daily_pnl["ticker_rows"]:
                 lines.append(
-                    f"| {row['ticker']} | {row['group_id']} | ¥{row['prev_close']:,.0f} | ¥{row['close_today']:,.0f} | "
+                    f"| {row['ticker']} | {self._get_ticker_name(row['ticker'])} | {row['group_id']} | ¥{row['prev_close']:,.0f} | ¥{row['close_today']:,.0f} | "
                     f"{row['opening_qty']} | {row['buy_qty']} | {row['sell_qty']} | {row['holding_pnl']:+,.0f} | "
                     f"{row['trade_pnl']:+,.0f} | {row['daily_pnl']:+,.0f} |"
                 )
@@ -1808,10 +1824,10 @@ class ReportBuilder:
             lines.append("### ✅ Successful Executions")
             lines.append("")
             lines.append(
-                "| Ticker | Type | Qty | Price | Capital/Proceeds | Strategy |"
+                "| Ticker | Name | Type | Qty | Price | Capital/Proceeds | Strategy |"
             )
             lines.append(
-                "|--------|------|-----|-------|------------------|----------|"
+                "|--------|------|------|-----|-------|------------------|----------|"
             )
 
             for result in successful:
@@ -1840,7 +1856,7 @@ class ReportBuilder:
                             pass
 
                 lines.append(
-                    f"| {signal.ticker} | {signal.signal_type} | {qty_str} | "
+                    f"| {signal.ticker} | {self._get_ticker_name(signal.ticker)} | {signal.signal_type} | {qty_str} | "
                     f"¥{signal.current_price:,.0f} | {amount_str} | {signal.strategy_name} |"
                 )
 
