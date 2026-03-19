@@ -67,21 +67,38 @@ def _try_sync_state_to_s3(args, prod_cfg) -> None:
         (prod_cfg.history_file, f"{prefix}/state/trade_history.json"),
     ]
 
-    print(f"\n[S3 Sync] Uploading state to {prefix} (profile={aws_profile})")
-    all_ok = True
-    for local_path, s3_uri in uploads:
-        cmd = ["aws", "s3", "cp", str(local_path), s3_uri, "--profile", aws_profile]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode == 0:
-            print(f"  ✅ {Path(local_path).name} → {s3_uri}")
-        else:
-            err = (result.stderr or result.stdout).strip()
-            print(f"  ❌ Failed to upload {Path(local_path).name}: {err}")
-            all_ok = False
+    def _do_uploads() -> list[str]:
+        """Returns list of error messages; empty = all ok."""
+        errors = []
+        for local_path, s3_uri in uploads:
+            cmd = ["aws", "s3", "cp", str(local_path), s3_uri, "--profile", aws_profile]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"  ✅ {Path(local_path).name} → {s3_uri}")
+            else:
+                errors.append((Path(local_path).name, (result.stderr or result.stdout).strip()))
+        return errors
 
-    if all_ok:
+    print(f"\n[S3 Sync] Uploading state to {prefix} (profile={aws_profile})")
+    errors = _do_uploads()
+
+    if errors:
+        first_err = errors[0][1]
+        if "expired" in first_err.lower() or "login" in first_err.lower() or "sso" in first_err.lower():
+            print(f"  ⚠️  AWS SSO session expired. Running: aws sso login --profile {aws_profile}")
+            login = subprocess.run(["aws", "sso", "login", "--profile", aws_profile])
+            if login.returncode == 0:
+                print("[S3 Sync] Re-authenticated. Retrying uploads...")
+                errors = _do_uploads()
+            else:
+                print("[S3 Sync] SSO login failed. Upload skipped.")
+                return
+
+    if not errors:
         print("[S3 Sync] Done.")
     else:
+        for name, err in errors:
+            print(f"  ❌ Failed to upload {name}: {err}")
         print("[S3 Sync] Some uploads failed. Run sync_ops_state_s3.py push manually.")
 
 
