@@ -31,8 +31,12 @@
   },
   "evaluation": {
     "output_dir": "strategy_evaluation",
-    "default_entry_strategies": ["MACDCrossoverStrategy"],
-    "default_exit_strategies": ["MVX_N9_R3p6_T1p7_D18_B20p0"],
+    "default_entry_strategies": [
+      "MACDCrossoverStrategy"
+    ],
+    "default_exit_strategies": [
+      "MVX_N9_R3p6_T1p7_D18_B20p0"
+    ],
     "exit_confirmation_days": 2,
     "filters": {
       "mode": "single",
@@ -64,11 +68,15 @@
       }
     },
     "default_position_file": "evaluation-position-1x9x4.json",
-    "default_profile_names": ["p7x018"]
+    "default_profile_names": [
+      "p7x018"
+    ]
   },
   "overlays": {
     "enabled": false,
-    "active": ["SectorBreadthOverlay"],
+    "active": [
+      "SectorBreadthOverlay"
+    ],
     "SectorBreadthOverlay": {
       "metrics_file": "data/features/sector_daily_metrics.parquet",
       "snapshot_dir": "data/metadata/sector_overlay",
@@ -108,6 +116,7 @@
         "entry_strategy": "MACDCrossoverStrategy",
         "exit_strategy": "MVX_N9_R3p4_T1p6_D18_B20p0"
       }
-    ]
+    ],
+    "ops_s3_prefix": "s3://YOUR_BUCKET/prod/ops"
   }
 }
