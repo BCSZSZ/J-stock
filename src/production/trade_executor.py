@@ -161,7 +161,8 @@ class TradeExecutor:
         
         # Execute BUY
         try:
-            group.add_position(
+            cash_before = group.cash
+            new_position = group.add_position(
                 ticker=signal.ticker,
                 quantity=qty,
                 entry_price=price,
@@ -177,7 +178,25 @@ class TradeExecutor:
                 action="BUY",
                 quantity=qty,
                 price=price,
-                entry_score=signal.score
+                entry_score=signal.score,
+                position_effects=[
+                    {
+                        "effect_type": "OPEN",
+                        "lot_id": new_position.lot_id,
+                        "ticker": new_position.ticker,
+                        "quantity": new_position.quantity,
+                        "entry_price": new_position.entry_price,
+                        "entry_date": new_position.entry_date,
+                        "entry_score": new_position.entry_score,
+                        "peak_price": new_position.peak_price,
+                    }
+                ],
+                cash_effect={
+                    "delta": group.cash - cash_before,
+                    "before": cash_before,
+                    "after": group.cash,
+                },
+                source={"channel": "signal_execution"},
             )
             
             if verbose:
@@ -257,11 +276,15 @@ class TradeExecutor:
         
         # Execute SELL (FIFO)
         try:
-            proceeds, sold = group.partial_sell(
+            cash_before = group.cash
+            sell_details = group.partial_sell(
                 ticker=signal.ticker,
                 quantity=qty_to_sell,
-                exit_price=price
+                exit_price=price,
+                return_details=True,
             )
+            proceeds = sell_details["proceeds"]
+            sold = sell_details["sold_quantity"]
             
             # Record trade
             self.history.record_trade(
@@ -272,7 +295,14 @@ class TradeExecutor:
                 quantity=sold,
                 price=price,
                 exit_reason=signal.reason,
-                exit_score=signal.confidence * 100  # Convert back to 0-100
+                exit_score=signal.confidence * 100,  # Convert back to 0-100
+                position_effects=sell_details["consumed_lots"],
+                cash_effect={
+                    "delta": group.cash - cash_before,
+                    "before": cash_before,
+                    "after": group.cash,
+                },
+                source={"channel": "signal_execution"},
             )
             
             if verbose:

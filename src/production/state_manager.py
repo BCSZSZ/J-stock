@@ -16,7 +16,22 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, date
+from uuid import uuid4
 import pandas as pd
+
+
+def _new_lot_id(ticker: str, entry_date: str) -> str:
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    return f"lot_{ticker}_{entry_date.replace('-', '')}_{stamp}_{uuid4().hex[:6]}"
+
+
+def _new_event_id() -> str:
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    return f"evt_{stamp}_{uuid4().hex[:6]}"
+
+
+def _position_sort_key(position: "Position") -> Tuple[str, str]:
+    return position.entry_date, position.lot_id or ""
 
 
 @dataclass
@@ -28,6 +43,7 @@ class Position:
     entry_date: str  # ISO format YYYY-MM-DD
     entry_score: float
     peak_price: float = 0.0  # Track for trailing stops
+    lot_id: str = ""
     
     def current_value(self, current_price: float) -> float:
         """Calculate current market value"""
@@ -88,8 +104,9 @@ class StrategyGroupState:
         quantity: int,
         entry_price: float,
         entry_date: str,
-        entry_score: float
-    ) -> None:
+        entry_score: float,
+        lot_id: Optional[str] = None,
+    ) -> Position:
         """
         Add a new position to this strategy group.
         
@@ -101,10 +118,13 @@ class StrategyGroupState:
             entry_price=entry_price,
             entry_date=entry_date,
             entry_score=entry_score,
-            peak_price=entry_price
+            peak_price=entry_price,
+            lot_id=lot_id or _new_lot_id(ticker, entry_date),
         )
         self.positions.append(position)
+        self.positions.sort(key=_position_sort_key)
         self.cash -= entry_price * quantity
+        return position
     
     def get_position(self, ticker: str) -> Optional[Position]:
         """Get first (FIFO) position for a ticker"""
@@ -116,6 +136,44 @@ class StrategyGroupState:
     def get_positions_by_ticker(self, ticker: str) -> List[Position]:
         """Get all positions for a ticker (for FIFO handling)"""
         return [pos for pos in self.positions if pos.ticker == ticker]
+
+    def get_position_by_lot_id(self, lot_id: str) -> Optional[Position]:
+        """Get a position by its lot identifier."""
+        for pos in self.positions:
+            if pos.lot_id == lot_id:
+                return pos
+        return None
+
+    def restore_position_lot(
+        self,
+        lot_id: str,
+        ticker: str,
+        quantity: int,
+        entry_price: float,
+        entry_date: str,
+        entry_score: float,
+        peak_price: Optional[float] = None,
+    ) -> Position:
+        """Restore or increase a lot while preserving FIFO ordering."""
+        existing = self.get_position_by_lot_id(lot_id)
+        if existing:
+            existing.quantity += quantity
+            if peak_price is not None:
+                existing.peak_price = max(existing.peak_price, peak_price)
+            return existing
+
+        restored = Position(
+            ticker=ticker,
+            quantity=quantity,
+            entry_price=entry_price,
+            entry_date=entry_date,
+            entry_score=entry_score,
+            peak_price=peak_price if peak_price is not None else entry_price,
+            lot_id=lot_id,
+        )
+        self.positions.append(restored)
+        self.positions.sort(key=_position_sort_key)
+        return restored
     
     def remove_position(self, ticker: str, quantity: int) -> Tuple[int, float]:
         """
@@ -171,8 +229,9 @@ class StrategyGroupState:
         self,
         ticker: str,
         quantity: int,
-        exit_price: float
-    ) -> Tuple[float, int]:
+        exit_price: float,
+        return_details: bool = False,
+    ) -> Tuple[float, int] | Dict:
         """
         Sell shares at a specific exit price (for backtesting).
         Uses FIFO for multiple positions.
@@ -194,11 +253,30 @@ class StrategyGroupState:
         
         remaining_to_sell = quantity
         total_proceeds = 0.0
+        consumed_lots = []
         
         # Process FIFO
         for position in positions_to_sell:
             if remaining_to_sell == 0:
                 break
+
+            qty_before = position.quantity
+            qty_consumed = min(position.quantity, remaining_to_sell)
+            qty_after = qty_before - qty_consumed
+            consumed_lots.append(
+                {
+                    "effect_type": "CLOSE",
+                    "lot_id": position.lot_id,
+                    "ticker": position.ticker,
+                    "consumed_quantity": qty_consumed,
+                    "remaining_quantity_before": qty_before,
+                    "remaining_quantity_after": qty_after,
+                    "entry_price": position.entry_price,
+                    "entry_date": position.entry_date,
+                    "entry_score": position.entry_score,
+                    "peak_price": position.peak_price,
+                }
+            )
             
             if position.quantity <= remaining_to_sell:
                 # Sell entire position
@@ -214,6 +292,12 @@ class StrategyGroupState:
                 remaining_to_sell = 0
         
         self.cash += total_proceeds
+        if return_details:
+            return {
+                "proceeds": total_proceeds,
+                "sold_quantity": quantity,
+                "consumed_lots": consumed_lots,
+            }
         return total_proceeds, quantity
     
     def get_status(self, current_prices: Dict[str, float] = None) -> Dict:
@@ -251,6 +335,18 @@ class Trade:
     entry_score: Optional[float] = None  # For BUY
     exit_reason: Optional[str] = None    # For SELL
     exit_score: Optional[float] = None   # For SELL
+    event_id: str = ""
+    status: str = "ACTIVE"
+    position_effects: List[Dict] = field(default_factory=list)
+    cash_effect: Optional[Dict] = None
+    source: Optional[Dict] = None
+    replaces_event_id: Optional[str] = None
+    replaced_by_event_id: Optional[str] = None
+    created_at: Optional[str] = None
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == "ACTIVE"
 
 
 @dataclass
@@ -307,9 +403,11 @@ class ProductionState:
             self.strategy_groups = {}
             
             for group_data in data.get("strategy_groups", []):
-                positions = [
-                    Position(**pos) for pos in group_data.get("positions", [])
-                ]
+                positions = []
+                for index, pos in enumerate(group_data.get("positions", []), start=1):
+                    lot_id = pos.get("lot_id") or f"legacy_lot_{group_data['id']}_{index:06d}"
+                    positions.append(Position(**{**pos, "lot_id": lot_id}))
+                positions.sort(key=_position_sort_key)
                 group = StrategyGroupState(
                     id=group_data["id"],
                     name=group_data["name"],
@@ -467,10 +565,12 @@ class ProductionState:
 
 class TradeHistoryManager:
     """Manages trade history (append-only log)"""
+    SCHEMA_VERSION = 2
     
     def __init__(self, history_file: str = "trade_history.json"):
         """Initialize trade history manager"""
         self.history_file = history_file
+        self.schema_version = self.SCHEMA_VERSION
         self.trades: List[Trade] = []
         self.load_or_initialize()
     
@@ -486,7 +586,20 @@ class TradeHistoryManager:
         try:
             with open(self.history_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                self.trades = [Trade(**trade_data) for trade_data in data.get("trades", [])]
+                raw_trades = data.get("events") or data.get("trades", [])
+                self.schema_version = int(data.get("schema_version", 1 if "trades" in data else self.SCHEMA_VERSION))
+                self.trades = []
+                for index, trade_data in enumerate(raw_trades, start=1):
+                    trade = Trade(**trade_data)
+                    if not trade.event_id:
+                        trade.event_id = f"legacy_evt_{index:06d}"
+                    if not trade.created_at:
+                        trade.created_at = trade.date
+                    if not trade.status:
+                        trade.status = "ACTIVE"
+                    if trade.position_effects is None:
+                        trade.position_effects = []
+                    self.trades.append(trade)
         except Exception as e:
             print(f"Error loading trade history: {e}")
             self.trades = []
@@ -494,10 +607,44 @@ class TradeHistoryManager:
     def save(self) -> None:
         """Save trade history to JSON file"""
         data = {
-            "trades": [asdict(trade) for trade in self.trades]
+            "schema_version": self.SCHEMA_VERSION,
+            "events": [asdict(trade) for trade in self.trades],
         }
         with open(self.history_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+
+    def get_active_trades(self) -> List[Trade]:
+        """Get effective trades after overwrite/supersede filtering."""
+        return [trade for trade in self.trades if trade.is_active]
+
+    def count_active_trades(self) -> int:
+        """Return count of effective trades."""
+        return len(self.get_active_trades())
+
+    def find_active_trade(
+        self,
+        date: str,
+        group_id: str,
+        ticker: str,
+        action: str,
+    ) -> Optional[Trade]:
+        """Find the latest active trade by business key."""
+        for trade in reversed(self.trades):
+            if not trade.is_active:
+                continue
+            if (
+                trade.date == date
+                and trade.group_id == group_id
+                and trade.ticker == ticker
+                and trade.action == action
+            ):
+                return trade
+        return None
+
+    def mark_superseded(self, old_trade: Trade, new_trade: Optional[Trade] = None) -> None:
+        """Mark an old trade as superseded by a newer event."""
+        old_trade.status = "SUPERSEDED"
+        old_trade.replaced_by_event_id = new_trade.event_id if new_trade else None
     
     def record_trade(
         self,
@@ -509,7 +656,11 @@ class TradeHistoryManager:
         price: float,
         entry_score: Optional[float] = None,
         exit_reason: Optional[str] = None,
-        exit_score: Optional[float] = None
+        exit_score: Optional[float] = None,
+        position_effects: Optional[List[Dict]] = None,
+        cash_effect: Optional[Dict] = None,
+        source: Optional[Dict] = None,
+        replaces_event_id: Optional[str] = None,
     ) -> Trade:
         """
         Record a new trade.
@@ -538,22 +689,31 @@ class TradeHistoryManager:
             total_jpy=quantity * price,
             entry_score=entry_score,
             exit_reason=exit_reason,
-            exit_score=exit_score
+            exit_score=exit_score,
+            event_id=_new_event_id(),
+            position_effects=position_effects or [],
+            cash_effect=cash_effect,
+            source=source,
+            replaces_event_id=replaces_event_id,
+            created_at=datetime.now().isoformat(),
         )
         self.trades.append(trade)
         return trade
     
-    def get_trades_by_group(self, group_id: str) -> List[Trade]:
+    def get_trades_by_group(self, group_id: str, active_only: bool = True) -> List[Trade]:
         """Get all trades for a specific group"""
-        return [t for t in self.trades if t.group_id == group_id]
+        source = self.get_active_trades() if active_only else self.trades
+        return [t for t in source if t.group_id == group_id]
     
-    def get_trades_by_ticker(self, ticker: str) -> List[Trade]:
+    def get_trades_by_ticker(self, ticker: str, active_only: bool = True) -> List[Trade]:
         """Get all trades for a specific ticker"""
-        return [t for t in self.trades if t.ticker == ticker]
+        source = self.get_active_trades() if active_only else self.trades
+        return [t for t in source if t.ticker == ticker]
     
-    def get_trades_by_date(self, date_str: str) -> List[Trade]:
+    def get_trades_by_date(self, date_str: str, active_only: bool = True) -> List[Trade]:
         """Get all trades on a specific date"""
-        return [t for t in self.trades if t.date == date_str]
+        source = self.get_active_trades() if active_only else self.trades
+        return [t for t in source if t.date == date_str]
 
 
 class CashHistoryManager:
@@ -677,7 +837,7 @@ def build_state_as_of(
         try:
             history = TradeHistoryManager(history_file=history_file)
             ordered_trades = sorted(
-                enumerate(history.trades),
+                enumerate(history.get_active_trades()),
                 key=lambda x: (x[1].date or "", x[0]),
             )
             for _, trade in ordered_trades:
@@ -699,13 +859,28 @@ def build_state_as_of(
                     continue
 
                 if action == "BUY":
-                    group.add_position(
-                        ticker=trade.ticker,
-                        quantity=quantity,
-                        entry_price=price,
-                        entry_date=trade.date,
-                        entry_score=float(trade.entry_score or 0.0),
-                    )
+                    open_effects = [
+                        effect for effect in (trade.position_effects or [])
+                        if effect.get("effect_type") == "OPEN"
+                    ]
+                    if open_effects:
+                        for effect in open_effects:
+                            group.add_position(
+                                ticker=effect.get("ticker", trade.ticker),
+                                quantity=int(effect.get("quantity", quantity)),
+                                entry_price=float(effect.get("entry_price", price)),
+                                entry_date=effect.get("entry_date", trade.date),
+                                entry_score=float(effect.get("entry_score", trade.entry_score or 0.0)),
+                                lot_id=effect.get("lot_id"),
+                            )
+                    else:
+                        group.add_position(
+                            ticker=trade.ticker,
+                            quantity=quantity,
+                            entry_price=price,
+                            entry_date=trade.date,
+                            entry_score=float(trade.entry_score or 0.0),
+                        )
                 elif action == "SELL":
                     try:
                         group.partial_sell(

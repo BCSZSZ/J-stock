@@ -102,62 +102,112 @@ def _try_sync_state_to_s3(args, prod_cfg) -> None:
         print("[S3 Sync] Some uploads failed. Run sync_ops_state_s3.py push manually.")
 
 
-def _find_trade(history, date: str, ticker: str, action: str):
-    """Returns the Trade object if found in history, else None."""
-    for t in history.trades:
-        if t.date == date and t.ticker == ticker and t.action == action:
-            return t
-    return None
+def _trade_cash_delta(trade) -> float:
+    if trade.cash_effect and "delta" in trade.cash_effect:
+        return float(trade.cash_effect["delta"])
+    if trade.action == "BUY":
+        return -float(trade.total_jpy)
+    return float(trade.total_jpy)
 
 
-def _undo_buy_in_state(target_group, history, old_trade) -> None:
-    """Remove existing BUY position from state, refund cash, and remove trade from history."""
-    ticker, buy_date = old_trade.ticker, old_trade.date
-    to_remove = [
-        p for p in target_group.positions
-        if p.ticker == ticker and p.entry_date == buy_date
-    ]
-    for p in to_remove:
-        target_group.positions.remove(p)
-        target_group.cash += p.quantity * p.entry_price
-    history.trades.remove(old_trade)
+def _build_buy_effect(position) -> dict:
+    return {
+        "effect_type": "OPEN",
+        "lot_id": position.lot_id,
+        "ticker": position.ticker,
+        "quantity": position.quantity,
+        "entry_price": position.entry_price,
+        "entry_date": position.entry_date,
+        "entry_score": position.entry_score,
+        "peak_price": position.peak_price,
+    }
 
 
-def _undo_sell_in_state(target_group, history, old_trade) -> bool:
-    """
-    Restore sold qty back into positions and undo cash proceeds.
-    Returns True on success, False if restore is not possible.
-    """
-    from src.production.state_manager import Position
+def _reverse_trade_event(target_group, history, old_trade) -> tuple[bool, str]:
+    effects = old_trade.position_effects or []
+    cash_delta = _trade_cash_delta(old_trade)
 
-    ticker = old_trade.ticker
-    old_qty = old_trade.quantity
-    old_exit_price = old_trade.price
+    if old_trade.action == "BUY" and effects:
+        open_effects = [e for e in effects if e.get("effect_type") == "OPEN"]
+        for effect in open_effects:
+            position = target_group.get_position_by_lot_id(effect.get("lot_id", ""))
+            expected_qty = int(effect.get("quantity", old_trade.quantity))
+            if position is None:
+                return False, "created lot no longer exists; likely consumed by later SELL"
+            if position.quantity != expected_qty:
+                return False, "created lot quantity changed after original BUY"
 
-    existing = target_group.get_positions_by_ticker(ticker)
-    if existing:
-        # Partial sell: add qty back to the oldest (first FIFO) position
-        existing[0].quantity += old_qty
-    else:
-        # Full sell: position was completely removed — restore using most recent BUY
-        buy_trades = [t for t in history.trades if t.ticker == ticker and t.action == "BUY"]
-        if not buy_trades:
-            return False
-        last_buy = buy_trades[-1]
-        target_group.positions.append(
-            Position(
-                ticker=ticker,
-                quantity=old_qty,
+        for effect in reversed(open_effects):
+            position = target_group.get_position_by_lot_id(effect.get("lot_id", ""))
+            if position is not None:
+                target_group.positions.remove(position)
+        target_group.cash -= cash_delta
+        return True, ""
+
+    if old_trade.action == "SELL" and effects:
+        close_effects = [e for e in effects if e.get("effect_type") == "CLOSE"]
+        for effect in close_effects:
+            lot_id = effect.get("lot_id", "")
+            remaining_after = int(effect.get("remaining_quantity_after", 0))
+            position = target_group.get_position_by_lot_id(lot_id)
+            if remaining_after == 0:
+                if position is not None:
+                    return False, f"lot {lot_id} was changed after original SELL"
+            else:
+                if position is None:
+                    return False, f"lot {lot_id} missing after original SELL"
+                if position.quantity != remaining_after:
+                    return False, f"lot {lot_id} quantity changed after original SELL"
+
+        for effect in reversed(close_effects):
+            target_group.restore_position_lot(
+                lot_id=effect.get("lot_id", ""),
+                ticker=effect.get("ticker", old_trade.ticker),
+                quantity=int(effect.get("consumed_quantity", 0)),
+                entry_price=float(effect.get("entry_price", 0.0)),
+                entry_date=effect.get("entry_date", old_trade.date),
+                entry_score=float(effect.get("entry_score", 0.0)),
+                peak_price=float(effect.get("peak_price", effect.get("entry_price", 0.0))),
+            )
+        target_group.cash -= cash_delta
+        return True, ""
+
+    if old_trade.action == "BUY":
+        ticker, buy_date = old_trade.ticker, old_trade.date
+        to_remove = [
+            p for p in target_group.positions
+            if p.ticker == ticker and p.entry_date == buy_date
+        ]
+        for p in to_remove:
+            target_group.positions.remove(p)
+        target_group.cash -= cash_delta
+        return True, "legacy BUY fallback applied"
+
+    if old_trade.action == "SELL":
+        existing = target_group.get_positions_by_ticker(old_trade.ticker)
+        if existing:
+            existing[0].quantity += old_trade.quantity
+        else:
+            buy_trades = [
+                t for t in history.get_trades_by_ticker(old_trade.ticker, active_only=False)
+                if t.action == "BUY"
+            ]
+            if not buy_trades:
+                return False, "legacy SELL fallback has no BUY history to restore"
+            last_buy = buy_trades[-1]
+            target_group.restore_position_lot(
+                lot_id=f"legacy_restore_{old_trade.event_id}",
+                ticker=old_trade.ticker,
+                quantity=old_trade.quantity,
                 entry_price=last_buy.price,
                 entry_date=last_buy.date,
-                entry_score=0.0,
+                entry_score=float(last_buy.entry_score or 0.0),
                 peak_price=last_buy.price,
             )
-        )
+        target_group.cash -= cash_delta
+        return True, "legacy SELL fallback applied"
 
-    target_group.cash -= old_qty * old_exit_price
-    history.trades.remove(old_trade)
-    return True
+    return False, "unsupported trade action for reverse"
 
 
 def run_input_workflow(args, prod_cfg, state) -> None:
@@ -217,29 +267,45 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             effective_date = date_raw or trade_date
 
             # Overwrite check: if same (date, ticker, action) already exists, undo it first
-            existing_trade = _find_trade(history, effective_date, ticker, action)
+            existing_trade = history.find_active_trade(
+                date=effective_date,
+                group_id=target_group.id,
+                ticker=ticker,
+                action=action,
+            )
             if existing_trade is not None:
+                if action == "SELL":
+                    current_held_qty = sum(p.quantity for p in target_group.get_positions_by_ticker(ticker))
+                    if qty > current_held_qty + existing_trade.quantity:
+                        print(
+                            f"  ⚠️  Cannot overwrite SELL {ticker}: new qty {qty} exceeds restored holding {current_held_qty + existing_trade.quantity}."
+                        )
+                        continue
                 if action == "BUY":
                     old_info = f"{existing_trade.quantity}@{existing_trade.price}"
-                    _undo_buy_in_state(target_group, history, existing_trade)
+                    ok, reason = _reverse_trade_event(target_group, history, existing_trade)
+                    if not ok:
+                        print(f"  ⚠️  Cannot overwrite BUY {ticker}: {reason}. Skipped.")
+                        continue
                     print(f"  ⚠️  OVERWRITE! BUY {ticker}: previous={old_info} → new={qty}@{price}")
                 elif action == "SELL":
                     old_info = f"{existing_trade.quantity}@{existing_trade.price}"
-                    ok = _undo_sell_in_state(target_group, history, existing_trade)
+                    ok, reason = _reverse_trade_event(target_group, history, existing_trade)
                     if not ok:
-                        print(f"  ⚠️  Cannot overwrite SELL {ticker}: no BUY history to restore position. Skipped.")
+                        print(f"  ⚠️  Cannot overwrite SELL {ticker}: {reason}. Skipped.")
                         continue
                     print(f"  ⚠️  OVERWRITE! SELL {ticker}: previous={old_info} → new={qty}@{price}")
 
             if action == "BUY":
-                target_group.add_position(
+                cash_before = target_group.cash
+                new_position = target_group.add_position(
                     ticker=ticker,
                     quantity=qty,
                     entry_price=price,
                     entry_date=effective_date,
                     entry_score=0.0,
                 )
-                history.record_trade(
+                new_trade = history.record_trade(
                     date=effective_date,
                     group_id=target_group.id,
                     ticker=ticker,
@@ -247,7 +313,20 @@ def run_input_workflow(args, prod_cfg, state) -> None:
                     quantity=qty,
                     price=price,
                     entry_score=0.0,
+                    position_effects=[_build_buy_effect(new_position)],
+                    cash_effect={
+                        "delta": target_group.cash - cash_before,
+                        "before": cash_before,
+                        "after": target_group.cash,
+                    },
+                    source={
+                        "channel": "manual_csv",
+                        "file": args.manual_file,
+                    },
+                    replaces_event_id=existing_trade.event_id if existing_trade is not None else None,
                 )
+                if existing_trade is not None:
+                    history.mark_superseded(existing_trade, new_trade)
                 recorded += 1
                 print(f"  ✅ BUY recorded: {ticker} {qty} @ {price}")
             elif action == "SELL":
@@ -262,21 +341,36 @@ def run_input_workflow(args, prod_cfg, state) -> None:
                     )
                     continue
 
-                target_group.partial_sell(
+                cash_before = target_group.cash
+                sell_details = target_group.partial_sell(
                     ticker=ticker,
                     quantity=qty,
                     exit_price=price,
+                    return_details=True,
                 )
-                history.record_trade(
+                new_trade = history.record_trade(
                     date=effective_date,
                     group_id=target_group.id,
                     ticker=ticker,
                     action="SELL",
-                    quantity=qty,
+                    quantity=sell_details["sold_quantity"],
                     price=price,
                     exit_reason="Manual input",
                     exit_score=0.0,
+                    position_effects=sell_details["consumed_lots"],
+                    cash_effect={
+                        "delta": target_group.cash - cash_before,
+                        "before": cash_before,
+                        "after": target_group.cash,
+                    },
+                    source={
+                        "channel": "manual_csv",
+                        "file": args.manual_file,
+                    },
+                    replaces_event_id=existing_trade.event_id if existing_trade is not None else None,
                 )
+                if existing_trade is not None:
+                    history.mark_superseded(existing_trade, new_trade)
                 recorded += 1
                 print(f"  ✅ SELL recorded: {ticker} {qty} @ {price}")
             else:
@@ -349,7 +443,8 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             print("  ⚠️ invalid input, skipped")
             continue
 
-        group.add_position(
+        cash_before = group.cash
+        new_position = group.add_position(
             ticker=ticker,
             quantity=qty,
             entry_price=price,
@@ -364,6 +459,16 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             quantity=qty,
             price=price,
             entry_score=float(sig.get("score", 0) or 0),
+            position_effects=[_build_buy_effect(new_position)],
+            cash_effect={
+                "delta": group.cash - cash_before,
+                "before": cash_before,
+                "after": group.cash,
+            },
+            source={
+                "channel": "signal_confirmed",
+                "signal_date": signal_date,
+            },
         )
         recorded += 1
         print(f"  ✅ BUY recorded: {qty} @ {price}")
@@ -410,16 +515,32 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             print("  ⚠️ invalid input, skipped")
             continue
 
-        group.partial_sell(ticker=ticker, quantity=qty, exit_price=price)
+        cash_before = group.cash
+        sell_details = group.partial_sell(
+            ticker=ticker,
+            quantity=qty,
+            exit_price=price,
+            return_details=True,
+        )
         history.record_trade(
             date=trade_date,
             group_id=group_id,
             ticker=ticker,
             action="SELL",
-            quantity=qty,
+            quantity=sell_details["sold_quantity"],
             price=price,
             exit_reason=sig.get("reason"),
             exit_score=float(sig.get("confidence", 0) or 0) * 100,
+            position_effects=sell_details["consumed_lots"],
+            cash_effect={
+                "delta": group.cash - cash_before,
+                "before": cash_before,
+                "after": group.cash,
+            },
+            source={
+                "channel": "signal_confirmed",
+                "signal_date": signal_date,
+            },
         )
         recorded += 1
         print(f"  ✅ SELL recorded: {qty} @ {price}")

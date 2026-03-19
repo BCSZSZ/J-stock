@@ -13,7 +13,7 @@ def run_status(prod_cfg, state) -> None:
     print(f"  Last updated: {state.last_updated}")
     print(f"  Groups: {status['num_groups']} | Positions: {status['total_positions']}")
     print(f"  Total cash: ¥{status['total_cash']:,.0f}")
-    print(f"  Trades recorded: {len(history.trades)}")
+    print(f"  Trades recorded: {history.count_active_trades()}")
     print(f"  Cash events recorded: {len(cash_history.events)}")
 
     for group in state.get_all_groups():
