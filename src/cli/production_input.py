@@ -134,6 +134,12 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             print("[Manual Input] Skipped: group resolution failed")
             return
 
+        # Build a set of already-recorded (date, ticker, action) from history for fast lookup
+        recorded_keys = {
+            (t.date, t.ticker, t.action)
+            for t in history.trades
+        }
+
         for row in manual_rows:
             if len(row) < 4:
                 print(f"  ⚠️ invalid row (need 4 columns): {row}")
@@ -158,6 +164,11 @@ def run_input_workflow(args, prod_cfg, state) -> None:
 
             effective_date = date_raw or trade_date
 
+            # Idempotency check: skip if (date, ticker, action) already in history
+            if (effective_date, ticker, action) in recorded_keys:
+                print(f"  ⏭️  SKIP (already recorded): {action} {ticker} on {effective_date}")
+                continue
+
             if action == "BUY":
                 target_group.add_position(
                     ticker=ticker,
@@ -175,6 +186,7 @@ def run_input_workflow(args, prod_cfg, state) -> None:
                     price=price,
                     entry_score=0.0,
                 )
+                recorded_keys.add((effective_date, ticker, action))
                 recorded += 1
                 print(f"  ✅ BUY recorded: {ticker} {qty} @ {price}")
             elif action == "SELL":
@@ -204,6 +216,7 @@ def run_input_workflow(args, prod_cfg, state) -> None:
                     exit_reason="Manual input",
                     exit_score=0.0,
                 )
+                recorded_keys.add((effective_date, ticker, action))
                 recorded += 1
                 print(f"  ✅ SELL recorded: {ticker} {qty} @ {price}")
             else:
