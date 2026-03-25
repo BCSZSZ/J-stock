@@ -400,8 +400,8 @@ class StrategyEvaluator:
 
         # Step 4: Execute backtests (serial)
         phase_started = _phase_timer_start()
-        print(f"🚀 开始执行 {len(tasks)} 个回测任务...")
-        print("   进度字段: 完成数/总数, 成功, 失败, 百分比, 已耗时, 吞吐, ETA, 预计完成时刻")
+        print(f"🚀 开始执行 {len(tasks)} 个回测任务...", flush=True)
+        print("   进度字段: 时间, 完成数/总数, 成功, 失败, 百分比, 已耗时, 吞吐, ETA, 预计完成时刻", flush=True)
         completed = 0
         success_count = 0
         error_count = 0
@@ -472,13 +472,15 @@ class StrategyEvaluator:
                         )
 
                     print(
+                        f"[{datetime.now().strftime('%H:%M:%S')}] "
                         f"[{completed}/{total_backtests}] "
                         f"ok={success_count} err={error_count} "
                         f"({progress:.1f}%) "
                         f"elapsed={_fmt_hms(elapsed_sec)} "
                         f"speed={speed:.3f} task/s "
                         f"ETA={eta_str} "
-                        f"finish={finish_str}"
+                        f"finish={finish_str}",
+                        flush=True,
                     )
                     last_progress_print = now
 
@@ -488,11 +490,12 @@ class StrategyEvaluator:
         avg_sec_per_task = (
             total_elapsed_sec / completed if completed > 0 else 0.0
         )
-        print(f"\n{'=' * 80}")
-        print(f"✅ 评估完成！共 {len(self.results)}/{total_backtests} 个回测成功")
+        print(f"\n{'=' * 80}", flush=True)
+        print(f"✅ 评估完成！共 {len(self.results)}/{total_backtests} 个回测成功", flush=True)
         print(
             f"   执行统计: elapsed={_fmt_hms(total_elapsed_sec)}, "
-            f"avg={avg_sec_per_task:.2f}s/task, ok={success_count}, err={error_count}"
+            f"avg={avg_sec_per_task:.2f}s/task, ok={success_count}, err={error_count}",
+            flush=True,
         )
 
         total_phases = [
@@ -502,11 +505,11 @@ class StrategyEvaluator:
             "phase_build_tasks",
             "phase_execute_tasks",
         ]
-        print("\n⏱️ 阶段耗时明细:")
+        print("\n⏱️ 阶段耗时明细:", flush=True)
         for key in total_phases:
             sec = self._timing_counters.get(key, 0.0)
             pct = (sec / total_elapsed_sec * 100.0) if total_elapsed_sec > 0 else 0.0
-            print(f"   - {key}: {sec:.2f}s ({pct:.1f}%)")
+            print(f"   - {key}: {sec:.2f}s ({pct:.1f}%)", flush=True)
 
         per_task_keys = [
             "task_strategy_load",
@@ -515,11 +518,11 @@ class StrategyEvaluator:
             "task_engine_backtest",
         ]
         if completed > 0:
-            print("\n⏱️ 单任务关键子步骤累计:")
+            print("\n⏱️ 单任务关键子步骤累计:", flush=True)
             for key in per_task_keys:
                 sec = self._timing_counters.get(key, 0.0)
                 avg = sec / completed
-                print(f"   - {key}: total={sec:.2f}s, avg={avg:.4f}s/task")
+                print(f"   - {key}: total={sec:.2f}s, avg={avg:.4f}s/task", flush=True)
 
         self.last_timing_summary = {
             "total_elapsed_sec": time.perf_counter() - run_started,
@@ -531,7 +534,7 @@ class StrategyEvaluator:
                 k: float(self._timing_counters.get(k, 0.0)) for k in per_task_keys
             },
         }
-        print(f"{'=' * 80}\n")
+        print(f"{'=' * 80}\n", flush=True)
         _log_step("evaluator: run_evaluation 结束")
 
         return self._create_results_dataframe()
@@ -826,7 +829,222 @@ class StrategyEvaluator:
 
         return results
 
-    def save_results(self, prefix: str = "evaluation"):
+    def rank_by_target20_goal(self) -> pd.DataFrame:
+        """
+        Rank strategy combos for the goal: hit ~20% return as consistently as possible
+        across periods (especially avoid loss years, and reward bear-year resilience).
+
+        Returns:
+            DataFrame with one row per strategy combo and quantitative ranking metrics.
+        """
+        df = self._create_results_dataframe()
+        if df.empty:
+            return pd.DataFrame()
+
+        key_cols = ["entry_strategy", "exit_strategy", "entry_filter"]
+        rows = []
+
+        for key, combo_df in df.groupby(key_cols):
+            combo_df = combo_df.copy()
+            returns = pd.to_numeric(combo_df["return_pct"], errors="coerce").fillna(0.0)
+            topix = pd.to_numeric(combo_df["topix_return_pct"], errors="coerce")
+
+            period_count = int(len(combo_df))
+            hit20_rate = float((returns >= 20.0).mean()) if period_count > 0 else 0.0
+            shortfall_mean = (
+                float((20.0 - returns).clip(lower=0.0).mean()) if period_count > 0 else 20.0
+            )
+            loss_period_rate = float((returns < 0.0).mean()) if period_count > 0 else 1.0
+            worst_period_return = float(returns.min()) if period_count > 0 else -999.0
+            mean_return = float(returns.mean()) if period_count > 0 else 0.0
+
+            bull_mask = topix.notna() & (topix >= 0.0)
+            bear_mask = topix.notna() & (topix < 0.0)
+            bull_count = int(bull_mask.sum())
+            bear_count = int(bear_mask.sum())
+
+            bull_loss_rate = (
+                float(((returns < 0.0) & bull_mask).sum()) / bull_count
+                if bull_count > 0
+                else 0.0
+            )
+            bear_hit20_rate = (
+                float(((returns >= 20.0) & bear_mask).sum()) / bear_count
+                if bear_count > 0
+                else 0.0
+            )
+
+            # Base score focuses on consistency to 20% target, not on outperforming TOPIX.
+            shortfall_component = 1.0 - min(1.0, shortfall_mean / 20.0)
+            base_score = 100.0 * (
+                0.55 * hit20_rate
+                + 0.25 * shortfall_component
+                + 0.20 * (1.0 - loss_period_rate)
+            )
+
+            # Regime adjustment aligned with user goal:
+            # - Penalize bull-market losses
+            # - Reward bear-market 20% hits
+            regime_adj = 10.0 * bear_hit20_rate - 12.0 * bull_loss_rate
+
+            # Additional hard penalty for very bad worst period.
+            worst_penalty = min(25.0, abs(worst_period_return) * 0.8) if worst_period_return < 0.0 else 0.0
+
+            final_score = max(0.0, min(100.0, base_score + regime_adj - worst_penalty))
+
+            rows.append(
+                {
+                    "entry_strategy": key[0],
+                    "exit_strategy": key[1],
+                    "entry_filter": key[2],
+                    "period_count": period_count,
+                    "hit20_rate": hit20_rate,
+                    "shortfall_mean": shortfall_mean,
+                    "loss_period_rate": loss_period_rate,
+                    "bull_loss_rate": bull_loss_rate,
+                    "bear_hit20_rate": bear_hit20_rate,
+                    "worst_period_return": worst_period_return,
+                    "mean_return": mean_return,
+                    "target20_score": final_score,
+                }
+            )
+
+        rank_df = pd.DataFrame(rows)
+        if rank_df.empty:
+            return rank_df
+
+        rank_df = rank_df.sort_values(
+            [
+                "target20_score",
+                "hit20_rate",
+                "shortfall_mean",
+                "loss_period_rate",
+                "worst_period_return",
+            ],
+            ascending=[False, False, True, True, False],
+        ).reset_index(drop=True)
+        rank_df.insert(0, "rank", range(1, len(rank_df) + 1))
+        return rank_df
+
+    def rank_by_legacy_goal(self) -> pd.DataFrame:
+        """Legacy all-weather ranking based on cross-regime average rank."""
+        df = self._create_results_dataframe()
+        if df.empty:
+            return pd.DataFrame()
+
+        df = df.copy()
+        df["market_regime"] = df["topix_return_pct"].apply(MarketRegime.classify)
+
+        strategy_performance = {}
+        for regime in df["market_regime"].unique():
+            regime_df = df[df["market_regime"] == regime].copy()
+            has_alpha = (
+                regime_df["alpha"].notna().any()
+                and regime_df["topix_return_pct"].notna().any()
+            )
+            if has_alpha and regime_df["alpha"].sum() != 0:
+                regime_df["legacy_rank"] = regime_df["alpha"].rank(ascending=False)
+            else:
+                regime_df["legacy_rank"] = regime_df["return_pct"].rank(ascending=False)
+
+            for _, row in regime_df.iterrows():
+                key = (row["entry_strategy"], row["exit_strategy"], row["entry_filter"])
+                if key not in strategy_performance:
+                    strategy_performance[key] = []
+                strategy_performance[key].append(float(row["legacy_rank"]))
+
+        rows = []
+        for key, ranks in strategy_performance.items():
+            combo_df = df[
+                (df["entry_strategy"] == key[0])
+                & (df["exit_strategy"] == key[1])
+                & (df["entry_filter"] == key[2])
+            ]
+            rows.append(
+                {
+                    "entry_strategy": key[0],
+                    "exit_strategy": key[1],
+                    "entry_filter": key[2],
+                    "avg_rank": float(sum(ranks) / len(ranks)) if ranks else 999.0,
+                    "mean_return": float(combo_df["return_pct"].mean()) if not combo_df.empty else 0.0,
+                    "mean_alpha": float(combo_df["alpha"].mean()) if not combo_df.empty else 0.0,
+                    "mean_sharpe": float(combo_df["sharpe_ratio"].mean()) if not combo_df.empty else 0.0,
+                    "mean_win_rate": float(combo_df["win_rate_pct"].mean()) if not combo_df.empty else 0.0,
+                }
+            )
+
+        out = pd.DataFrame(rows)
+        if out.empty:
+            return out
+
+        out = out.sort_values(["avg_rank", "mean_return"], ascending=[True, False]).reset_index(drop=True)
+        out.insert(0, "rank", range(1, len(out) + 1))
+        return out
+
+    @staticmethod
+    def _minmax_normalize_series(series: pd.Series, higher_is_better: bool) -> pd.Series:
+        s = pd.to_numeric(series, errors="coerce").fillna(0.0)
+        s_min = float(s.min())
+        s_max = float(s.max())
+        span = s_max - s_min
+        if span <= 1e-12:
+            return pd.Series([0.5] * len(s), index=s.index)
+        if higher_is_better:
+            return (s - s_min) / span
+        return (s_max - s) / span
+
+    def rank_by_risk60_profit40(self) -> pd.DataFrame:
+        """
+        risk60_profit40_v2 scoring (same metric design as tools/score_strategy_ranking.py):
+        - Risk 60%: avg_mdd 35% + worst_year_return 25%
+        - Profit 40%: avg_alpha 25% + positive_alpha_ratio 15%
+        """
+        df = self._create_results_dataframe()
+        if df.empty:
+            return pd.DataFrame()
+
+        grouped = (
+            df.groupby(["entry_strategy", "exit_strategy", "entry_filter"])
+            .agg(
+                avg_return=("return_pct", "mean"),
+                avg_alpha=("alpha", "mean"),
+                avg_mdd=("max_drawdown_pct", "mean"),
+                worst_year_return=("return_pct", "min"),
+                period_count=("period", "nunique"),
+                positive_alpha_ratio=("alpha", lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean())),
+            )
+            .reset_index()
+        )
+
+        grouped["avg_alpha"] = pd.to_numeric(grouped["avg_alpha"], errors="coerce").fillna(0.0)
+        grouped["positive_alpha_ratio"] = pd.to_numeric(
+            grouped["positive_alpha_ratio"], errors="coerce"
+        ).fillna(0.0)
+
+        grouped["mdd_inverse_norm"] = self._minmax_normalize_series(grouped["avg_mdd"], higher_is_better=False)
+        grouped["worst_year_return_norm"] = self._minmax_normalize_series(
+            grouped["worst_year_return"], higher_is_better=True
+        )
+        grouped["avg_alpha_norm"] = self._minmax_normalize_series(grouped["avg_alpha"], higher_is_better=True)
+        grouped["positive_alpha_ratio_norm"] = self._minmax_normalize_series(
+            grouped["positive_alpha_ratio"], higher_is_better=True
+        )
+
+        grouped["risk60_profit40_score"] = (
+            grouped["mdd_inverse_norm"] * 0.35
+            + grouped["worst_year_return_norm"] * 0.25
+            + grouped["avg_alpha_norm"] * 0.25
+            + grouped["positive_alpha_ratio_norm"] * 0.15
+        )
+
+        grouped = grouped.sort_values(
+            ["risk60_profit40_score", "avg_alpha"],
+            ascending=[False, False],
+        ).reset_index(drop=True)
+        grouped.insert(0, "rank", range(1, len(grouped) + 1))
+        return grouped
+
+    def save_results(self, prefix: str = "evaluation", ranking_mode: str = "target20"):
         """
         保存结果到文件
 
@@ -849,18 +1067,40 @@ class StrategyEvaluator:
         regime_df.to_csv(regime_file, index=False, encoding="utf-8-sig")
         print(f"✅ 市场环境分析已保存: {regime_file}")
 
-        # 3. Markdown报告
-        report_file = self.output_dir / f"{prefix}_report_{timestamp}.md"
-        self._generate_markdown_report(report_file)
-        print(f"✅ 报告已保存: {report_file}")
-
-        return {
+        files = {
             "raw": str(raw_file),
             "regime": str(regime_file),
-            "report": str(report_file),
         }
 
-    def _generate_markdown_report(self, output_file: Path):
+        if ranking_mode == "legacy":
+            legacy_rank_df = self.rank_by_legacy_goal()
+            legacy_rank_file = self.output_dir / f"{prefix}_legacy_rank_{timestamp}.csv"
+            legacy_rank_df.to_csv(legacy_rank_file, index=False, encoding="utf-8-sig")
+            print(f"✅ legacy排名已保存: {legacy_rank_file}")
+            files["legacy_rank"] = str(legacy_rank_file)
+
+        if ranking_mode == "target20":
+            target20_rank_df = self.rank_by_target20_goal()
+            target20_rank_file = self.output_dir / f"{prefix}_target20_rank_{timestamp}.csv"
+            target20_rank_df.to_csv(target20_rank_file, index=False, encoding="utf-8-sig")
+            print(f"✅ 20%目标导向排名已保存: {target20_rank_file}")
+            files["target20_rank"] = str(target20_rank_file)
+
+        if ranking_mode == "risk60_profit40":
+            risk60_rank_df = self.rank_by_risk60_profit40()
+            risk60_rank_file = self.output_dir / f"{prefix}_risk60_profit40_rank_{timestamp}.csv"
+            risk60_rank_df.to_csv(risk60_rank_file, index=False, encoding="utf-8-sig")
+            print(f"✅ risk60_profit40排名已保存: {risk60_rank_file}")
+            files["risk60_profit40_rank"] = str(risk60_rank_file)
+
+        # 4. Markdown报告
+        report_file = self.output_dir / f"{prefix}_report_{timestamp}.md"
+        self._generate_markdown_report(report_file, ranking_mode=ranking_mode)
+        print(f"✅ 报告已保存: {report_file}")
+        files["report"] = str(report_file)
+        return files
+
+    def _generate_markdown_report(self, output_file: Path, ranking_mode: str = "target20"):
         """生成Markdown格式的评价报告"""
         df = self._create_results_dataframe()
 
@@ -1006,65 +1246,92 @@ class StrategyEvaluator:
                     )
             f.write("\n")
 
-            # 4. 全天候策略推荐
-            f.write("## 4. 全天候策略推荐\n\n")
-
-            # 统计每个策略组合在各市场环境中的排名
-            strategy_performance = {}
-
-            for regime in df["market_regime"].unique():
-                regime_df = df[df["market_regime"] == regime].copy()
-
-                # 按 alpha 排序（有TOPIX数据时）或按 return_pct 排序（无TOPIX数据时）
-                has_alpha = (
-                    regime_df["alpha"].notna().any()
-                    and regime_df["topix_return_pct"].notna().any()
-                )
-                if has_alpha and regime_df["alpha"].sum() != 0:
-                    regime_df["rank"] = regime_df["alpha"].rank(ascending=False)
+            if ranking_mode == "legacy":
+                f.write("## 4. Legacy 全天候排名\n\n")
+                legacy_df = self.rank_by_legacy_goal()
+                if legacy_df.empty:
+                    f.write("无可用legacy排名数据。\n\n")
                 else:
-                    regime_df["rank"] = regime_df["return_pct"].rank(ascending=False)
-
-                for _, row in regime_df.iterrows():
-                    key = (
-                        row["entry_strategy"],
-                        row["exit_strategy"],
-                        row["entry_filter"],
+                    f.write(
+                        "| 排名 | 入场策略 | 出场策略 | 入场过滤器 | 平均排名 | 平均收益率 | 平均超额收益 | 平均夏普 | 平均胜率 |\n"
                     )
-                    if key not in strategy_performance:
-                        strategy_performance[key] = []
-                    strategy_performance[key].append(row["rank"])
+                    f.write(
+                        "|------|---------|---------|------------|----------|------------|--------------|----------|----------|\n"
+                    )
+                    for _, row in legacy_df.iterrows():
+                        f.write(
+                            f"| {int(row['rank'])} | {row['entry_strategy']} | {row['exit_strategy']} | {row['entry_filter']} | "
+                            f"{row['avg_rank']:.2f} | {row['mean_return']:.2f}% | {row['mean_alpha']:.2f}% | "
+                            f"{row['mean_sharpe']:.2f} | {row['mean_win_rate']:.1f}% |\n"
+                        )
+                    f.write("\n")
 
-            # 计算平均排名
-            avg_ranks = {k: sum(v) / len(v) for k, v in strategy_performance.items()}
-            sorted_strategies = sorted(avg_ranks.items(), key=lambda x: x[1])
+            if ranking_mode == "target20":
+                f.write("## 4. 年度20%目标导向排名（不以TOPIX涨跌幅为考核基准）\n\n")
+                f.write("排序目标：尽量在每个时段达到20%，尽量避免亏损时段；牛市亏损会被额外惩罚，熊市达成20%会有奖励。\n\n")
 
-            f.write("基于跨市场环境表现（平均排名），推荐策略：\n\n")
+                rank_df = self.rank_by_target20_goal()
+                if rank_df.empty:
+                    f.write("无可用排名数据。\n")
+                    return
 
-            for i, ((entry, exit, filter_name), avg_rank) in enumerate(
-                sorted_strategies[:3], 1
-            ):
-                f.write(f"**{i}. {entry} × {exit} × {filter_name}**\n")
-                f.write(f"- 平均排名: {avg_rank:.1f}\n")
-
-                # 统计在各市场环境的表现
-                combo_df = df[
-                    (df["entry_strategy"] == entry)
-                    & (df["exit_strategy"] == exit)
-                    & (df["entry_filter"] == filter_name)
-                ]
-                f.write(f"- 平均收益率: {combo_df['return_pct'].mean():.2f}%\n")
-
-                # 检查是否有TOPIX数据
-                has_topix_data = (
-                    combo_df["topix_return_pct"].notna().any()
-                    and combo_df["topix_return_pct"].sum() != 0
+                f.write(
+                    "| 排名 | 入场策略 | 出场策略 | 入场过滤器 | 目标分(0-100) | 达标率(>=20%) | 平均缺口(%) | 亏损时段占比 | 牛市亏损占比 | 熊市达标率 | 最差时段收益(%) |\n"
                 )
-                if has_topix_data:
-                    f.write(f"- 平均超额收益: {combo_df['alpha'].mean():.2f}%\n")
+                f.write(
+                    "|------|---------|---------|------------|---------------|---------------|-------------|--------------|--------------|------------|----------------|\n"
+                )
 
-                f.write(f"- 平均夏普比率: {combo_df['sharpe_ratio'].mean():.2f}\n")
-                f.write(f"- 平均胜率: {combo_df['win_rate_pct'].mean():.1f}%\n\n")
+                for _, row in rank_df.iterrows():
+                    f.write(
+                        f"| {int(row['rank'])} | {row['entry_strategy']} | {row['exit_strategy']} | {row['entry_filter']} | "
+                        f"{row['target20_score']:.2f} | {row['hit20_rate'] * 100:.1f}% | {row['shortfall_mean']:.2f} | "
+                        f"{row['loss_period_rate'] * 100:.1f}% | {row['bull_loss_rate'] * 100:.1f}% | "
+                        f"{row['bear_hit20_rate'] * 100:.1f}% | {row['worst_period_return']:.2f}% |\n"
+                    )
+
+                f.write("\n")
+                f.write("### 推荐策略（Top 3）\n\n")
+
+                for _, row in rank_df.head(3).iterrows():
+                    f.write(
+                        f"- **#{int(row['rank'])} {row['entry_strategy']} × {row['exit_strategy']} × {row['entry_filter']}**"
+                        f" | 目标分={row['target20_score']:.2f}, 达标率={row['hit20_rate'] * 100:.1f}%, "
+                        f"平均缺口={row['shortfall_mean']:.2f}%, 亏损时段占比={row['loss_period_rate'] * 100:.1f}%, "
+                        f"最差时段={row['worst_period_return']:.2f}%\n"
+                    )
+
+            if ranking_mode == "risk60_profit40":
+                f.write("## 4. Risk60/Profit40 排名（v2）\n\n")
+                f.write("评分公式：0.35*mdd_inverse_norm + 0.25*worst_year_return_norm + 0.25*avg_alpha_norm + 0.15*positive_alpha_ratio_norm\n\n")
+
+                rank_df = self.rank_by_risk60_profit40()
+                if rank_df.empty:
+                    f.write("无可用排名数据。\n")
+                    return
+
+                f.write(
+                    "| 排名 | 入场策略 | 出场策略 | 入场过滤器 | 60/40得分 | 平均回撤 | 最差年度收益 | 平均Alpha | 正Alpha占比 | 平均收益率 |\n"
+                )
+                f.write(
+                    "|------|---------|---------|------------|----------|----------|--------------|-----------|-------------|------------|\n"
+                )
+
+                for _, row in rank_df.iterrows():
+                    f.write(
+                        f"| {int(row['rank'])} | {row['entry_strategy']} | {row['exit_strategy']} | {row['entry_filter']} | "
+                        f"{row['risk60_profit40_score']:.4f} | {row['avg_mdd']:.2f}% | {row['worst_year_return']:.2f}% | "
+                        f"{row['avg_alpha']:.2f}% | {row['positive_alpha_ratio'] * 100:.1f}% | {row['avg_return']:.2f}% |\n"
+                    )
+
+                f.write("\n")
+                f.write("### 推荐策略（Top 3）\n\n")
+                for _, row in rank_df.head(3).iterrows():
+                    f.write(
+                        f"- **#{int(row['rank'])} {row['entry_strategy']} × {row['exit_strategy']} × {row['entry_filter']}**"
+                        f" | 60/40得分={row['risk60_profit40_score']:.4f}, 平均回撤={row['avg_mdd']:.2f}%, "
+                        f"最差年度={row['worst_year_return']:.2f}%, 平均Alpha={row['avg_alpha']:.2f}%\n"
+                    )
 
 
 def create_annual_periods(years: List[int]) -> List[Tuple[str, str, str]]:

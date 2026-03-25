@@ -31,10 +31,98 @@ def _cmd_pos_evaluation(args):
 
     return cmd_pos_evaluation(args)
 
+
+def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
+    """Attach shared arguments used by evaluate and pos-evaluation."""
+    parser.add_argument(
+        "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["annual", "quarterly", "monthly", "custom"],
+        default="annual",
+        help="评估模式: annual=整年, quarterly=季度, monthly=按月, custom=自定义",
+    )
+    parser.add_argument(
+        "--months", nargs="+", type=int, help="月份列表（monthly模式，例如: 1 2 3）"
+    )
+    parser.add_argument(
+        "--custom-periods",
+        type=str,
+        help='自定义时间段（JSON格式）: [["2021-Q1","2021-01-01","2021-03-31"], ...]',
+    )
+    parser.add_argument(
+        "--entry-strategies", nargs="+", help="指定入场策略（默认全部）"
+    )
+    parser.add_argument(
+        "--exit-strategies", nargs="+", help="指定出场策略（默认全部）"
+    )
+    parser.add_argument(
+        "--exit-confirm-days",
+        type=int,
+        default=None,
+        help="出场确认天数（连续N天出现SELL才执行，默认读取evaluation.exit_confirmation_days）",
+    )
+    parser.add_argument(
+        "--entry-filter-mode",
+        choices=["auto", "off", "single", "grid"],
+        default="auto",
+        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
+    )
+    parser.add_argument(
+        "--entry-filter-name",
+        nargs="+",
+        help="指定entry_filters中的过滤器名称（single选1个，grid可选多个）",
+    )
+    parser.add_argument(
+        "--list-entry-filters",
+        action="store_true",
+        help="仅列出可用的entry filter并退出",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
+    )
+    parser.add_argument(
+        "--universe-file",
+        nargs="+",
+        default=None,
+        help="股票池文件路径（支持多个，用于同策略不同股票池比较；支持 json/csv/txt）",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
+    )
+    parser.add_argument(
+        "--enable-overlay",
+        action="store_true",
+        default=None,
+        help="按需启用overlay参与evaluation（默认关闭）",
+    )
+    parser.add_argument(
+        "--ranking-mode",
+        choices=["legacy", "target20", "risk60_profit40"],
+        default=None,
+        help=(
+            "最终策略排序模式: legacy=旧版跨市场平均排名, "
+            "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%"
+        ),
+    )
+
 # Force UTF-8 output on Windows (一劳永逸解决 emoji 编码问题)
 if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+    sys.stdout = io.TextIOWrapper(
+        sys.stdout.buffer,
+        encoding="utf-8",
+        line_buffering=True,
+        write_through=True,
+    )
+    sys.stderr = io.TextIOWrapper(
+        sys.stderr.buffer,
+        encoding="utf-8",
+        line_buffering=True,
+        write_through=True,
+    )
     os.environ["TQDM_DISABLE"] = "0"
     os.environ["PYTHONIOENCODING"] = "utf-8"
 
@@ -391,121 +479,13 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser = subparsers.add_parser(
         "evaluate", aliases=["evaluation"], help="策略综合评价（按年度/市场环境）"
     )
-    evaluate_parser.add_argument(
-        "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
-    )
-    evaluate_parser.add_argument(
-        "--mode",
-        choices=["annual", "quarterly", "monthly", "custom"],
-        default="annual",
-        help="评估模式: annual=整年, quarterly=季度, monthly=按月, custom=自定义",
-    )
-    evaluate_parser.add_argument(
-        "--months", nargs="+", type=int, help="月份列表（monthly模式，例如: 1 2 3）"
-    )
-    evaluate_parser.add_argument(
-        "--custom-periods",
-        type=str,
-        help='自定义时间段（JSON格式）: [["2021-Q1","2021-01-01","2021-03-31"], ...]',
-    )
-    evaluate_parser.add_argument(
-        "--entry-strategies", nargs="+", help="指定入场策略（默认全部）"
-    )
-    evaluate_parser.add_argument(
-        "--exit-strategies", nargs="+", help="指定出场策略（默认全部）"
-    )
-    evaluate_parser.add_argument(
-        "--exit-confirm-days",
-        type=int,
-        default=None,
-        help="出场确认天数（连续N天出现SELL才执行，默认读取evaluation.exit_confirmation_days）",
-    )
-    evaluate_parser.add_argument(
-        "--entry-filter-mode",
-        choices=["auto", "off", "single", "grid"],
-        default="auto",
-        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
-    )
-    evaluate_parser.add_argument(
-        "--entry-filter-name",
-        nargs="+",
-        help="指定entry_filters中的过滤器名称（single选1个，grid可选多个）",
-    )
-    evaluate_parser.add_argument(
-        "--list-entry-filters",
-        action="store_true",
-        help="仅列出可用的entry filter并退出",
-    )
-    evaluate_parser.add_argument(
-        "--output-dir",
-        default=None,
-        help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
-    )
-    evaluate_parser.add_argument(
-        "--universe-file",
-        nargs="+",
-        default=None,
-        help="股票池文件路径（支持多个，用于同策略不同股票池比较；支持 json/csv/txt）",
-    )
-    evaluate_parser.add_argument(
-        "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
-    )
-    evaluate_parser.add_argument(
-        "--enable-overlay",
-        action="store_true",
-        default=None,
-        help="按需启用overlay参与evaluation（默认关闭）",
-    )
+    _add_common_evaluation_arguments(evaluate_parser)
     evaluate_parser.set_defaults(func=_cmd_evaluate)
 
     pos_evaluate_parser = subparsers.add_parser(
         "pos-evaluation", help="仓位参数批量评价（读取evaluation-position.json）"
     )
-    pos_evaluate_parser.add_argument(
-        "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
-    )
-    pos_evaluate_parser.add_argument(
-        "--mode",
-        choices=["annual", "quarterly", "monthly", "custom"],
-        default="annual",
-        help="评估模式: annual=整年, quarterly=季度, monthly=按月, custom=自定义",
-    )
-    pos_evaluate_parser.add_argument(
-        "--months", nargs="+", type=int, help="月份列表（monthly模式，例如: 1 2 3）"
-    )
-    pos_evaluate_parser.add_argument(
-        "--custom-periods",
-        type=str,
-        help='自定义时间段（JSON格式）: [["2021-Q1","2021-01-01","2021-03-31"], ...]',
-    )
-    pos_evaluate_parser.add_argument(
-        "--entry-strategies", nargs="+", help="指定入场策略（默认全部）"
-    )
-    pos_evaluate_parser.add_argument(
-        "--exit-strategies", nargs="+", help="指定出场策略（默认全部）"
-    )
-    pos_evaluate_parser.add_argument(
-        "--exit-confirm-days",
-        type=int,
-        default=None,
-        help="出场确认天数（连续N天出现SELL才执行，默认读取evaluation.exit_confirmation_days）",
-    )
-    pos_evaluate_parser.add_argument(
-        "--entry-filter-mode",
-        choices=["auto", "off", "single", "grid"],
-        default="auto",
-        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
-    )
-    pos_evaluate_parser.add_argument(
-        "--entry-filter-name",
-        nargs="+",
-        help="指定entry_filters中的过滤器名称（single选1个，grid可选多个）",
-    )
-    pos_evaluate_parser.add_argument(
-        "--list-entry-filters",
-        action="store_true",
-        help="仅列出可用的entry filter并退出",
-    )
+    _add_common_evaluation_arguments(pos_evaluate_parser)
     pos_evaluate_parser.add_argument(
         "--position-file",
         default="evaluation-position.json",
@@ -515,26 +495,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile-name",
         nargs="+",
         help="仅运行指定仓位组合名称（可多个）",
-    )
-    pos_evaluate_parser.add_argument(
-        "--output-dir",
-        default=None,
-        help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
-    )
-    pos_evaluate_parser.add_argument(
-        "--universe-file",
-        nargs="+",
-        default=None,
-        help="股票池文件路径（支持多个，用于同策略不同股票池比较；支持 json/csv/txt）",
-    )
-    pos_evaluate_parser.add_argument(
-        "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
-    )
-    pos_evaluate_parser.add_argument(
-        "--enable-overlay",
-        action="store_true",
-        default=None,
-        help="按需启用overlay参与evaluation（默认关闭）",
     )
     pos_evaluate_parser.add_argument(
         "--overlay-modes",
