@@ -95,3 +95,6 @@ today.csv
 # OS
 .DS_Store
 Thumbs.db
+
+# AWS SAM local build artifacts
+.aws-sam/
