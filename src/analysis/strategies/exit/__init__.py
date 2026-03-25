@@ -10,6 +10,7 @@ from .layered_exit import LayeredExitStrategy
 from .donchian_break_exit import DonchianBreakExit
 from .gap_panic_exit import GapPanicExit
 from .multiview_grid_exit import MultiViewCompositeExit
+from .multidim_ma_exit import MultiDimensionalMAExit
 
 __all__ = [
     'ATRExitStrategy',
@@ -20,4 +21,5 @@ __all__ = [
     'DonchianBreakExit',
     'GapPanicExit',
     'MultiViewCompositeExit',
+    'MultiDimensionalMAExit',
 ]

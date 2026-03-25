@@ -24,6 +24,7 @@ ENTRY_STRATEGIES = {
     "IchimokuStochStrategy": "src.analysis.strategies.entry.ichimoku_stoch_strategy.IchimokuStochStrategy",
     "MACDHistHysteresisEntry": "src.analysis.strategies.entry.macd_hysteresis_entry.MACDHistHysteresisEntry",
     "MACDHistHysteresisPreCrossEntry": "src.analysis.strategies.entry.macd_hysteresis_entry.MACDHistHysteresisPreCrossEntry",
+    "MovingAverageCrossoverEntry": "src.analysis.strategies.entry.moving_average_crossover_entry.MovingAverageCrossoverEntry",
 }
 
 try:
@@ -59,12 +60,25 @@ EXIT_STRATEGIES = {
     "MACDKDJRuleExitB": "src.analysis.strategies.exit.macd_kdj_rule_exit.MACDKDJRuleExitB",
     "DonchianBreakExit": "src.analysis.strategies.exit.donchian_break_exit.DonchianBreakExit",
     "GapPanicExit": "src.analysis.strategies.exit.gap_panic_exit.GapPanicExit",
+    "MultiDimensionalMAExit": "src.analysis.strategies.exit.multidim_ma_exit.MultiDimensionalMAExit",
 }
 
 try:
-    from src.analysis.strategies.exit.multiview_grid_exit import GRID_EXIT_STRATEGY_MAP
+    from src.analysis.strategies.exit.multiview_grid_exit import (
+        GRID_EXIT_STRATEGY_MAP as MVX_GRID_EXIT_STRATEGY_MAP,
+    )
 
-    EXIT_STRATEGIES.update(GRID_EXIT_STRATEGY_MAP)
+    EXIT_STRATEGIES.update(MVX_GRID_EXIT_STRATEGY_MAP)
+except Exception:
+    # Keep loader resilient if grid module has runtime issues
+    pass
+
+try:
+    from src.analysis.strategies.exit.multidim_ma_exit import (
+        GRID_EXIT_STRATEGY_MAP as MDX_GRID_EXIT_STRATEGY_MAP,
+    )
+
+    EXIT_STRATEGIES.update(MDX_GRID_EXIT_STRATEGY_MAP)
 except Exception:
     # Keep loader resilient if grid module has runtime issues
     pass

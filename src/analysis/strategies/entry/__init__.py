@@ -11,6 +11,7 @@ from .macd_hysteresis_entry import (
     MACDHistHysteresisEntry,
     MACDHistHysteresisPreCrossEntry,
 )
+from .moving_average_crossover_entry import MovingAverageCrossoverEntry
 from .scorer_strategy import EnhancedScorerStrategy, SimpleScorerStrategy
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "MACDEnhancedFundamentalStrategy",
     "MACDHistHysteresisEntry",
     "MACDHistHysteresisPreCrossEntry",
+    "MovingAverageCrossoverEntry",
 ]
