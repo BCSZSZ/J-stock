@@ -21,10 +21,28 @@
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0
 ```
 
+`pos-evaluation` 与 `evaluate` 共享同一套时间段/策略/filter/universe 参数，仓位维度通过 `--position-file` 与 `--profile-name` 控制：
+
+```powershell
+.venv/Scripts/python.exe main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --position-file evaluation-position.json
+```
+
+如需一次评估 overlay on/off 两种仓位结果：
+
+```powershell
+.venv/Scripts/python.exe main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --position-file evaluation-position.json --overlay-modes off on
+```
+
 如需在 evaluation 中按需启用 overlay（默认关闭）：
 
 ```powershell
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --enable-overlay
+```
+
+5年双MVX对比（使用默认：overlay=off、filter=off、仓位=7x0.18、evaluation输出目录=G盘）：
+
+```powershell
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
 ```
 
 ### Entry Filter 层开关（evaluation）
@@ -43,8 +61,8 @@
 示例：
 
 ```powershell
-# 关闭filter层
-.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode off
+# 默认filter=off时，无需显式传 --entry-filter-mode off
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
 
 # 仅使用单一filter
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode single --entry-filter-name f01_base
@@ -123,6 +141,10 @@
 
 ```powershell
 .venv/Scripts/python.exe main.py production --input --manual --manual-file today.csv --yes
+```
+
+```powershell
+.venv/Scripts/python.exe main.py production --input --manual --manual-file today.csv --yes --aws-profile personal
 ```
 
 CSV 必填列（顺序）：
