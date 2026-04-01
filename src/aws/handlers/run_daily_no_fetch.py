@@ -13,7 +13,7 @@ from src.aws.s3_data_sync import download_seed_for_job, is_s3_prefix
 
 
 JST = timezone(timedelta(hours=9))
-DEFAULT_REPORT_URL_TTL_SECONDS = 60 * 60 * 24 * 3
+DEFAULT_REPORT_URL_TTL_SECONDS = 60 * 60 * 12  # 12 hours (STS role max session duration limit)
 
 
 def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
@@ -57,9 +57,21 @@ def _build_presigned_download_url(s3_uri: str, expires_in: int | None = None) ->
     ttl = expires_in or int(
         os.getenv("REPORT_URL_TTL_SECONDS", DEFAULT_REPORT_URL_TTL_SECONDS)
     )
-    ttl = max(60, min(int(ttl), 60 * 60 * 24 * 7))
+    ttl = max(60, min(int(ttl), 60 * 60 * 12))  # STS role max session duration is 12h
     try:
-        s3 = boto3.client("s3")
+        # Use dedicated IAM user long-term credentials if provided.
+        # Lambda's STS temporary credentials cap presigned URL lifetime to the role's
+        # MaxSessionDuration (max 12h). IAM user credentials support up to 7 days.
+        signing_key_id = os.getenv("REPORT_SIGNING_ACCESS_KEY_ID", "").strip()
+        signing_secret = os.getenv("REPORT_SIGNING_SECRET_ACCESS_KEY", "").strip()
+        if signing_key_id and signing_secret:
+            s3 = boto3.client(
+                "s3",
+                aws_access_key_id=signing_key_id,
+                aws_secret_access_key=signing_secret,
+            )
+        else:
+            s3 = boto3.client("s3")
         return s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket, "Key": key},
@@ -167,7 +179,7 @@ def _build_notification_body(
             60,
             min(
                 int(os.getenv("REPORT_URL_TTL_SECONDS", DEFAULT_REPORT_URL_TTL_SECONDS)),
-                60 * 60 * 24 * 7,
+                60 * 60 * 12,  # STS role max
             ),
         )
         ttl_hours = ttl_seconds / 3600

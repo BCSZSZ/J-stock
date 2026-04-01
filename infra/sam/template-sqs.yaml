@@ -56,7 +56,7 @@ Parameters:
 
   DailyNoFetchScheduleExpression:
     Type: String
-    Default: cron(0 11 ? * MON-FRI *)
+    Default: cron(0 12 ? * MON-FRI *)
 
   Validation1830ScheduleExpression:
     Type: String
@@ -69,6 +69,17 @@ Parameters:
   NotifyEmail:
     Type: String
     Default: ""
+
+  ReportSigningAccessKeyId:
+    Type: String
+    Default: ""
+    Description: IAM user access key ID for signing report presigned URLs. When set, URLs use long-term credentials and respect the full TTL (up to 7 days). Leave empty to use Lambda execution role (URL expires with STS session ~1h).
+
+  ReportSigningSecretAccessKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: IAM user secret access key paired with ReportSigningAccessKeyId.
 
 Globals:
   Function:
@@ -184,6 +195,8 @@ Resources:
           OPS_S3_PREFIX: !Ref OpsS3Prefix
           JQUANTS_API_KEY: !Ref JQuantsApiKey
           NOTIFY_SNS_TOPIC_ARN: !Ref DailyNotifyTopic
+          REPORT_SIGNING_ACCESS_KEY_ID: !Ref ReportSigningAccessKeyId
+          REPORT_SIGNING_SECRET_ACCESS_KEY: !Ref ReportSigningSecretAccessKey
       Policies:
         - Statement:
             - Effect: Allow
