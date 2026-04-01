@@ -8,4 +8,4 @@ confirm_changeset = false
 fail_on_empty_changeset = false
 resolve_s3 = true
 tags = "Project=AI-stock"
-parameter_overrides = "EnvironmentName=prod MonitorListS3Uri=\"__MONITOR_LIST_S3_URI__\" DataS3Prefix=\"__DATA_S3_PREFIX__\" OpsS3Prefix=\"__OPS_S3_PREFIX__\" TickersPerJob=__TICKERS_PER_JOB__ UpdateAuxData=\"__UPDATE_AUX_DATA__\" WorkerMemoryMB=__WORKER_MEMORY_MB__ NotifyEmail=\"__NOTIFY_EMAIL__\" JQuantsApiKey=\"__JQUANTS_API_KEY__\" ScheduleExpression=\"cron(0 9 ? * MON-FRI *)\" DailyNoFetchScheduleExpression=\"cron(0 12 ? * MON-FRI *)\""
+parameter_overrides = "EnvironmentName=prod MonitorListS3Uri=\"__MONITOR_LIST_S3_URI__\" DataS3Prefix=\"__DATA_S3_PREFIX__\" OpsS3Prefix=\"__OPS_S3_PREFIX__\" TickersPerJob=__TICKERS_PER_JOB__ UpdateAuxData=\"__UPDATE_AUX_DATA__\" WorkerMemoryMB=__WORKER_MEMORY_MB__ NotifyEmail=\"__NOTIFY_EMAIL__\" JQuantsApiKey=\"__JQUANTS_API_KEY__\" ScheduleExpression=\"cron(0 9 ? * MON-FRI *)\""
