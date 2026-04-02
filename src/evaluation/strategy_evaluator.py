@@ -831,8 +831,14 @@ class StrategyEvaluator:
 
     def rank_by_target20_goal(self) -> pd.DataFrame:
         """
-        Rank strategy combos for the goal: hit ~20% return as consistently as possible
-        across periods (especially avoid loss years, and reward bear-year resilience).
+        Balanced target20 ranking with continuous-hit utility + mean return + stability.
+
+        Core idea:
+        - Replace binary hit20 with continuous utility U: clip(return/20, 0, 1)
+        - Keep mean return M as a separate dimension
+        - Keep no-loss ratio P as a stability anchor
+                - Apply risk guardrails with deduction terms (worst year / loss ratio /
+                    bull-market losses / average drawdown); no bear-market bonus.
 
         Returns:
             DataFrame with one row per strategy combo and quantitative ranking metrics.
@@ -848,6 +854,7 @@ class StrategyEvaluator:
             combo_df = combo_df.copy()
             returns = pd.to_numeric(combo_df["return_pct"], errors="coerce").fillna(0.0)
             topix = pd.to_numeric(combo_df["topix_return_pct"], errors="coerce")
+            mdd = pd.to_numeric(combo_df["max_drawdown_pct"], errors="coerce").fillna(0.0)
 
             period_count = int(len(combo_df))
             hit20_rate = float((returns >= 20.0).mean()) if period_count > 0 else 0.0
@@ -857,6 +864,21 @@ class StrategyEvaluator:
             loss_period_rate = float((returns < 0.0).mean()) if period_count > 0 else 1.0
             worst_period_return = float(returns.min()) if period_count > 0 else -999.0
             mean_return = float(returns.mean()) if period_count > 0 else 0.0
+            avg_mdd = float(mdd.mean()) if period_count > 0 else 99.0
+
+            # Continuous hit utility: 20% reaches full score, lower positive returns
+            # still get partial credit, non-positive gets no credit.
+            soft_hit20_score = (
+                float((returns / 20.0).clip(lower=0.0, upper=1.0).mean())
+                if period_count > 0
+                else 0.0
+            )
+
+            # Mean-return component normalized to [0,1] using 30% as saturation point.
+            mean_return_component = min(1.0, max(0.0, mean_return / 30.0))
+
+            # Stability component: fewer losing periods is better.
+            no_loss_component = 1.0 - loss_period_rate
 
             bull_mask = topix.notna() & (topix >= 0.0)
             bear_mask = topix.notna() & (topix < 0.0)
@@ -874,23 +896,48 @@ class StrategyEvaluator:
                 else 0.0
             )
 
-            # Base score focuses on consistency to 20% target, not on outperforming TOPIX.
-            shortfall_component = 1.0 - min(1.0, shortfall_mean / 20.0)
+            # Balanced UMP weights (U/M/P): emphasize target-consistency while
+            # preserving return level discrimination.
+            w_u, w_m, w_p = 0.42, 0.38, 0.20
             base_score = 100.0 * (
-                0.55 * hit20_rate
-                + 0.25 * shortfall_component
-                + 0.20 * (1.0 - loss_period_rate)
+                w_u * soft_hit20_score
+                + w_m * mean_return_component
+                + w_p * no_loss_component
             )
 
-            # Regime adjustment aligned with user goal:
-            # - Penalize bull-market losses
-            # - Reward bear-market 20% hits
-            regime_adj = 10.0 * bear_hit20_rate - 12.0 * bull_loss_rate
+            # Risk guardrails (deduction-based)
+            # Worst period penalty: starts once worst period is below 0%.
+            if worst_period_return >= 0.0:
+                penalty_worst = 0.0
+            else:
+                penalty_worst = min(30.0, abs(worst_period_return) * 2.0)
 
-            # Additional hard penalty for very bad worst period.
-            worst_penalty = min(25.0, abs(worst_period_return) * 0.8) if worst_period_return < 0.0 else 0.0
+            # Loss-ratio penalty: starts above 20% losing periods.
+            penalty_loss_ratio = min(
+                10.0, max(0.0, loss_period_rate - 0.20) * 40.0
+            )
 
-            final_score = max(0.0, min(100.0, base_score + regime_adj - worst_penalty))
+            # Bull-loss penalty: any losing period in bull market is penalized,
+            # and the penalty ramps up aggressively.
+            penalty_bull_loss = min(25.0, bull_loss_rate * 100.0)
+
+            # Drawdown penalty: starts above 12% average drawdown.
+            penalty_avg_mdd = min(8.0, max(0.0, avg_mdd - 12.0) * 0.5)
+
+            # Bear-market bonus is intentionally disabled.
+            bonus_bear = 0.0
+
+            risk_penalty_total = (
+                penalty_worst
+                + penalty_loss_ratio
+                + penalty_bull_loss
+                + penalty_avg_mdd
+            )
+
+            final_score = max(
+                0.0,
+                min(100.0, base_score + bonus_bear - risk_penalty_total),
+            )
 
             rows.append(
                 {
@@ -899,12 +946,23 @@ class StrategyEvaluator:
                     "entry_filter": key[2],
                     "period_count": period_count,
                     "hit20_rate": hit20_rate,
+                    "soft_hit20_score": soft_hit20_score,
                     "shortfall_mean": shortfall_mean,
                     "loss_period_rate": loss_period_rate,
                     "bull_loss_rate": bull_loss_rate,
                     "bear_hit20_rate": bear_hit20_rate,
                     "worst_period_return": worst_period_return,
+                    "avg_mdd": avg_mdd,
                     "mean_return": mean_return,
+                    "mean_return_component": mean_return_component,
+                    "no_loss_component": no_loss_component,
+                    "base_score": base_score,
+                    "bonus_bear": bonus_bear,
+                    "penalty_worst": penalty_worst,
+                    "penalty_loss_ratio": penalty_loss_ratio,
+                    "penalty_bull_loss": penalty_bull_loss,
+                    "penalty_avg_mdd": penalty_avg_mdd,
+                    "risk_penalty_total": risk_penalty_total,
                     "target20_score": final_score,
                 }
             )
@@ -916,12 +974,13 @@ class StrategyEvaluator:
         rank_df = rank_df.sort_values(
             [
                 "target20_score",
+                "soft_hit20_score",
+                "mean_return",
                 "hit20_rate",
-                "shortfall_mean",
                 "loss_period_rate",
                 "worst_period_return",
             ],
-            ascending=[False, False, True, True, False],
+            ascending=[False, False, False, False, True, False],
         ).reset_index(drop=True)
         rank_df.insert(0, "rank", range(1, len(rank_df) + 1))
         return rank_df
@@ -1268,7 +1327,7 @@ class StrategyEvaluator:
 
             if ranking_mode == "target20":
                 f.write("## 4. 年度20%目标导向排名（不以TOPIX涨跌幅为考核基准）\n\n")
-                f.write("排序目标：尽量在每个时段达到20%，尽量避免亏损时段；牛市亏损会被额外惩罚，熊市达成20%会有奖励。\n\n")
+                f.write("排序目标：尽量在每个时段达到20%，尽量避免亏损时段；牛市亏损从出现即重罚，最差时段收益<0即开始扣分。\n\n")
 
                 rank_df = self.rank_by_target20_goal()
                 if rank_df.empty:

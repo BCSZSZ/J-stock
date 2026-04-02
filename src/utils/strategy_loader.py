@@ -47,6 +47,26 @@ except Exception:
     # Keep loader resilient if optional strategy module has runtime issues
     pass
 
+try:
+    from src.analysis.strategies.entry.moving_average_crossover_entry import (
+        GRID_ENTRY_STRATEGY_MAP as MA_CROSS_GRID_ENTRY_STRATEGY_MAP,
+    )
+
+    ENTRY_STRATEGIES.update(MA_CROSS_GRID_ENTRY_STRATEGY_MAP)
+except Exception:
+    # Keep loader resilient if optional strategy module has runtime issues
+    pass
+
+try:
+    from src.analysis.strategies.entry.moving_average_crossover_fine_grid import (
+        GRID_ENTRY_FINE_STRATEGY_MAP as MA_CROSS_FINE_GRID_ENTRY_STRATEGY_MAP,
+    )
+
+    ENTRY_STRATEGIES.update(MA_CROSS_FINE_GRID_ENTRY_STRATEGY_MAP)
+except Exception:
+    # Keep loader resilient if optional strategy module has runtime issues
+    pass
+
 EXIT_STRATEGIES = {
     "ATRExitStrategy": "src.analysis.strategies.exit.atr_exit.ATRExitStrategy",
     "ScoreBasedExitStrategy": "src.analysis.strategies.exit.score_based_exit.ScoreBasedExitStrategy",
@@ -79,6 +99,26 @@ try:
     )
 
     EXIT_STRATEGIES.update(MDX_GRID_EXIT_STRATEGY_MAP)
+except Exception:
+    # Keep loader resilient if grid module has runtime issues
+    pass
+
+try:
+    from src.analysis.strategies.exit.multiview_fine_grid_exit import (
+        GRID_EXIT_FINE_STRATEGY_MAP as MVX_FINE_GRID_EXIT_STRATEGY_MAP,
+    )
+
+    EXIT_STRATEGIES.update(MVX_FINE_GRID_EXIT_STRATEGY_MAP)
+except Exception:
+    # Keep loader resilient if grid module has runtime issues
+    pass
+
+try:
+    from src.analysis.strategies.exit.multidim_ma_fine_grid_exit import (
+        GRID_EXIT_FINE_STRATEGY_MAP as MDX_FINE_GRID_EXIT_STRATEGY_MAP,
+    )
+
+    EXIT_STRATEGIES.update(MDX_FINE_GRID_EXIT_STRATEGY_MAP)
 except Exception:
     # Keep loader resilient if grid module has runtime issues
     pass

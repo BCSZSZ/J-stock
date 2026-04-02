@@ -140,7 +140,11 @@ class MultiDimensionalMAExit(BaseExitStrategy):
             )
 
         # O1: overheat + pullback (full exit)
-        rsi_value = latest["RSI_14"] if "RSI_14" in df.columns else None
+        rsi_value = None
+        if "RSI_14" in df.columns:
+            rsi_value = latest["RSI_14"]
+        elif "RSI" in df.columns:
+            rsi_value = latest["RSI"]
         fast_ma_value = latest[self.fast_ma_col]
         if (
             rsi_value is not None
