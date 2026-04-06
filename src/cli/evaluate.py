@@ -586,7 +586,7 @@ def cmd_evaluate(args):
         if files.get("trades"):
             print(f"  🧾 原始交易明细: {files['trades']}")
         if files.get("exit_trigger_summary"):
-            print(f"  🚪 全卖退出原因分布: {files['exit_trigger_summary']}")
+            print(f"  🚪 退出原因分布: {files['exit_trigger_summary']}")
         if files.get("legacy_rank"):
             print(f"  🏁 Legacy排名: {files['legacy_rank']}")
         if files.get("target20_rank"):
@@ -757,7 +757,7 @@ def cmd_pos_evaluation(args):
         if files.get("trades"):
             print(f"  🧾 原始交易明细: {files['trades']}")
         if files.get("exit_trigger_summary"):
-            print(f"  🚪 全卖退出原因分布: {files['exit_trigger_summary']}")
+            print(f"  🚪 退出原因分布: {files['exit_trigger_summary']}")
         if files.get("legacy_rank"):
             print(f"  🏁 Legacy排名: {files['legacy_rank']}")
         if files.get("target20_rank"):
@@ -789,7 +789,7 @@ def cmd_pos_evaluation(args):
 
         combined_trigger_summary = StrategyEvaluator.build_exit_trigger_summary_df(
             combined_trades,
-            full_exit_only=True,
+            full_exit_only=False,
         )
         combined_trigger_summary_path = Path(output_dir) / f"position_eval_combined_exit_trigger_summary_{ts}.csv"
         combined_trigger_summary.to_csv(
@@ -797,6 +797,6 @@ def cmd_pos_evaluation(args):
             index=False,
             encoding="utf-8-sig",
         )
-        print(f"📦 合并全卖退出原因分布: {combined_trigger_summary_path}")
+        print(f"📦 合并退出原因分布: {combined_trigger_summary_path}")
 
     print(f"{'=' * 80}\n")

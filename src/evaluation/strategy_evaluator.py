@@ -935,7 +935,7 @@ class StrategyEvaluator:
     @staticmethod
     def build_exit_trigger_summary_df(
         trades_df: pd.DataFrame,
-        full_exit_only: bool = True,
+        full_exit_only: bool = False,
     ) -> pd.DataFrame:
         if trades_df is None or trades_df.empty:
             return pd.DataFrame(columns=EXIT_TRIGGER_SUMMARY_COLUMNS)
@@ -1411,7 +1411,7 @@ class StrategyEvaluator:
         1. {prefix}_raw.csv - 原始结果
         2. {prefix}_by_regime.csv - 按市场环境分组
         3. {prefix}_trades.csv - 原始逐笔交易
-        4. {prefix}_exit_trigger_summary.csv - 全卖退出原因分布
+        4. {prefix}_exit_trigger_summary.csv - 退出原因分布（含部分退出）
         5. {prefix}_report.md - Markdown报告
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1441,11 +1441,11 @@ class StrategyEvaluator:
 
         exit_trigger_df = self.build_exit_trigger_summary_df(
             trade_df,
-            full_exit_only=True,
+            full_exit_only=False,
         )
         exit_trigger_file = self.output_dir / f"{prefix}_exit_trigger_summary_{timestamp}.csv"
         exit_trigger_df.to_csv(exit_trigger_file, index=False, encoding="utf-8-sig")
-        print(f"✅ 全卖退出原因分布已保存: {exit_trigger_file}")
+        print(f"✅ 退出原因分布已保存: {exit_trigger_file}")
         files["exit_trigger_summary"] = str(exit_trigger_file)
 
         if ranking_mode == "legacy":

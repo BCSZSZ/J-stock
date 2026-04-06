@@ -104,7 +104,7 @@ def test_record_trade_rows_captures_partial_and_full_exit_flags(tmp_path):
     assert float(tp2_row["exit_sell_percentage"]) == 1.0
 
 
-def test_save_results_writes_trade_exports_and_filters_partial_exits(tmp_path):
+def test_save_results_writes_trade_exports_and_includes_partial_exits_in_summary(tmp_path):
     evaluator = StrategyEvaluator(output_dir=str(tmp_path), verbose=False)
     evaluator.results = [
         AnnualStrategyResult(
@@ -240,7 +240,8 @@ def test_save_results_writes_trade_exports_and_filters_partial_exits(tmp_path):
     )
 
     assert set(trades_df["exit_urgency"]) == {"P_TP1", "P_TP2", "L2_HistShrink"}
-    assert "P_TP1" not in set(summary_df["exit_urgency"])
+    assert "P_TP1" in set(summary_df["exit_urgency"])
     assert "P_TP1" not in set(recomputed_df["exit_urgency"])
-    assert set(summary_df["exit_urgency"]) == {"P_TP2", "L2_HistShrink"}
-    assert set(summary_df["trade_scope"]) == {"full_sell_signal_only"}
+    assert set(summary_df["exit_urgency"]) == {"P_TP1", "P_TP2", "L2_HistShrink"}
+    assert set(summary_df["trade_scope"]) == {"all_trades"}
+    assert set(recomputed_df["trade_scope"]) == {"full_sell_signal_only"}

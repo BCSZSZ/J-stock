@@ -9,7 +9,7 @@ from .score_based_exit import ScoreBasedExitStrategy, ScoreBasedExitTight, Score
 from .layered_exit import LayeredExitStrategy
 from .donchian_break_exit import DonchianBreakExit
 from .gap_panic_exit import GapPanicExit
-from .multiview_grid_exit import MultiViewCompositeExit
+from .multiview_grid_exit import MultiViewCompositeExit, MultiViewUnifiedTakeProfitExit
 from .multidim_ma_exit import MultiDimensionalMAExit
 
 __all__ = [
@@ -21,5 +21,6 @@ __all__ = [
     'DonchianBreakExit',
     'GapPanicExit',
     'MultiViewCompositeExit',
+    'MultiViewUnifiedTakeProfitExit',
     'MultiDimensionalMAExit',
 ]

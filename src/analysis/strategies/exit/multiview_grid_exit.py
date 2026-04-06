@@ -369,6 +369,279 @@ class MultiViewCompositeExit(BaseExitStrategy):
         return bool((diffs < 0).all())
 
 
+class MultiViewUnifiedTakeProfitExit(BaseExitStrategy):
+    """MVX variant with a single full-exit take-profit threshold."""
+
+    def __init__(
+        self,
+        hist_shrink_n: int = 9,
+        r_mult: float = 3.4,
+        trail_mult: float = 1.6,
+        time_stop_days: int = 18,
+        bias_exit_threshold_pct: float = 20.0,
+        take_profit_r: float = 1.5,
+    ):
+        super().__init__(strategy_name="MultiViewUnifiedTakeProfitExit")
+        self.hist_shrink_n = int(hist_shrink_n)
+        self.r_mult = float(r_mult)
+        self.trail_mult = float(trail_mult)
+        self.time_stop_days = int(time_stop_days)
+        self.bias_exit_threshold_pct = float(bias_exit_threshold_pct)
+        self.take_profit_r = float(take_profit_r)
+
+    def _take_profit_trigger(self) -> str:
+        return f"P_TP{_float_token(self.take_profit_r)}"
+
+    def _take_profit_reason(self) -> str:
+        return f"TP{self.take_profit_r:.1f} hit: +{self.take_profit_r:.1f}R"
+
+    def get_evaluation_details(
+        self, position: Position, market_data: MarketData
+    ) -> Dict:
+        df = market_data.df_features
+        if df.empty or len(df) < max(self.hist_shrink_n + 1, 2):
+            return {"layers": [], "summary": "Insufficient data"}
+
+        required = ["Close", "ATR", "MACD_Hist"]
+        if not all(col in df.columns for col in required):
+            return {"layers": [], "summary": "Missing indicators"}
+
+        latest = df.iloc[-1]
+        current_price = latest["Close"]
+        current_atr = latest["ATR"]
+
+        if pd.isna(current_atr) or current_atr <= 0:
+            return {"layers": [], "summary": "Invalid ATR"}
+
+        entry_atr = MultiViewCompositeExit._resolve_entry_atr(
+            df,
+            position.entry_date,
+            current_atr,
+        )
+        r_value = max(self.r_mult * entry_atr, 1e-6)
+        pnl_abs = current_price - position.entry_price
+        pnl_r = pnl_abs / r_value
+        holding_days = MultiViewCompositeExit._count_trading_days(
+            df,
+            position.entry_date,
+            market_data.current_date,
+        )
+
+        layers = []
+
+        trail_level = position.peak_price_since_entry - (self.trail_mult * current_atr)
+        layers.append(
+            {
+                "name": "R1_TrailingStop",
+                "status": "SAFE" if current_price >= trail_level else "TRIGGER",
+                "value": f"JPY{current_price:.2f}",
+                "threshold": f"JPY{trail_level:.2f}",
+                "triggered": current_price < trail_level,
+            }
+        )
+
+        hist_shrinking = MultiViewCompositeExit._hist_shrinking(df, self.hist_shrink_n)
+        layers.append(
+            {
+                "name": "L2_HistShrink",
+                "status": "TRIGGER" if hist_shrinking else "PASS",
+                "value": f"{self.hist_shrink_n} bars",
+                "threshold": "consecutive decline",
+                "triggered": hist_shrinking,
+            }
+        )
+
+        layers.append(
+            {
+                "name": "T1_TimeStop",
+                "status": "TRIGGER" if holding_days >= self.time_stop_days else "SAFE",
+                "value": f"{holding_days} days",
+                "threshold": f"{self.time_stop_days} days",
+                "triggered": holding_days >= self.time_stop_days,
+            }
+        )
+
+        tp_triggered = pnl_abs >= self.take_profit_r * r_value
+        layers.append(
+            {
+                "name": self._take_profit_trigger(),
+                "status": "TRIGGER" if tp_triggered else "PENDING",
+                "value": f"+{pnl_r:.2f}R",
+                "threshold": f"+{self.take_profit_r:.1f}R",
+                "triggered": tp_triggered,
+            }
+        )
+
+        bias_pct = MultiViewCompositeExit._calc_bias_pct(latest)
+        bias_triggered = (
+            bias_pct is not None
+            and pnl_abs > 0
+            and bias_pct >= self.bias_exit_threshold_pct
+        )
+        if bias_pct is not None:
+            layers.append(
+                {
+                    "name": "P_BiasOverheat",
+                    "status": "TRIGGER" if bias_triggered else "PASS",
+                    "value": f"{bias_pct:.1f}%",
+                    "threshold": f"{self.bias_exit_threshold_pct:.1f}%",
+                    "triggered": bias_triggered,
+                }
+            )
+
+        triggered_count = sum(1 for layer in layers if layer["triggered"])
+        summary = f"{triggered_count}/{len(layers)} conditions triggered"
+
+        return {
+            "layers": layers,
+            "summary": summary,
+            "r_value": float(r_value),
+            "pnl_r": float(pnl_r),
+            "holding_days": int(holding_days),
+        }
+
+    def generate_exit_signal(
+        self, position: Position, market_data: MarketData
+    ) -> TradingSignal:
+        position.peak_price_since_entry = max(
+            position.peak_price_since_entry,
+            market_data.latest_price,
+        )
+
+        df = market_data.df_features
+        if df.empty or len(df) < max(self.hist_shrink_n + 1, 2):
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Insufficient data"],
+                strategy_name=self.strategy_name,
+            )
+
+        required = ["Close", "ATR", "MACD_Hist"]
+        if not all(col in df.columns for col in required):
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Missing required indicators"],
+                strategy_name=self.strategy_name,
+            )
+
+        latest = df.iloc[-1]
+        current_price = latest["Close"]
+        current_atr = latest["ATR"]
+        if pd.isna(current_atr) or current_atr <= 0:
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Invalid ATR"],
+                strategy_name=self.strategy_name,
+            )
+
+        entry_atr = MultiViewCompositeExit._resolve_entry_atr(
+            df,
+            position.entry_date,
+            current_atr,
+        )
+        r_value = max(self.r_mult * entry_atr, 1e-6)
+        pnl_abs = current_price - position.entry_price
+        pnl_pct = position.current_pnl_pct(current_price)
+
+        trail_level = position.peak_price_since_entry - (self.trail_mult * current_atr)
+        if current_price < trail_level:
+            return TradingSignal(
+                action=SignalAction.SELL,
+                confidence=1.0,
+                reasons=[f"R1 trailing stop: {current_price:.2f} < {trail_level:.2f}"],
+                metadata={
+                    "trigger": "R1_ATRTrailing",
+                    "sell_percentage": 1.0,
+                    "r_value": float(r_value),
+                    "pnl_pct": float(pnl_pct),
+                },
+                strategy_name=self.strategy_name,
+            )
+
+        if MultiViewCompositeExit._hist_shrinking(df, self.hist_shrink_n):
+            return TradingSignal(
+                action=SignalAction.SELL,
+                confidence=0.9,
+                reasons=[f"L2 histogram shrink x{self.hist_shrink_n}"],
+                metadata={
+                    "trigger": "L2_HistShrink",
+                    "sell_percentage": 1.0,
+                    "r_value": float(r_value),
+                    "pnl_pct": float(pnl_pct),
+                },
+                strategy_name=self.strategy_name,
+            )
+
+        holding_days = MultiViewCompositeExit._count_trading_days(
+            df,
+            position.entry_date,
+            market_data.current_date,
+        )
+        if holding_days >= self.time_stop_days:
+            return TradingSignal(
+                action=SignalAction.SELL,
+                confidence=0.85,
+                reasons=[f"Time stop: {holding_days} days"],
+                metadata={
+                    "trigger": "T1_TimeStop",
+                    "sell_percentage": 1.0,
+                    "r_value": float(r_value),
+                    "pnl_pct": float(pnl_pct),
+                },
+                strategy_name=self.strategy_name,
+            )
+
+        if pnl_abs >= self.take_profit_r * r_value:
+            return TradingSignal(
+                action=SignalAction.SELL,
+                confidence=0.8,
+                reasons=[self._take_profit_reason()],
+                metadata={
+                    "trigger": self._take_profit_trigger(),
+                    "sell_percentage": 1.0,
+                    "r_value": float(r_value),
+                    "pnl_pct": float(pnl_pct),
+                },
+                strategy_name=self.strategy_name,
+            )
+
+        bias_pct = MultiViewCompositeExit._calc_bias_pct(latest)
+        if (
+            bias_pct is not None
+            and pnl_abs > 0
+            and bias_pct >= self.bias_exit_threshold_pct
+        ):
+            return TradingSignal(
+                action=SignalAction.SELL,
+                confidence=0.75,
+                reasons=[
+                    f"Bias overheat: {bias_pct:.2f}% >= {self.bias_exit_threshold_pct:.2f}%"
+                ],
+                metadata={
+                    "trigger": "P_BiasOverheat",
+                    "sell_percentage": 1.0,
+                    "r_value": float(r_value),
+                    "pnl_pct": float(pnl_pct),
+                },
+                strategy_name=self.strategy_name,
+            )
+
+        return TradingSignal(
+            action=SignalAction.HOLD,
+            confidence=0.0,
+            reasons=["No exit condition met"],
+            metadata={
+                "r_value": float(r_value),
+                "pnl_pct": float(pnl_pct),
+                "holding_days": int(holding_days),
+            },
+            strategy_name=self.strategy_name,
+        )
+
+
 def _float_token(value: float) -> str:
     return str(value).replace(".", "p")
 
@@ -399,6 +672,30 @@ def _build_variant_class(name: str, n: int, r: float, t: float, d: int, b: float
     return type(name, (MultiViewCompositeExit,), {"__init__": __init__})
 
 
+def _build_unified_tp_variant_class(
+    name: str,
+    n: int,
+    r: float,
+    t: float,
+    d: int,
+    b: float,
+    take_profit_r: float,
+):
+    def __init__(self):
+        MultiViewUnifiedTakeProfitExit.__init__(
+            self,
+            hist_shrink_n=n,
+            r_mult=r,
+            trail_mult=t,
+            time_stop_days=d,
+            bias_exit_threshold_pct=b,
+            take_profit_r=take_profit_r,
+        )
+        self.strategy_name = name
+
+    return type(name, (MultiViewUnifiedTakeProfitExit,), {"__init__": __init__})
+
+
 for _n in _N_VALUES:
     for _r in _R_VALUES:
         for _t in _T_VALUES:
@@ -414,6 +711,7 @@ for _n in _N_VALUES:
 
 
 _EXTRA_VARIANTS = [
+    (1, 3.4, 1.6, 18, 20.0),
     (2, 3.4, 1.6, 18, 20.0),
     (3, 3.4, 1.6, 18, 20.0),
 ]
@@ -430,8 +728,45 @@ for _n, _r, _t, _d, _b in _EXTRA_VARIANTS:
     )
 
 
+_UNIFIED_TP_VARIANTS = [
+    (1, 3.4, 1.6, 18, 20.0),
+    (2, 3.4, 1.6, 18, 20.0),
+    (3, 3.4, 1.6, 18, 20.0),
+]
+
+_UNIFIED_TP_FAMILIES = [
+    (1.2, "MVU12"),
+    (1.4, "MVU14"),
+    (1.5, "MVU"),
+]
+
+
+for _take_profit_r, _family_prefix in _UNIFIED_TP_FAMILIES:
+    for _n, _r, _t, _d, _b in _UNIFIED_TP_VARIANTS:
+        _name = (
+            f"{_family_prefix}_N{_n}_R{_float_token(_r)}_T{_float_token(_t)}"
+            f"_D{_d}_B{_float_token(_b)}"
+        )
+        if _name in GRID_EXIT_STRATEGY_MAP:
+            continue
+        _cls = _build_unified_tp_variant_class(
+            _name,
+            _n,
+            _r,
+            _t,
+            _d,
+            _b,
+            _take_profit_r,
+        )
+        globals()[_name] = _cls
+        GRID_EXIT_STRATEGY_MAP[_name] = (
+            f"src.analysis.strategies.exit.multiview_grid_exit.{_name}"
+        )
+
+
 __all__ = [
     "MultiViewCompositeExit",
+    "MultiViewUnifiedTakeProfitExit",
     "GRID_EXIT_STRATEGY_MAP",
     *list(GRID_EXIT_STRATEGY_MAP.keys()),
 ]

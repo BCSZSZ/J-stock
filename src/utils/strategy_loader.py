@@ -81,6 +81,7 @@ EXIT_STRATEGIES = {
     "DonchianBreakExit": "src.analysis.strategies.exit.donchian_break_exit.DonchianBreakExit",
     "GapPanicExit": "src.analysis.strategies.exit.gap_panic_exit.GapPanicExit",
     "MultiDimensionalMAExit": "src.analysis.strategies.exit.multidim_ma_exit.MultiDimensionalMAExit",
+    "MultiViewUnifiedTakeProfitExit": "src.analysis.strategies.exit.multiview_grid_exit.MultiViewUnifiedTakeProfitExit",
 }
 
 try:
