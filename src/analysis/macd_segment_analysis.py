@@ -23,6 +23,7 @@ REQUIRED_ANALYSIS_COLUMNS = {
     "MACD_Hist",
 }
 OVERALL_TICKER = "__ALL__"
+MIN_ANALYSIS_ROWS = 200
 
 
 @dataclass
@@ -207,6 +208,7 @@ def evaluate_ticker_readiness(
     )
 
     insufficient_history = raw_exists and history_span_days < (lookback_days - history_tolerance_days)
+    has_minimum_analysis_rows = raw_exists and feature_exists and min(len(raw_df), len(feature_df)) >= MIN_ANALYSIS_ROWS
 
     issues: list[str] = []
     needs_fetch = False
@@ -230,6 +232,14 @@ def evaluate_ticker_readiness(
         issues.append("stale_features")
         needs_recompute = True
 
+    analysis_ready = (
+        raw_exists
+        and feature_exists
+        and not missing_columns
+        and not feature_stale
+        and has_minimum_analysis_rows
+    )
+
     return {
         "ticker": ticker,
         "raw_exists": raw_exists,
@@ -246,6 +256,8 @@ def evaluate_ticker_readiness(
         "needs_fetch": needs_fetch,
         "needs_recompute": needs_recompute,
         "ready": not issues,
+        "analysis_ready": analysis_ready,
+        "has_minimum_analysis_rows": has_minimum_analysis_rows,
     }
 
 
@@ -282,7 +294,11 @@ def ensure_ticker_data(
         history_tolerance_days=history_tolerance_days,
     )
 
-    if initial.empty or bool(initial["ready"].all()):
+    if initial.empty or (
+        bool(initial["analysis_ready"].all())
+        and not bool(initial["needs_fetch"].any())
+        and not bool(initial["needs_recompute"].any())
+    ):
         final = initial.copy()
         if not final.empty:
             final["was_auto_remediated"] = False
@@ -341,7 +357,7 @@ def ensure_ticker_data(
         remediated = set(initial.loc[~initial["ready"], "ticker"].tolist())
         final["was_auto_remediated"] = final["ticker"].isin(remediated)
 
-    unresolved = final.loc[~final["ready"], "ticker"].tolist()
+    unresolved = final.loc[~final["analysis_ready"], "ticker"].tolist()
     if unresolved:
         raise ValueError(
             "Data is still not ready after auto-remediation: " + ", ".join(sorted(unresolved))
@@ -669,10 +685,20 @@ def _rule_signal_offset(record: SegmentRecord, rule_name: str) -> tuple[int, boo
     death_signal_offset = len(record.trade_df) - 2
     if rule_name in {"death_cross", "death_cross_confirmed"}:
         return death_signal_offset, False, None
-    if rule_name in {"macd_turn_down", "macd_peak_confirmed"}:
+    if rule_name in {
+        "macd_turn_down",
+        "macd_peak_confirmed",
+        "macd_peak_confirmed_plus1",
+        "macd_peak_confirmed_plus2",
+    }:
         offset, fallback = _effective_signal_offset(record.macd_turn_signal_offset, death_signal_offset)
         return offset, fallback, None
-    if rule_name in {"macd_hist_turn_down", "macd_hist_peak_confirmed"}:
+    if rule_name in {
+        "macd_hist_turn_down",
+        "macd_hist_peak_confirmed",
+        "macd_hist_peak_confirmed_plus1",
+        "macd_hist_peak_confirmed_plus2",
+    }:
         offset, fallback = _effective_signal_offset(record.hist_turn_signal_offset, death_signal_offset)
         return offset, fallback, None
     raise ValueError(f"Unsupported rule: {rule_name}")
@@ -689,7 +715,11 @@ def build_rule_details(
         base_rules = [
             ("death_cross_confirmed", "Death Cross Confirmed", 0, None),
             ("macd_peak_confirmed", "MACD Peak Confirmed", 0, None),
+            ("macd_peak_confirmed_plus1", "MACD Peak Confirmed +1D", 1, None),
+            ("macd_peak_confirmed_plus2", "MACD Peak Confirmed +2D", 2, None),
             ("macd_hist_peak_confirmed", "MACD Hist Peak Confirmed", 0, None),
+            ("macd_hist_peak_confirmed_plus1", "MACD Hist Peak Confirmed +1D", 1, None),
+            ("macd_hist_peak_confirmed_plus2", "MACD Hist Peak Confirmed +2D", 2, None),
         ]
 
         derived_cfg = derived_rule_map.get(record.ticker, {"anchor": "DEATH_CROSS_CONFIRMED", "lag_bars": 0})

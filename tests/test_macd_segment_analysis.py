@@ -86,10 +86,27 @@ def test_rule_details_and_summaries_cover_per_ticker_and_overall_views():
     assert set(derived_rows["ticker"]) == {"1321", "7203"}
     assert (derived_rows["derived_lag_bars"] >= 0).all()
 
+    delayed_rows = rule_details[
+        rule_details["rule_name"].isin(
+            [
+                "macd_peak_confirmed_plus1",
+                "macd_peak_confirmed_plus2",
+                "macd_hist_peak_confirmed_plus1",
+                "macd_hist_peak_confirmed_plus2",
+            ]
+        )
+    ]
+    assert not delayed_rows.empty
+    assert (delayed_rows["holding_bars"] >= 0).all()
+
     overall_rule_rows = rule_summary[rule_summary["ticker"] == OVERALL_TICKER]
     assert set(overall_rule_rows["rule_name"]) == {
         "death_cross_confirmed",
         "macd_peak_confirmed",
+        "macd_peak_confirmed_plus1",
+        "macd_peak_confirmed_plus2",
         "macd_hist_peak_confirmed",
+        "macd_hist_peak_confirmed_plus1",
+        "macd_hist_peak_confirmed_plus2",
         "derived_confirmed_lag",
     }
