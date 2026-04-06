@@ -246,12 +246,21 @@ class PortfolioBacktestEngine:
                     if qty_to_sell <= 0:
                         continue
 
+                    position_quantity_before_exit = position.quantity
                     entry_price = position.entry_price
                     entry_date = position.entry_date
                     peak_price = position.peak_price_since_entry
                     entry_score = position.entry_signal.metadata.get("score", 0.0)
                     entry_confidence = position.entry_signal.confidence
                     entry_metadata = position.entry_signal.metadata
+                    exit_metadata = dict(sell_signal.metadata or {})
+                    try:
+                        exit_sell_percentage = float(
+                            exit_metadata.get("sell_percentage", 1.0)
+                        )
+                    except (TypeError, ValueError):
+                        exit_sell_percentage = 1.0
+                    exit_metadata["sell_percentage"] = exit_sell_percentage
 
                     # 执行卖出
                     proceeds = portfolio.close_partial_position(
@@ -261,6 +270,9 @@ class PortfolioBacktestEngine:
                     )
 
                     if proceeds is not None:
+                        position_quantity_after_exit = max(position.quantity, 0)
+                        exit_is_full_exit = position_quantity_after_exit == 0
+
                         # 记录交易
                         holding_days = (current_date - entry_date).days
                         return_pct = ((exit_price / entry_price) - 1) * 100
@@ -284,6 +296,11 @@ class PortfolioBacktestEngine:
                             return_pct=return_pct,
                             return_jpy=return_jpy,
                             peak_price=peak_price,
+                            position_quantity_before_exit=position_quantity_before_exit,
+                            position_quantity_after_exit=position_quantity_after_exit,
+                            exit_sell_percentage=exit_sell_percentage,
+                            exit_is_full_exit=exit_is_full_exit,
+                            exit_metadata=exit_metadata,
                         )
                         trades.append(trade)
 

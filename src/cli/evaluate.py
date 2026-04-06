@@ -515,7 +515,6 @@ def cmd_evaluate(args):
     output_dir = _resolve_output_dir(args.output_dir)
     ranking_mode = _resolve_ranking_mode(config, args)
     _log_step(f"evaluate: 输出目录就绪 -> {output_dir}")
-    ranking_mode = _resolve_ranking_mode(config, args)
     _log_step(f"evaluate: 排名模式 -> {ranking_mode}")
 
     effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
@@ -584,6 +583,10 @@ def cmd_evaluate(args):
         print(f"[股票池: {context.name}] {universe_file or '(config默认)'}")
         print(f"  📄 原始结果: {files['raw']}")
         print(f"  📊 市场环境分析: {files['regime']}")
+        if files.get("trades"):
+            print(f"  🧾 原始交易明细: {files['trades']}")
+        if files.get("exit_trigger_summary"):
+            print(f"  🚪 全卖退出原因分布: {files['exit_trigger_summary']}")
         if files.get("legacy_rank"):
             print(f"  🏁 Legacy排名: {files['legacy_rank']}")
         if files.get("target20_rank"):
@@ -613,6 +616,7 @@ def cmd_pos_evaluation(args):
         return
 
     output_dir = _resolve_output_dir(args.output_dir)
+    ranking_mode = _resolve_ranking_mode(config, args)
 
     if args.overlay_modes:
         overlay_modes = args.overlay_modes
@@ -668,6 +672,7 @@ def cmd_pos_evaluation(args):
     all_files: List[Tuple[EvaluationRunContext, Dict[str, str]]] = []
     combined_raw_frames = []
     combined_regime_frames = []
+    combined_trade_frames = []
     for context in contexts:
         meta = context.metadata
         print("\n" + "-" * 80)
@@ -727,6 +732,17 @@ def cmd_pos_evaluation(args):
                 f"⚠️ 合并regime失败 ({meta['position_profile']}/{meta['overlay_mode']}/{meta['universe_name']}): {e}"
             )
 
+        try:
+            if files.get("trades"):
+                trades_df = pd.read_csv(files["trades"])
+                for key, value in meta.items():
+                    trades_df[key] = value
+                combined_trade_frames.append(trades_df)
+        except Exception as e:
+            print(
+                f"⚠️ 合并trades失败 ({meta['position_profile']}/{meta['overlay_mode']}/{meta['universe_name']}): {e}"
+            )
+
     if not all_files:
         print("\n❌ 全部组合执行失败")
         return
@@ -738,6 +754,10 @@ def cmd_pos_evaluation(args):
         print(f"[{context.name}]")
         print(f"  📄 原始结果: {files['raw']}")
         print(f"  📊 市场环境分析: {files['regime']}")
+        if files.get("trades"):
+            print(f"  🧾 原始交易明细: {files['trades']}")
+        if files.get("exit_trigger_summary"):
+            print(f"  🚪 全卖退出原因分布: {files['exit_trigger_summary']}")
         if files.get("legacy_rank"):
             print(f"  🏁 Legacy排名: {files['legacy_rank']}")
         if files.get("target20_rank"):
@@ -759,5 +779,24 @@ def cmd_pos_evaluation(args):
         combined_regime_path = Path(output_dir) / f"position_eval_combined_by_regime_{ts}.csv"
         combined_regime.to_csv(combined_regime_path, index=False, encoding="utf-8-sig")
         print(f"📦 合并Regime结果: {combined_regime_path}")
+
+    if combined_trade_frames:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        combined_trades = pd.concat(combined_trade_frames, ignore_index=True)
+        combined_trades_path = Path(output_dir) / f"position_eval_combined_trades_{ts}.csv"
+        combined_trades.to_csv(combined_trades_path, index=False, encoding="utf-8-sig")
+        print(f"📦 合并Trade结果: {combined_trades_path}")
+
+        combined_trigger_summary = StrategyEvaluator.build_exit_trigger_summary_df(
+            combined_trades,
+            full_exit_only=True,
+        )
+        combined_trigger_summary_path = Path(output_dir) / f"position_eval_combined_exit_trigger_summary_{ts}.csv"
+        combined_trigger_summary.to_csv(
+            combined_trigger_summary_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"📦 合并全卖退出原因分布: {combined_trigger_summary_path}")
 
     print(f"{'=' * 80}\n")

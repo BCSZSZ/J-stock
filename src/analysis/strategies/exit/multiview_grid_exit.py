@@ -413,6 +413,23 @@ for _n in _N_VALUES:
                     )
 
 
+_EXTRA_VARIANTS = [
+    (2, 3.4, 1.6, 18, 20.0),
+    (3, 3.4, 1.6, 18, 20.0),
+]
+
+
+for _n, _r, _t, _d, _b in _EXTRA_VARIANTS:
+    _name = f"MVX_N{_n}_R{_float_token(_r)}_T{_float_token(_t)}_D{_d}_B{_float_token(_b)}"
+    if _name in GRID_EXIT_STRATEGY_MAP:
+        continue
+    _cls = _build_variant_class(_name, _n, _r, _t, _d, _b)
+    globals()[_name] = _cls
+    GRID_EXIT_STRATEGY_MAP[_name] = (
+        f"src.analysis.strategies.exit.multiview_grid_exit.{_name}"
+    )
+
+
 __all__ = [
     "MultiViewCompositeExit",
     "GRID_EXIT_STRATEGY_MAP",

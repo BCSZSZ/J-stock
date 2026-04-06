@@ -43,6 +43,60 @@ class AnnualStrategyResult:
     exit_confirmation_days: int = 1
 
 
+TRADE_EXPORT_COLUMNS = [
+    "period",
+    "start_date",
+    "end_date",
+    "market_regime",
+    "topix_return_pct",
+    "entry_strategy",
+    "exit_strategy",
+    "entry_filter",
+    "exit_confirmation_days",
+    "ticker",
+    "entry_date",
+    "entry_price",
+    "entry_score",
+    "entry_confidence",
+    "entry_metadata_json",
+    "exit_date",
+    "exit_price",
+    "exit_reason",
+    "exit_urgency",
+    "holding_days",
+    "shares",
+    "return_pct",
+    "return_jpy",
+    "peak_price",
+    "position_quantity_before_exit",
+    "position_quantity_after_exit",
+    "exit_sell_percentage",
+    "exit_is_full_exit",
+    "exit_is_partial_exit",
+    "exit_metadata_json",
+]
+
+
+EXIT_TRIGGER_SUMMARY_COLUMNS = [
+    "trade_scope",
+    "period",
+    "market_regime",
+    "entry_strategy",
+    "exit_strategy",
+    "entry_filter",
+    "exit_confirmation_days",
+    "exit_urgency",
+    "exit_reason",
+    "trade_count",
+    "period_trade_total",
+    "trade_ratio",
+    "avg_return_pct",
+    "avg_holding_days",
+    "win_rate_pct",
+    "total_return_jpy",
+]
+
+
 class MarketRegime:
     """市场环境分类"""
 
@@ -114,6 +168,7 @@ class StrategyEvaluator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.results: List[AnnualStrategyResult] = []
+        self.trade_results: List[Dict[str, Any]] = []
         self.verbose = verbose  # 详细输出模式
         self.use_cache = use_cache  # Data cache flag
         self.exit_confirmation_days = max(1, int(exit_confirmation_days))
@@ -254,6 +309,9 @@ class StrategyEvaluator:
             DataFrame包含所有回测结果
         """
         from src.utils.strategy_loader import ENTRY_STRATEGIES, EXIT_STRATEGIES
+
+        self.results = []
+        self.trade_results = []
 
         # 默认使用全部策略
         if entry_strategies is None:
@@ -629,6 +687,17 @@ class StrategyEvaluator:
         )
         self._timing_counters["task_engine_backtest"] += time.perf_counter() - phase_started
 
+        self._record_trade_rows(
+            result=result,
+            period_label=period_label,
+            start_date=start_date,
+            end_date=end_date,
+            topix_return=topix_return,
+            entry_strategy=entry_strategy,
+            exit_strategy=exit_strategy,
+            entry_filter_name=entry_filter_name,
+        )
+
         # 计算alpha：如果没有TOPIX数据，则设为None
         alpha = None
         if topix_return is not None:
@@ -748,6 +817,237 @@ class StrategyEvaluator:
             return pd.DataFrame()
 
         return pd.DataFrame([asdict(r) for r in self.results])
+
+    @staticmethod
+    def _safe_json_dumps(value: Any) -> str:
+        try:
+            return json.dumps(
+                value if value is not None else {},
+                ensure_ascii=True,
+                sort_keys=True,
+                default=str,
+            )
+        except Exception:
+            return "{}"
+
+    def _record_trade_rows(
+        self,
+        result,
+        period_label: str,
+        start_date: str,
+        end_date: str,
+        topix_return: Optional[float],
+        entry_strategy: str,
+        exit_strategy: str,
+        entry_filter_name: str,
+    ) -> None:
+        market_regime = MarketRegime.classify(topix_return)
+
+        for trade in getattr(result, "trades", []) or []:
+            entry_metadata = getattr(trade, "entry_metadata", {}) or {}
+            exit_metadata = getattr(trade, "exit_metadata", {}) or {}
+
+            raw_sell_pct = getattr(
+                trade,
+                "exit_sell_percentage",
+                exit_metadata.get("sell_percentage", 1.0),
+            )
+            try:
+                exit_sell_percentage = float(raw_sell_pct)
+            except (TypeError, ValueError):
+                exit_sell_percentage = 1.0
+
+            exit_is_full_exit = getattr(trade, "exit_is_full_exit", None)
+            if exit_is_full_exit is None:
+                after_qty = getattr(trade, "position_quantity_after_exit", None)
+                if after_qty is not None:
+                    exit_is_full_exit = int(after_qty) <= 0
+                else:
+                    exit_is_full_exit = exit_sell_percentage >= 0.999999
+            exit_is_full_exit = bool(exit_is_full_exit)
+
+            self.trade_results.append(
+                {
+                    "period": period_label,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "market_regime": market_regime,
+                    "topix_return_pct": topix_return,
+                    "entry_strategy": entry_strategy,
+                    "exit_strategy": exit_strategy,
+                    "entry_filter": entry_filter_name,
+                    "exit_confirmation_days": self.exit_confirmation_days,
+                    "ticker": getattr(trade, "ticker", None),
+                    "entry_date": getattr(trade, "entry_date", None),
+                    "entry_price": getattr(trade, "entry_price", None),
+                    "entry_score": getattr(trade, "entry_score", None),
+                    "entry_confidence": getattr(trade, "entry_confidence", None),
+                    "entry_metadata_json": self._safe_json_dumps(entry_metadata),
+                    "exit_date": getattr(trade, "exit_date", None),
+                    "exit_price": getattr(trade, "exit_price", None),
+                    "exit_reason": getattr(trade, "exit_reason", None),
+                    "exit_urgency": getattr(trade, "exit_urgency", None),
+                    "holding_days": getattr(trade, "holding_days", None),
+                    "shares": getattr(trade, "shares", None),
+                    "return_pct": getattr(trade, "return_pct", None),
+                    "return_jpy": getattr(trade, "return_jpy", None),
+                    "peak_price": getattr(trade, "peak_price", None),
+                    "position_quantity_before_exit": getattr(
+                        trade,
+                        "position_quantity_before_exit",
+                        None,
+                    ),
+                    "position_quantity_after_exit": getattr(
+                        trade,
+                        "position_quantity_after_exit",
+                        None,
+                    ),
+                    "exit_sell_percentage": exit_sell_percentage,
+                    "exit_is_full_exit": exit_is_full_exit,
+                    "exit_is_partial_exit": not exit_is_full_exit,
+                    "exit_metadata_json": self._safe_json_dumps(exit_metadata),
+                }
+            )
+
+    def _create_trade_results_dataframe(self) -> pd.DataFrame:
+        if not self.trade_results:
+            return pd.DataFrame(columns=TRADE_EXPORT_COLUMNS)
+
+        trade_df = pd.DataFrame(self.trade_results)
+        for col in TRADE_EXPORT_COLUMNS:
+            if col not in trade_df.columns:
+                trade_df[col] = pd.NA
+        return trade_df[TRADE_EXPORT_COLUMNS]
+
+    @staticmethod
+    def _coerce_full_exit_flags(values: pd.Series) -> pd.Series:
+        def _normalize(value: Any) -> bool:
+            if pd.isna(value):
+                return True
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            return str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+        return values.map(_normalize)
+
+    @staticmethod
+    def build_exit_trigger_summary_df(
+        trades_df: pd.DataFrame,
+        full_exit_only: bool = True,
+    ) -> pd.DataFrame:
+        if trades_df is None or trades_df.empty:
+            return pd.DataFrame(columns=EXIT_TRIGGER_SUMMARY_COLUMNS)
+
+        summary_df = trades_df.copy()
+        if "exit_is_full_exit" not in summary_df.columns:
+            summary_df["exit_is_full_exit"] = True
+        summary_df["exit_is_full_exit"] = StrategyEvaluator._coerce_full_exit_flags(
+            summary_df["exit_is_full_exit"]
+        )
+        if "exit_sell_percentage" not in summary_df.columns:
+            summary_df["exit_sell_percentage"] = 1.0
+        summary_df["exit_sell_percentage"] = pd.to_numeric(
+            summary_df["exit_sell_percentage"],
+            errors="coerce",
+        ).fillna(1.0)
+
+        if full_exit_only:
+            summary_df = summary_df[
+                summary_df["exit_sell_percentage"] >= 0.999999
+            ].copy()
+
+        if summary_df.empty:
+            return pd.DataFrame(columns=EXIT_TRIGGER_SUMMARY_COLUMNS)
+
+        summary_df["return_pct"] = pd.to_numeric(summary_df["return_pct"], errors="coerce")
+        summary_df["holding_days"] = pd.to_numeric(summary_df["holding_days"], errors="coerce")
+        summary_df["return_jpy"] = pd.to_numeric(summary_df["return_jpy"], errors="coerce")
+        summary_df["exit_confirmation_days"] = pd.to_numeric(
+            summary_df["exit_confirmation_days"],
+            errors="coerce",
+        ).fillna(1).astype(int)
+
+        combo_cols = [
+            "period",
+            "market_regime",
+            "entry_strategy",
+            "exit_strategy",
+            "entry_filter",
+            "exit_confirmation_days",
+        ]
+        group_cols = combo_cols + ["exit_urgency", "exit_reason"]
+
+        grouped = (
+            summary_df.groupby(group_cols, dropna=False)
+            .agg(
+                trade_count=("ticker", "size"),
+                avg_return_pct=("return_pct", "mean"),
+                avg_holding_days=("holding_days", "mean"),
+                win_rate_pct=(
+                    "return_pct",
+                    lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean() * 100.0),
+                ),
+                total_return_jpy=("return_jpy", "sum"),
+            )
+            .reset_index()
+        )
+
+        totals = (
+            summary_df.groupby(combo_cols, dropna=False)
+            .size()
+            .rename("period_trade_total")
+            .reset_index()
+        )
+        grouped = grouped.merge(totals, on=combo_cols, how="left")
+        grouped["trade_ratio"] = grouped["trade_count"] / grouped["period_trade_total"]
+        grouped["trade_scope"] = "full_sell_signal_only" if full_exit_only else "all_trades"
+
+        overall_base_cols = [
+            "entry_strategy",
+            "exit_strategy",
+            "entry_filter",
+            "exit_confirmation_days",
+        ]
+        overall_group_cols = overall_base_cols + ["exit_urgency", "exit_reason"]
+        overall = (
+            summary_df.groupby(overall_group_cols, dropna=False)
+            .agg(
+                trade_count=("ticker", "size"),
+                avg_return_pct=("return_pct", "mean"),
+                avg_holding_days=("holding_days", "mean"),
+                win_rate_pct=(
+                    "return_pct",
+                    lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean() * 100.0),
+                ),
+                total_return_jpy=("return_jpy", "sum"),
+            )
+            .reset_index()
+        )
+        overall_totals = (
+            summary_df.groupby(overall_base_cols, dropna=False)
+            .size()
+            .rename("period_trade_total")
+            .reset_index()
+        )
+        overall = overall.merge(overall_totals, on=overall_base_cols, how="left")
+        overall["trade_ratio"] = overall["trade_count"] / overall["period_trade_total"]
+        overall["trade_scope"] = "full_sell_signal_only" if full_exit_only else "all_trades"
+        overall["period"] = "__ALL__"
+        overall["market_regime"] = "ALL"
+
+        summary = pd.concat([overall, grouped], ignore_index=True, sort=False)
+        for col in EXIT_TRIGGER_SUMMARY_COLUMNS:
+            if col not in summary.columns:
+                summary[col] = pd.NA
+
+        summary = summary[EXIT_TRIGGER_SUMMARY_COLUMNS]
+        summary = summary.sort_values(
+            ["period", "entry_strategy", "exit_strategy", "trade_count", "exit_urgency"],
+            ascending=[True, True, True, False, True],
+        ).reset_index(drop=True)
+        return summary
 
     def analyze_by_market_regime(self) -> pd.DataFrame:
         """
@@ -1110,7 +1410,9 @@ class StrategyEvaluator:
         生成：
         1. {prefix}_raw.csv - 原始结果
         2. {prefix}_by_regime.csv - 按市场环境分组
-        3. {prefix}_report.md - Markdown报告
+        3. {prefix}_trades.csv - 原始逐笔交易
+        4. {prefix}_exit_trigger_summary.csv - 全卖退出原因分布
+        5. {prefix}_report.md - Markdown报告
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -1130,6 +1432,21 @@ class StrategyEvaluator:
             "raw": str(raw_file),
             "regime": str(regime_file),
         }
+
+        trade_df = self._create_trade_results_dataframe()
+        trades_file = self.output_dir / f"{prefix}_trades_{timestamp}.csv"
+        trade_df.to_csv(trades_file, index=False, encoding="utf-8-sig")
+        print(f"✅ 原始交易明细已保存: {trades_file}")
+        files["trades"] = str(trades_file)
+
+        exit_trigger_df = self.build_exit_trigger_summary_df(
+            trade_df,
+            full_exit_only=True,
+        )
+        exit_trigger_file = self.output_dir / f"{prefix}_exit_trigger_summary_{timestamp}.csv"
+        exit_trigger_df.to_csv(exit_trigger_file, index=False, encoding="utf-8-sig")
+        print(f"✅ 全卖退出原因分布已保存: {exit_trigger_file}")
+        files["exit_trigger_summary"] = str(exit_trigger_file)
 
         if ranking_mode == "legacy":
             legacy_rank_df = self.rank_by_legacy_goal()

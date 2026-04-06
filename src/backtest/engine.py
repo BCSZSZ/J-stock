@@ -258,6 +258,7 @@ class BacktestEngine:
                 # Execute SELL at today's open price
                 exit_price = current_open
                 entry_date = position.entry_date
+                position_quantity_before_exit = position.quantity
                 sell_pct = float(pending_sell_signal.metadata.get('sell_percentage', 1.0))
                 qty_to_sell = self._calculate_sell_quantity(
                     ticker=ticker,
@@ -273,6 +274,10 @@ class BacktestEngine:
                 holding_days = (current_date - entry_date).days
                 return_pct = ((exit_price / position.entry_price) - 1) * 100
                 return_jpy = (exit_price - position.entry_price) * qty_to_sell
+                position_quantity_after_exit = max(position.quantity - qty_to_sell, 0)
+                exit_is_full_exit = position_quantity_after_exit == 0
+                exit_metadata = dict(pending_sell_signal.metadata or {})
+                exit_metadata['sell_percentage'] = sell_pct
                 
                 # Get entry score from signal metadata
                 entry_score = position.entry_signal.metadata.get('score', 0.0)
@@ -290,7 +295,12 @@ class BacktestEngine:
                     shares=qty_to_sell,
                     return_pct=return_pct,
                     return_jpy=return_jpy,
-                    peak_price=position.peak_price_since_entry
+                    peak_price=position.peak_price_since_entry,
+                    position_quantity_before_exit=position_quantity_before_exit,
+                    position_quantity_after_exit=position_quantity_after_exit,
+                    exit_sell_percentage=sell_pct,
+                    exit_is_full_exit=exit_is_full_exit,
+                    exit_metadata=exit_metadata,
                 )
                 trades.append(trade)
                 
@@ -300,7 +310,7 @@ class BacktestEngine:
                       f"({return_pct:+.2f}%, ¥{return_jpy:+,.0f}) - {trigger}")
                 logger.info(f"SELL executed: {qty_to_sell} shares @ ¥{exit_price:.2f} ({return_pct:+.2f}%)")
 
-                position.quantity -= qty_to_sell
+                position.quantity = position_quantity_after_exit
                 if position.quantity <= 0:
                     position = None
                 pending_sell_signal = None

@@ -26,6 +26,11 @@ class Trade:
     peak_price: float
     entry_confidence: float = 0.0
     entry_metadata: Dict[str, Any] = field(default_factory=dict)
+    position_quantity_before_exit: int = 0
+    position_quantity_after_exit: int = 0
+    exit_sell_percentage: float = 1.0
+    exit_is_full_exit: bool = True
+    exit_metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
