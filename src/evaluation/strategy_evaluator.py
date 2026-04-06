@@ -10,7 +10,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import time
 from collections import defaultdict
 
@@ -77,7 +77,7 @@ TRADE_EXPORT_COLUMNS = [
 ]
 
 
-EXIT_TRIGGER_SUMMARY_COLUMNS = [
+EXIT_REASON_DETAIL_COLUMNS = [
     "trade_scope",
     "period",
     "market_regime",
@@ -95,6 +95,72 @@ EXIT_TRIGGER_SUMMARY_COLUMNS = [
     "win_rate_pct",
     "total_return_jpy",
 ]
+
+EXIT_TRIGGER_SUMMARY_COLUMNS = EXIT_REASON_DETAIL_COLUMNS
+
+EXIT_URGENCY_SUMMARY_COLUMNS = [
+    "trade_scope",
+    "period",
+    "market_regime",
+    "entry_strategy",
+    "exit_strategy",
+    "entry_filter",
+    "exit_confirmation_days",
+    "exit_urgency",
+    "trade_count",
+    "period_trade_total",
+    "trade_ratio",
+    "avg_return_pct",
+    "avg_holding_days",
+    "win_rate_pct",
+    "total_return_jpy",
+    "gross_profit_jpy",
+    "gross_loss_jpy",
+]
+
+EXIT_URGENCY_CONTRIBUTION_COLUMNS = [
+    "trade_scope",
+    "entry_strategy",
+    "exit_strategy",
+    "entry_filter",
+    "exit_confirmation_days",
+    "exit_urgency",
+    "trade_count",
+    "strategy_trade_total",
+    "trade_ratio",
+    "avg_return_pct",
+    "avg_holding_days",
+    "win_rate_pct",
+    "total_return_jpy",
+    "gross_profit_jpy",
+    "gross_loss_jpy",
+    "strategy_total_return_jpy",
+    "return_contribution_ratio",
+]
+
+
+def _fmt_pct(value: Any, digits: int = 2) -> str:
+    if pd.isna(value):
+        return "N/A"
+    return f"{float(value):.{digits}f}%"
+
+
+def _fmt_num(value: Any, digits: int = 2) -> str:
+    if pd.isna(value):
+        return "N/A"
+    return f"{float(value):.{digits}f}"
+
+
+def _fmt_ratio(value: Any, digits: int = 1) -> str:
+    if pd.isna(value):
+        return "N/A"
+    return f"{float(value) * 100:.{digits}f}%"
+
+
+def _fmt_jpy(value: Any) -> str:
+    if pd.isna(value):
+        return "N/A"
+    return f"{float(value):,.0f}"
 
 
 class MarketRegime:
@@ -933,12 +999,12 @@ class StrategyEvaluator:
         return values.map(_normalize)
 
     @staticmethod
-    def build_exit_trigger_summary_df(
+    def _prepare_exit_summary_source_df(
         trades_df: pd.DataFrame,
         full_exit_only: bool = False,
     ) -> pd.DataFrame:
         if trades_df is None or trades_df.empty:
-            return pd.DataFrame(columns=EXIT_TRIGGER_SUMMARY_COLUMNS)
+            return pd.DataFrame()
 
         summary_df = trades_df.copy()
         if "exit_is_full_exit" not in summary_df.columns:
@@ -959,7 +1025,7 @@ class StrategyEvaluator:
             ].copy()
 
         if summary_df.empty:
-            return pd.DataFrame(columns=EXIT_TRIGGER_SUMMARY_COLUMNS)
+            return pd.DataFrame()
 
         summary_df["return_pct"] = pd.to_numeric(summary_df["return_pct"], errors="coerce")
         summary_df["holding_days"] = pd.to_numeric(summary_df["holding_days"], errors="coerce")
@@ -969,16 +1035,26 @@ class StrategyEvaluator:
             errors="coerce",
         ).fillna(1).astype(int)
 
-        combo_cols = [
-            "period",
-            "market_regime",
-            "entry_strategy",
-            "exit_strategy",
-            "entry_filter",
-            "exit_confirmation_days",
-        ]
-        group_cols = combo_cols + ["exit_urgency", "exit_reason"]
+        if "exit_urgency" not in summary_df.columns:
+            summary_df["exit_urgency"] = "UNKNOWN"
+        summary_df["exit_urgency"] = summary_df["exit_urgency"].fillna("UNKNOWN")
 
+        if "exit_reason" not in summary_df.columns:
+            summary_df["exit_reason"] = ""
+        summary_df["exit_reason"] = summary_df["exit_reason"].fillna("")
+
+        summary_df["trade_scope"] = (
+            "full_sell_signal_only" if full_exit_only else "all_trades"
+        )
+        return summary_df
+
+    @staticmethod
+    def _aggregate_exit_metrics(
+        summary_df: pd.DataFrame,
+        group_cols: List[str],
+        total_cols: List[str],
+        total_col_name: str,
+    ) -> pd.DataFrame:
         grouped = (
             summary_df.groupby(group_cols, dropna=False)
             .agg(
@@ -990,19 +1066,56 @@ class StrategyEvaluator:
                     lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean() * 100.0),
                 ),
                 total_return_jpy=("return_jpy", "sum"),
+                gross_profit_jpy=(
+                    "return_jpy",
+                    lambda s: float(pd.to_numeric(s, errors="coerce").clip(lower=0).sum()),
+                ),
+                gross_loss_jpy=(
+                    "return_jpy",
+                    lambda s: float(pd.to_numeric(s, errors="coerce").clip(upper=0).sum()),
+                ),
             )
             .reset_index()
         )
 
         totals = (
-            summary_df.groupby(combo_cols, dropna=False)
+            summary_df.groupby(total_cols, dropna=False)
             .size()
-            .rename("period_trade_total")
+            .rename(total_col_name)
             .reset_index()
         )
-        grouped = grouped.merge(totals, on=combo_cols, how="left")
+        return grouped.merge(totals, on=total_cols, how="left")
+
+    @staticmethod
+    def build_exit_reason_detail_df(
+        trades_df: pd.DataFrame,
+        full_exit_only: bool = False,
+    ) -> pd.DataFrame:
+        summary_df = StrategyEvaluator._prepare_exit_summary_source_df(
+            trades_df,
+            full_exit_only=full_exit_only,
+        )
+        if summary_df.empty:
+            return pd.DataFrame(columns=EXIT_REASON_DETAIL_COLUMNS)
+
+        combo_cols = [
+            "period",
+            "market_regime",
+            "entry_strategy",
+            "exit_strategy",
+            "entry_filter",
+            "exit_confirmation_days",
+        ]
+        group_cols = combo_cols + ["exit_urgency", "exit_reason"]
+
+        grouped = StrategyEvaluator._aggregate_exit_metrics(
+            summary_df,
+            group_cols,
+            combo_cols,
+            "period_trade_total",
+        )
         grouped["trade_ratio"] = grouped["trade_count"] / grouped["period_trade_total"]
-        grouped["trade_scope"] = "full_sell_signal_only" if full_exit_only else "all_trades"
+        grouped["trade_scope"] = summary_df["trade_scope"].iloc[0]
 
         overall_base_cols = [
             "entry_strategy",
@@ -1011,43 +1124,332 @@ class StrategyEvaluator:
             "exit_confirmation_days",
         ]
         overall_group_cols = overall_base_cols + ["exit_urgency", "exit_reason"]
-        overall = (
-            summary_df.groupby(overall_group_cols, dropna=False)
-            .agg(
-                trade_count=("ticker", "size"),
-                avg_return_pct=("return_pct", "mean"),
-                avg_holding_days=("holding_days", "mean"),
-                win_rate_pct=(
-                    "return_pct",
-                    lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean() * 100.0),
-                ),
-                total_return_jpy=("return_jpy", "sum"),
-            )
-            .reset_index()
+        overall = StrategyEvaluator._aggregate_exit_metrics(
+            summary_df,
+            overall_group_cols,
+            overall_base_cols,
+            "period_trade_total",
         )
-        overall_totals = (
-            summary_df.groupby(overall_base_cols, dropna=False)
-            .size()
-            .rename("period_trade_total")
-            .reset_index()
-        )
-        overall = overall.merge(overall_totals, on=overall_base_cols, how="left")
         overall["trade_ratio"] = overall["trade_count"] / overall["period_trade_total"]
-        overall["trade_scope"] = "full_sell_signal_only" if full_exit_only else "all_trades"
+        overall["trade_scope"] = summary_df["trade_scope"].iloc[0]
         overall["period"] = "__ALL__"
         overall["market_regime"] = "ALL"
 
         summary = pd.concat([overall, grouped], ignore_index=True, sort=False)
-        for col in EXIT_TRIGGER_SUMMARY_COLUMNS:
+        for col in EXIT_REASON_DETAIL_COLUMNS:
             if col not in summary.columns:
                 summary[col] = pd.NA
 
-        summary = summary[EXIT_TRIGGER_SUMMARY_COLUMNS]
+        summary = summary[EXIT_REASON_DETAIL_COLUMNS]
         summary = summary.sort_values(
             ["period", "entry_strategy", "exit_strategy", "trade_count", "exit_urgency"],
             ascending=[True, True, True, False, True],
         ).reset_index(drop=True)
         return summary
+
+    @staticmethod
+    def build_exit_urgency_summary_df(
+        trades_df: pd.DataFrame,
+        full_exit_only: bool = False,
+    ) -> pd.DataFrame:
+        summary_df = StrategyEvaluator._prepare_exit_summary_source_df(
+            trades_df,
+            full_exit_only=full_exit_only,
+        )
+        if summary_df.empty:
+            return pd.DataFrame(columns=EXIT_URGENCY_SUMMARY_COLUMNS)
+
+        combo_cols = [
+            "period",
+            "market_regime",
+            "entry_strategy",
+            "exit_strategy",
+            "entry_filter",
+            "exit_confirmation_days",
+        ]
+        group_cols = combo_cols + ["exit_urgency"]
+        grouped = StrategyEvaluator._aggregate_exit_metrics(
+            summary_df,
+            group_cols,
+            combo_cols,
+            "period_trade_total",
+        )
+        grouped["trade_ratio"] = grouped["trade_count"] / grouped["period_trade_total"]
+        grouped["trade_scope"] = summary_df["trade_scope"].iloc[0]
+
+        overall_base_cols = [
+            "entry_strategy",
+            "exit_strategy",
+            "entry_filter",
+            "exit_confirmation_days",
+        ]
+        overall_group_cols = overall_base_cols + ["exit_urgency"]
+        overall = StrategyEvaluator._aggregate_exit_metrics(
+            summary_df,
+            overall_group_cols,
+            overall_base_cols,
+            "period_trade_total",
+        )
+        overall["trade_ratio"] = overall["trade_count"] / overall["period_trade_total"]
+        overall["trade_scope"] = summary_df["trade_scope"].iloc[0]
+        overall["period"] = "__ALL__"
+        overall["market_regime"] = "ALL"
+
+        summary = pd.concat([overall, grouped], ignore_index=True, sort=False)
+        for col in EXIT_URGENCY_SUMMARY_COLUMNS:
+            if col not in summary.columns:
+                summary[col] = pd.NA
+
+        summary = summary[EXIT_URGENCY_SUMMARY_COLUMNS]
+        summary = summary.sort_values(
+            ["period", "entry_strategy", "exit_strategy", "trade_count", "exit_urgency"],
+            ascending=[True, True, True, False, True],
+        ).reset_index(drop=True)
+        return summary
+
+    @staticmethod
+    def build_exit_urgency_contribution_df(
+        trades_df: pd.DataFrame,
+        full_exit_only: bool = False,
+    ) -> pd.DataFrame:
+        summary_df = StrategyEvaluator._prepare_exit_summary_source_df(
+            trades_df,
+            full_exit_only=full_exit_only,
+        )
+        if summary_df.empty:
+            return pd.DataFrame(columns=EXIT_URGENCY_CONTRIBUTION_COLUMNS)
+
+        base_cols = [
+            "entry_strategy",
+            "exit_strategy",
+            "entry_filter",
+            "exit_confirmation_days",
+        ]
+        group_cols = base_cols + ["exit_urgency"]
+        contribution = StrategyEvaluator._aggregate_exit_metrics(
+            summary_df,
+            group_cols,
+            base_cols,
+            "strategy_trade_total",
+        )
+        contribution["trade_ratio"] = (
+            contribution["trade_count"] / contribution["strategy_trade_total"]
+        )
+
+        strategy_returns = (
+            summary_df.groupby(base_cols, dropna=False)["return_jpy"]
+            .sum()
+            .rename("strategy_total_return_jpy")
+            .reset_index()
+        )
+        contribution = contribution.merge(strategy_returns, on=base_cols, how="left")
+        contribution["return_contribution_ratio"] = contribution.apply(
+            lambda row: (
+                row["total_return_jpy"] / row["strategy_total_return_jpy"]
+                if pd.notna(row["strategy_total_return_jpy"])
+                and abs(float(row["strategy_total_return_jpy"])) > 1e-9
+                else pd.NA
+            ),
+            axis=1,
+        )
+        contribution["trade_scope"] = summary_df["trade_scope"].iloc[0]
+
+        for col in EXIT_URGENCY_CONTRIBUTION_COLUMNS:
+            if col not in contribution.columns:
+                contribution[col] = pd.NA
+
+        contribution = contribution[EXIT_URGENCY_CONTRIBUTION_COLUMNS]
+        contribution = contribution.sort_values(
+            ["entry_strategy", "exit_strategy", "trade_count", "exit_urgency"],
+            ascending=[True, True, False, True],
+        ).reset_index(drop=True)
+        return contribution
+
+    @staticmethod
+    def build_exit_trigger_summary_df(
+        trades_df: pd.DataFrame,
+        full_exit_only: bool = False,
+    ) -> pd.DataFrame:
+        return StrategyEvaluator.build_exit_reason_detail_df(
+            trades_df,
+            full_exit_only=full_exit_only,
+        )
+
+    @staticmethod
+    def write_exit_summary_markdown(
+        output_file: Path,
+        exit_reason_detail_df: pd.DataFrame,
+        exit_urgency_summary_df: pd.DataFrame,
+        exit_urgency_contribution_df: pd.DataFrame,
+    ):
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write("# 退出结果整理与分析\n\n")
+            f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+
+            if (
+                exit_reason_detail_df is None
+                or exit_reason_detail_df.empty
+                or exit_urgency_summary_df is None
+                or exit_urgency_summary_df.empty
+                or exit_urgency_contribution_df is None
+                or exit_urgency_contribution_df.empty
+            ):
+                f.write("无可用退出分析数据。\n")
+                return
+
+            contribution_df = exit_urgency_contribution_df.copy()
+            summary_df = exit_urgency_summary_df.copy()
+            detail_df = exit_reason_detail_df.copy()
+
+            contribution_df = contribution_df.sort_values(
+                ["entry_strategy", "exit_strategy", "trade_count", "exit_urgency"],
+                ascending=[True, True, False, True],
+            )
+            summary_overall = summary_df[summary_df["period"] == "__ALL__"].copy()
+            detail_overall = detail_df[detail_df["period"] == "__ALL__"].copy()
+
+            strategy_keys = (
+                contribution_df[
+                    [
+                        "entry_strategy",
+                        "exit_strategy",
+                        "entry_filter",
+                        "exit_confirmation_days",
+                        "trade_scope",
+                    ]
+                ]
+                .drop_duplicates()
+                .itertuples(index=False, name=None)
+            )
+            strategy_keys = list(strategy_keys)
+
+            f.write("## 1. 总体概览\n\n")
+            f.write(f"- 策略组合数: {len(strategy_keys)}\n")
+            f.write(
+                f"- 第一层明细行数: {len(detail_df)}\n"
+            )
+            f.write(
+                f"- 第二层汇总行数: {len(summary_df)}\n"
+            )
+            f.write(
+                f"- 第三层贡献行数: {len(contribution_df)}\n\n"
+            )
+
+            f.write("## 2. 策略级退出贡献摘要\n\n")
+            for key in strategy_keys:
+                entry_strategy, exit_strategy, entry_filter, confirm_days, trade_scope = key
+                strat_contrib = contribution_df[
+                    (contribution_df["entry_strategy"] == entry_strategy)
+                    & (contribution_df["exit_strategy"] == exit_strategy)
+                    & (contribution_df["entry_filter"] == entry_filter)
+                    & (contribution_df["exit_confirmation_days"] == confirm_days)
+                    & (contribution_df["trade_scope"] == trade_scope)
+                ].copy()
+                if strat_contrib.empty:
+                    continue
+
+                strategy_total_return = strat_contrib["strategy_total_return_jpy"].iloc[0]
+                strategy_trade_total = strat_contrib["strategy_trade_total"].iloc[0]
+                top_positive = strat_contrib.sort_values("total_return_jpy", ascending=False).head(3)
+                top_negative = strat_contrib.sort_values("total_return_jpy", ascending=True).head(3)
+
+                f.write(
+                    f"### {entry_strategy} × {exit_strategy} × {entry_filter}"
+                    f" (confirm={confirm_days}, scope={trade_scope})\n\n"
+                )
+                f.write(f"- 总退出动作数: {int(strategy_trade_total)}\n")
+                f.write(f"- 策略总退出收益: {_fmt_jpy(strategy_total_return)} JPY\n\n")
+
+                f.write("正向贡献 Top 3:\n")
+                for _, row in top_positive.iterrows():
+                    f.write(
+                        f"- {row['exit_urgency']}: {_fmt_jpy(row['total_return_jpy'])} JPY, "
+                        f"占策略收益 {_fmt_ratio(row['return_contribution_ratio'])}, "
+                        f"次数 {int(row['trade_count'])}\n"
+                    )
+                f.write("\n")
+
+                f.write("负向贡献 Top 3:\n")
+                for _, row in top_negative.iterrows():
+                    f.write(
+                        f"- {row['exit_urgency']}: {_fmt_jpy(row['total_return_jpy'])} JPY, "
+                        f"占策略收益 {_fmt_ratio(row['return_contribution_ratio'])}, "
+                        f"次数 {int(row['trade_count'])}\n"
+                    )
+                f.write("\n")
+
+            f.write("## 3. 第二层退出类型汇总（__ALL__）\n\n")
+            for key in strategy_keys:
+                entry_strategy, exit_strategy, entry_filter, confirm_days, trade_scope = key
+                strat_summary = summary_overall[
+                    (summary_overall["entry_strategy"] == entry_strategy)
+                    & (summary_overall["exit_strategy"] == exit_strategy)
+                    & (summary_overall["entry_filter"] == entry_filter)
+                    & (summary_overall["exit_confirmation_days"] == confirm_days)
+                    & (summary_overall["trade_scope"] == trade_scope)
+                ].copy()
+                if strat_summary.empty:
+                    continue
+
+                strat_summary = strat_summary.sort_values(
+                    ["trade_count", "total_return_jpy"],
+                    ascending=[False, False],
+                )
+
+                f.write(
+                    f"### {entry_strategy} × {exit_strategy} × {entry_filter}"
+                    f" (confirm={confirm_days}, scope={trade_scope})\n\n"
+                )
+                f.write(
+                    "| 退出类型 | 次数 | 占比 | 平均收益率 | 平均持有天数 | 胜率 | 总收益(JPY) | 毛盈利(JPY) | 毛亏损(JPY) |\n"
+                )
+                f.write(
+                    "|----------|------|------|------------|--------------|------|--------------|--------------|--------------|\n"
+                )
+                for _, row in strat_summary.iterrows():
+                    f.write(
+                        f"| {row['exit_urgency']} | {int(row['trade_count'])} | {_fmt_ratio(row['trade_ratio'])} | "
+                        f"{_fmt_pct(row['avg_return_pct'])} | {_fmt_num(row['avg_holding_days'])} | "
+                        f"{_fmt_pct(row['win_rate_pct'], 1)} | {_fmt_jpy(row['total_return_jpy'])} | "
+                        f"{_fmt_jpy(row['gross_profit_jpy'])} | {_fmt_jpy(row['gross_loss_jpy'])} |\n"
+                    )
+                f.write("\n")
+
+            f.write("## 4. 第一层退出原因明细（每策略 Top 10）\n\n")
+            for key in strategy_keys:
+                entry_strategy, exit_strategy, entry_filter, confirm_days, trade_scope = key
+                strat_detail = detail_overall[
+                    (detail_overall["entry_strategy"] == entry_strategy)
+                    & (detail_overall["exit_strategy"] == exit_strategy)
+                    & (detail_overall["entry_filter"] == entry_filter)
+                    & (detail_overall["exit_confirmation_days"] == confirm_days)
+                    & (detail_overall["trade_scope"] == trade_scope)
+                ].copy()
+                if strat_detail.empty:
+                    continue
+
+                strat_detail = strat_detail.sort_values(
+                    ["trade_count", "total_return_jpy"],
+                    ascending=[False, False],
+                ).head(10)
+
+                f.write(
+                    f"### {entry_strategy} × {exit_strategy} × {entry_filter}"
+                    f" (confirm={confirm_days}, scope={trade_scope})\n\n"
+                )
+                f.write(
+                    "| 退出类型 | 退出原因 | 次数 | 占比 | 平均收益率 | 胜率 | 总收益(JPY) |\n"
+                )
+                f.write(
+                    "|----------|----------|------|------|------------|------|--------------|\n"
+                )
+                for _, row in strat_detail.iterrows():
+                    reason = str(row["exit_reason"]).replace("|", "/")
+                    f.write(
+                        f"| {row['exit_urgency']} | {reason} | {int(row['trade_count'])} | {_fmt_ratio(row['trade_ratio'])} | "
+                        f"{_fmt_pct(row['avg_return_pct'])} | {_fmt_pct(row['win_rate_pct'], 1)} | {_fmt_jpy(row['total_return_jpy'])} |\n"
+                    )
+                f.write("\n")
 
     def analyze_by_market_regime(self) -> pd.DataFrame:
         """
@@ -1411,8 +1813,10 @@ class StrategyEvaluator:
         1. {prefix}_raw.csv - 原始结果
         2. {prefix}_by_regime.csv - 按市场环境分组
         3. {prefix}_trades.csv - 原始逐笔交易
-        4. {prefix}_exit_trigger_summary.csv - 退出原因分布（含部分退出）
-        5. {prefix}_report.md - Markdown报告
+        4. {prefix}_exit_trigger_summary.csv - 第一层：退出原因明细
+        5. {prefix}_exit_urgency_summary.csv - 第二层：退出类型汇总
+        6. {prefix}_exit_urgency_contribution.csv - 第三层：退出贡献汇总
+        7. {prefix}_report.md - Markdown报告
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -1439,14 +1843,51 @@ class StrategyEvaluator:
         print(f"✅ 原始交易明细已保存: {trades_file}")
         files["trades"] = str(trades_file)
 
-        exit_trigger_df = self.build_exit_trigger_summary_df(
+        exit_reason_detail_df = self.build_exit_reason_detail_df(
             trade_df,
             full_exit_only=False,
         )
         exit_trigger_file = self.output_dir / f"{prefix}_exit_trigger_summary_{timestamp}.csv"
-        exit_trigger_df.to_csv(exit_trigger_file, index=False, encoding="utf-8-sig")
-        print(f"✅ 退出原因分布已保存: {exit_trigger_file}")
+        exit_reason_detail_df.to_csv(exit_trigger_file, index=False, encoding="utf-8-sig")
+        print(f"✅ 第一层退出原因明细已保存: {exit_trigger_file}")
         files["exit_trigger_summary"] = str(exit_trigger_file)
+        files["exit_reason_detail"] = str(exit_trigger_file)
+
+        exit_urgency_summary_df = self.build_exit_urgency_summary_df(
+            trade_df,
+            full_exit_only=False,
+        )
+        exit_urgency_summary_file = self.output_dir / f"{prefix}_exit_urgency_summary_{timestamp}.csv"
+        exit_urgency_summary_df.to_csv(
+            exit_urgency_summary_file,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"✅ 第二层退出类型汇总已保存: {exit_urgency_summary_file}")
+        files["exit_urgency_summary"] = str(exit_urgency_summary_file)
+
+        exit_urgency_contribution_df = self.build_exit_urgency_contribution_df(
+            trade_df,
+            full_exit_only=False,
+        )
+        exit_urgency_contribution_file = self.output_dir / f"{prefix}_exit_urgency_contribution_{timestamp}.csv"
+        exit_urgency_contribution_df.to_csv(
+            exit_urgency_contribution_file,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"✅ 第三层退出贡献汇总已保存: {exit_urgency_contribution_file}")
+        files["exit_urgency_contribution"] = str(exit_urgency_contribution_file)
+
+        exit_summary_report_file = self.output_dir / f"{prefix}_exit_summary_report_{timestamp}.md"
+        self.write_exit_summary_markdown(
+            exit_summary_report_file,
+            exit_reason_detail_df,
+            exit_urgency_summary_df,
+            exit_urgency_contribution_df,
+        )
+        print(f"✅ 退出结果总结报告已保存: {exit_summary_report_file}")
+        files["exit_summary_report"] = str(exit_summary_report_file)
 
         if ranking_mode == "legacy":
             legacy_rank_df = self.rank_by_legacy_goal()

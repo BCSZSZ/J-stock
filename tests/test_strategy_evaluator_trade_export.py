@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from src.backtest.models import Trade
 from src.evaluation.strategy_evaluator import AnnualStrategyResult, StrategyEvaluator
@@ -229,11 +230,19 @@ def test_save_results_writes_trade_exports_and_includes_partial_exits_in_summary
 
     trades_path = Path(files["trades"])
     summary_path = Path(files["exit_trigger_summary"])
+    urgency_summary_path = Path(files["exit_urgency_summary"])
+    contribution_path = Path(files["exit_urgency_contribution"])
+    exit_summary_report_path = Path(files["exit_summary_report"])
     assert trades_path.exists()
     assert summary_path.exists()
+    assert urgency_summary_path.exists()
+    assert contribution_path.exists()
+    assert exit_summary_report_path.exists()
 
     trades_df = pd.read_csv(trades_path)
     summary_df = pd.read_csv(summary_path)
+    urgency_summary_df = pd.read_csv(urgency_summary_path)
+    contribution_df = pd.read_csv(contribution_path)
     recomputed_df = StrategyEvaluator.build_exit_trigger_summary_df(
         trades_df,
         full_exit_only=True,
@@ -245,3 +254,87 @@ def test_save_results_writes_trade_exports_and_includes_partial_exits_in_summary
     assert set(summary_df["exit_urgency"]) == {"P_TP1", "P_TP2", "L2_HistShrink"}
     assert set(summary_df["trade_scope"]) == {"all_trades"}
     assert set(recomputed_df["trade_scope"]) == {"full_sell_signal_only"}
+    assert set(urgency_summary_df["trade_scope"]) == {"all_trades"}
+    assert set(contribution_df["trade_scope"]) == {"all_trades"}
+
+    report_text = exit_summary_report_path.read_text(encoding="utf-8")
+    assert "# 退出结果整理与分析" in report_text
+    assert "## 2. 策略级退出贡献摘要" in report_text
+    assert "## 3. 第二层退出类型汇总（__ALL__）" in report_text
+    assert "## 4. 第一层退出原因明细（每策略 Top 10）" in report_text
+
+
+def test_exit_summary_layers_group_by_reason_urgency_and_contribution():
+    trades_df = pd.DataFrame(
+        [
+            {
+                "period": "2025",
+                "market_regime": "温和牛市 (TOPIX 0-25%)",
+                "entry_strategy": "MACDCrossoverStrategy",
+                "exit_strategy": "MVX_N3_R3p4_T1p6_D18_B20p0",
+                "entry_filter": "default",
+                "exit_confirmation_days": 2,
+                "ticker": "7203",
+                "exit_urgency": "R1_ATRTrailing",
+                "exit_reason": "R1 trailing stop: 95 < 96",
+                "holding_days": 6,
+                "return_pct": -2.0,
+                "return_jpy": -2000.0,
+                "exit_sell_percentage": 1.0,
+                "exit_is_full_exit": True,
+            },
+            {
+                "period": "2025",
+                "market_regime": "温和牛市 (TOPIX 0-25%)",
+                "entry_strategy": "MACDCrossoverStrategy",
+                "exit_strategy": "MVX_N3_R3p4_T1p6_D18_B20p0",
+                "entry_filter": "default",
+                "exit_confirmation_days": 2,
+                "ticker": "6501",
+                "exit_urgency": "R1_ATRTrailing",
+                "exit_reason": "R1 trailing stop: 91 < 94",
+                "holding_days": 8,
+                "return_pct": -3.0,
+                "return_jpy": -3000.0,
+                "exit_sell_percentage": 1.0,
+                "exit_is_full_exit": True,
+            },
+            {
+                "period": "2025",
+                "market_regime": "温和牛市 (TOPIX 0-25%)",
+                "entry_strategy": "MACDCrossoverStrategy",
+                "exit_strategy": "MVX_N3_R3p4_T1p6_D18_B20p0",
+                "entry_filter": "default",
+                "exit_confirmation_days": 2,
+                "ticker": "6758",
+                "exit_urgency": "P_TP1",
+                "exit_reason": "TP1 hit: +1.0R",
+                "holding_days": 10,
+                "return_pct": 9.0,
+                "return_jpy": 9000.0,
+                "exit_sell_percentage": 0.5,
+                "exit_is_full_exit": False,
+            },
+        ]
+    )
+
+    detail_df = StrategyEvaluator.build_exit_reason_detail_df(trades_df)
+    urgency_df = StrategyEvaluator.build_exit_urgency_summary_df(trades_df)
+    contribution_df = StrategyEvaluator.build_exit_urgency_contribution_df(trades_df)
+
+    detail_overall = detail_df[detail_df["period"] == "__ALL__"]
+    assert len(detail_overall[detail_overall["exit_urgency"] == "R1_ATRTrailing"]) == 2
+
+    urgency_overall = urgency_df[urgency_df["period"] == "__ALL__"]
+    r1_urgency = urgency_overall[urgency_overall["exit_urgency"] == "R1_ATRTrailing"].iloc[0]
+    assert int(r1_urgency["trade_count"]) == 2
+    assert float(r1_urgency["total_return_jpy"]) == -5000.0
+    assert float(r1_urgency["gross_loss_jpy"]) == -5000.0
+
+    r1_contribution = contribution_df[
+        contribution_df["exit_urgency"] == "R1_ATRTrailing"
+    ].iloc[0]
+    assert int(r1_contribution["strategy_trade_total"]) == 3
+    assert float(r1_contribution["strategy_total_return_jpy"]) == 4000.0
+    assert float(r1_contribution["total_return_jpy"]) == -5000.0
+    assert float(r1_contribution["return_contribution_ratio"]) == pytest.approx(-1.25)

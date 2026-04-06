@@ -27,7 +27,7 @@
   },
   "default_strategies": {
     "entry": "SimpleScorerStrategy",
-    "exit": "MVX_N9_R3p4_T1p6_D18_B20p0"
+    "exit": "MVX_N3_R3p25_T1p6_D21_B20p0"
   },
   "evaluation": {
     "output_dir": "s3://jsa-prod-ops/strategy_evaluation",
@@ -84,7 +84,7 @@
         "name": "main",
         "initial_capital": 3000000,
         "entry_strategy": "MACDCrossoverStrategy",
-        "exit_strategy": "MVX_N9_R3p4_T1p6_D18_B20p0"
+        "exit_strategy": "MVX_N3_R3p25_T1p6_D21_B20p0"
       }
     ]
   }

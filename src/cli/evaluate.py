@@ -586,7 +586,13 @@ def cmd_evaluate(args):
         if files.get("trades"):
             print(f"  🧾 原始交易明细: {files['trades']}")
         if files.get("exit_trigger_summary"):
-            print(f"  🚪 退出原因分布: {files['exit_trigger_summary']}")
+            print(f"  🚪 第一层退出原因明细: {files['exit_trigger_summary']}")
+        if files.get("exit_urgency_summary"):
+            print(f"  📚 第二层退出类型汇总: {files['exit_urgency_summary']}")
+        if files.get("exit_urgency_contribution"):
+            print(f"  📈 第三层退出贡献汇总: {files['exit_urgency_contribution']}")
+        if files.get("exit_summary_report"):
+            print(f"  🧠 退出结果总结报告: {files['exit_summary_report']}")
         if files.get("legacy_rank"):
             print(f"  🏁 Legacy排名: {files['legacy_rank']}")
         if files.get("target20_rank"):
@@ -757,7 +763,13 @@ def cmd_pos_evaluation(args):
         if files.get("trades"):
             print(f"  🧾 原始交易明细: {files['trades']}")
         if files.get("exit_trigger_summary"):
-            print(f"  🚪 退出原因分布: {files['exit_trigger_summary']}")
+            print(f"  🚪 第一层退出原因明细: {files['exit_trigger_summary']}")
+        if files.get("exit_urgency_summary"):
+            print(f"  📚 第二层退出类型汇总: {files['exit_urgency_summary']}")
+        if files.get("exit_urgency_contribution"):
+            print(f"  📈 第三层退出贡献汇总: {files['exit_urgency_contribution']}")
+        if files.get("exit_summary_report"):
+            print(f"  🧠 退出结果总结报告: {files['exit_summary_report']}")
         if files.get("legacy_rank"):
             print(f"  🏁 Legacy排名: {files['legacy_rank']}")
         if files.get("target20_rank"):
@@ -787,16 +799,49 @@ def cmd_pos_evaluation(args):
         combined_trades.to_csv(combined_trades_path, index=False, encoding="utf-8-sig")
         print(f"📦 合并Trade结果: {combined_trades_path}")
 
-        combined_trigger_summary = StrategyEvaluator.build_exit_trigger_summary_df(
+        combined_reason_detail = StrategyEvaluator.build_exit_reason_detail_df(
             combined_trades,
             full_exit_only=False,
         )
         combined_trigger_summary_path = Path(output_dir) / f"position_eval_combined_exit_trigger_summary_{ts}.csv"
-        combined_trigger_summary.to_csv(
+        combined_reason_detail.to_csv(
             combined_trigger_summary_path,
             index=False,
             encoding="utf-8-sig",
         )
-        print(f"📦 合并退出原因分布: {combined_trigger_summary_path}")
+        print(f"📦 合并第一层退出原因明细: {combined_trigger_summary_path}")
+
+        combined_urgency_summary = StrategyEvaluator.build_exit_urgency_summary_df(
+            combined_trades,
+            full_exit_only=False,
+        )
+        combined_urgency_summary_path = Path(output_dir) / f"position_eval_combined_exit_urgency_summary_{ts}.csv"
+        combined_urgency_summary.to_csv(
+            combined_urgency_summary_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"📦 合并第二层退出类型汇总: {combined_urgency_summary_path}")
+
+        combined_urgency_contribution = StrategyEvaluator.build_exit_urgency_contribution_df(
+            combined_trades,
+            full_exit_only=False,
+        )
+        combined_urgency_contribution_path = Path(output_dir) / f"position_eval_combined_exit_urgency_contribution_{ts}.csv"
+        combined_urgency_contribution.to_csv(
+            combined_urgency_contribution_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"📦 合并第三层退出贡献汇总: {combined_urgency_contribution_path}")
+
+        combined_exit_summary_report_path = Path(output_dir) / f"position_eval_combined_exit_summary_report_{ts}.md"
+        StrategyEvaluator.write_exit_summary_markdown(
+            combined_exit_summary_report_path,
+            combined_reason_detail,
+            combined_urgency_summary,
+            combined_urgency_contribution,
+        )
+        print(f"📦 合并退出结果总结报告: {combined_exit_summary_report_path}")
 
     print(f"{'=' * 80}\n")
