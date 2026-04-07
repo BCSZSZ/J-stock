@@ -1,0 +1,29 @@
+{
+  "portfolios": [
+    {
+      "name": "eqcap_5x25p20",
+      "max_positions": 5,
+      "max_position_pct": 0.252
+    },
+    {
+      "name": "eqcap_7x18p00",
+      "max_positions": 7,
+      "max_position_pct": 0.18
+    },
+    {
+      "name": "eqcap_9x14p00",
+      "max_positions": 9,
+      "max_position_pct": 0.14
+    },
+    {
+      "name": "eqcap_11x11p45",
+      "max_positions": 11,
+      "max_position_pct": 0.1145
+    },
+    {
+      "name": "eqcap_13x9p69",
+      "max_positions": 13,
+      "max_position_pct": 0.0969
+    }
+  ]
+}
