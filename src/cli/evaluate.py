@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from src.evaluation import (
+    MarketRegime,
     StrategyEvaluator,
     create_annual_periods,
     create_monthly_periods,
@@ -271,6 +272,499 @@ def _prepare_common_evaluation_inputs(args, config):
     return entry_filter_variants, periods, universe_variants
 
 
+def _prepare_walk_forward_inputs(args, config):
+    """Resolve entry filters, annual years and universe variants for walk-forward."""
+    selected_filter_names = _dedupe_preserve_order(args.entry_filter_name or [])
+
+    if args.list_entry_filters:
+        _print_available_entry_filters(config)
+        return None
+
+    entry_filter_variants = _resolve_entry_filter_variants(
+        config,
+        mode=args.entry_filter_mode,
+        selected_names=selected_filter_names,
+    )
+
+    years = sorted({int(year) for year in (args.years or [])})
+    if not years:
+        raise ValueError("walk-forward模式需要指定--years参数")
+
+    min_train_years = max(1, int(args.min_train_years))
+    if len(years) < min_train_years + 1:
+        raise ValueError(
+            f"至少需要 {min_train_years + 1} 个年份，当前仅提供 {len(years)} 个"
+        )
+
+    universe_variants = _resolve_universe_variants(args.universe_file)
+
+    print("📅 Anchored Walk-Forward 模式")
+    print(f"   年份: {', '.join(map(str, years))}")
+    print(f"   最小训练年份数: {min_train_years}")
+    print(f"   测试窗口数: {len(years) - min_train_years}")
+
+    return entry_filter_variants, years, universe_variants
+
+
+def _resolve_entry_exit_strategies(args, eval_cfg):
+    """Resolve entry and exit strategy lists from CLI/config with de-duplication."""
+    entry_strategies = args.entry_strategies
+    if not entry_strategies:
+        entry_strategies = eval_cfg.get("default_entry_strategies")
+        if entry_strategies:
+            print("\n🧭 使用 evaluation.default_entry_strategies")
+            print(f"   入场策略: {', '.join(entry_strategies)}")
+
+    original_entry_count = len(entry_strategies) if entry_strategies else 0
+    entry_strategies = _dedupe_preserve_order(entry_strategies)
+    if entry_strategies and len(entry_strategies) != original_entry_count:
+        print(f"⚠️ 入场策略去重: {original_entry_count} -> {len(entry_strategies)}")
+
+    exit_strategies = args.exit_strategies
+    if not exit_strategies:
+        exit_strategies = eval_cfg.get("default_exit_strategies")
+        if exit_strategies:
+            print("\n🧭 使用 evaluation.default_exit_strategies")
+            print(f"   出场策略: {', '.join(exit_strategies)}")
+
+    if not exit_strategies:
+        print("\n⚠️ 警告: 未定义 evaluation.default_exit_strategies，将使用所有可用策略")
+
+    original_exit_count = len(exit_strategies) if exit_strategies else 0
+    exit_strategies = _dedupe_preserve_order(exit_strategies)
+    if exit_strategies and len(exit_strategies) != original_exit_count:
+        print(f"⚠️ 出场策略去重: {original_exit_count} -> {len(exit_strategies)}")
+
+    return entry_strategies, exit_strategies
+
+
+def _resolve_overlay_config(config, args, enable_overlay_override: bool = None):
+    use_overlay = _resolve_effective_overlay_enabled(
+        config=config,
+        args=args,
+        override=enable_overlay_override,
+    )
+    if use_overlay:
+        overlay_config = dict(config)
+        overlays_cfg = dict(config.get("overlays", {}))
+        overlays_cfg["enabled"] = True
+        overlay_config["overlays"] = overlays_cfg
+    else:
+        overlay_config = {}
+    return use_overlay, overlay_config
+
+
+def _build_evaluator(
+    args,
+    config,
+    output_dir,
+    monitor_list_file,
+    portfolio_overrides,
+    enable_overlay,
+    exit_confirm_days,
+    entry_filter_variants,
+):
+    """Create a StrategyEvaluator with the shared runtime settings."""
+    _, overlay_config = _resolve_overlay_config(
+        config=config,
+        args=args,
+        enable_overlay_override=enable_overlay,
+    )
+    return StrategyEvaluator(
+        data_root="data",
+        output_dir=output_dir,
+        monitor_list_file=monitor_list_file,
+        verbose=args.verbose,
+        exit_confirmation_days=exit_confirm_days,
+        overlay_config=overlay_config,
+        entry_filter_config=config.get("evaluation", {}).get("filters", {}).get(
+            "default", {}
+        ),
+        entry_filter_variants=entry_filter_variants,
+        portfolio_overrides=portfolio_overrides,
+    )
+
+
+def _select_rank_df(evaluator: StrategyEvaluator, ranking_mode: str):
+    """Return the ranking table and the primary score column for the chosen mode."""
+    if ranking_mode == "legacy":
+        return evaluator.rank_by_legacy_goal(), "avg_rank"
+    if ranking_mode == "risk60_profit40":
+        return evaluator.rank_by_risk60_profit40(), "risk60_profit40_score"
+    return evaluator.rank_by_target20_goal(), "target20_score"
+
+
+def _build_walk_forward_windows(years: List[int], min_train_years: int):
+    windows = []
+    for idx in range(min_train_years, len(years)):
+        train_years = years[:idx]
+        test_year = years[idx]
+        windows.append(
+            {
+                "window_index": len(windows) + 1,
+                "train_years": train_years,
+                "train_label": f"{train_years[0]}-{train_years[-1]}",
+                "test_year": test_year,
+            }
+        )
+    return windows
+
+
+def _df_to_markdown(df: pd.DataFrame) -> str:
+    table = df.fillna("N/A").astype(str)
+    headers = list(table.columns)
+    rows = table.values.tolist()
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines)
+
+
+def _build_walk_forward_regime_summary(oos_df: pd.DataFrame) -> pd.DataFrame:
+    if oos_df.empty:
+        return pd.DataFrame()
+
+    regime_df = oos_df.copy()
+    regime_df["market_regime"] = regime_df["topix_return_pct"].apply(MarketRegime.classify)
+    summary = (
+        regime_df.groupby("market_regime", dropna=False)
+        .agg(
+            sample_count=("period", "nunique"),
+            avg_return_pct=("return_pct", "mean"),
+            avg_alpha_pct=("alpha", "mean"),
+            positive_alpha_ratio=("alpha", lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean())),
+            worst_test_return_pct=("return_pct", "min"),
+            avg_max_drawdown_pct=("max_drawdown_pct", "mean"),
+        )
+        .reset_index()
+    )
+    return summary
+
+
+def _write_walk_forward_report(
+    output_file: Path,
+    ranking_mode: str,
+    years: List[int],
+    min_train_years: int,
+    selection_df: pd.DataFrame,
+    selection_freq_df: pd.DataFrame,
+    oos_df: pd.DataFrame,
+    regime_df: pd.DataFrame,
+):
+    lines = [
+        "# Anchored Walk-Forward Evaluation",
+        "",
+        f"- Years: {', '.join(map(str, years))}",
+        f"- Minimum train years: {min_train_years}",
+        f"- Ranking mode: {ranking_mode}",
+        "- Selection protocol: expanding annual train window, next-year out-of-sample test, report only test windows.",
+        "",
+    ]
+
+    if not selection_df.empty:
+        selection_view = selection_df[[
+            "window_index",
+            "train_label",
+            "test_year",
+            "selected_entry_strategy",
+            "selected_exit_strategy",
+            "selected_entry_filter",
+            "train_selection_score",
+        ]].copy()
+        selection_view["train_selection_score"] = pd.to_numeric(
+            selection_view["train_selection_score"], errors="coerce"
+        ).map(lambda v: f"{v:.4f}" if pd.notna(v) else "N/A")
+        lines.extend([
+            "## Window Selections",
+            "",
+            _df_to_markdown(selection_view),
+            "",
+        ])
+
+    if not selection_freq_df.empty:
+        freq_view = selection_freq_df.copy()
+        lines.extend([
+            "## Selection Frequency",
+            "",
+            _df_to_markdown(freq_view),
+            "",
+        ])
+
+    if not oos_df.empty:
+        oos_view = oos_df[[
+            "window_index",
+            "train_label",
+            "period",
+            "entry_strategy",
+            "exit_strategy",
+            "entry_filter",
+            "return_pct",
+            "alpha",
+            "sharpe_ratio",
+            "max_drawdown_pct",
+            "win_rate_pct",
+        ]].copy()
+        for col in ["return_pct", "alpha", "max_drawdown_pct", "win_rate_pct"]:
+            oos_view[col] = pd.to_numeric(oos_view[col], errors="coerce").map(
+                lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
+            )
+        oos_view["sharpe_ratio"] = pd.to_numeric(
+            oos_view["sharpe_ratio"], errors="coerce"
+        ).map(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
+
+        overall = {
+            "test_window_count": int(oos_df["period"].nunique()),
+            "avg_return_pct": float(pd.to_numeric(oos_df["return_pct"], errors="coerce").mean()),
+            "avg_alpha_pct": float(pd.to_numeric(oos_df["alpha"], errors="coerce").mean()),
+            "positive_alpha_ratio": float((pd.to_numeric(oos_df["alpha"], errors="coerce") > 0).mean()),
+            "worst_test_return_pct": float(pd.to_numeric(oos_df["return_pct"], errors="coerce").min()),
+            "avg_max_drawdown_pct": float(pd.to_numeric(oos_df["max_drawdown_pct"], errors="coerce").mean()),
+        }
+        lines.extend([
+            "## Out-Of-Sample Summary",
+            "",
+            f"- Test windows: {overall['test_window_count']}",
+            f"- Avg test return: {overall['avg_return_pct']:.2f}%",
+            f"- Avg alpha: {overall['avg_alpha_pct']:.2f}%",
+            f"- Positive alpha ratio: {overall['positive_alpha_ratio']:.1%}",
+            f"- Worst test return: {overall['worst_test_return_pct']:.2f}%",
+            f"- Avg max drawdown: {overall['avg_max_drawdown_pct']:.2f}%",
+            "",
+            "## Out-Of-Sample Window Results",
+            "",
+            _df_to_markdown(oos_view),
+            "",
+        ])
+
+    if not regime_df.empty:
+        regime_view = regime_df.copy()
+        for col in ["avg_return_pct", "avg_alpha_pct", "worst_test_return_pct", "avg_max_drawdown_pct"]:
+            regime_view[col] = pd.to_numeric(regime_view[col], errors="coerce").map(
+                lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
+            )
+        regime_view["positive_alpha_ratio"] = pd.to_numeric(
+            regime_view["positive_alpha_ratio"], errors="coerce"
+        ).map(lambda v: f"{v:.1%}" if pd.notna(v) else "N/A")
+        lines.extend([
+            "## Out-Of-Sample Regime Summary",
+            "",
+            _df_to_markdown(regime_view),
+        ])
+
+    output_file.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _run_walk_forward_once(
+    args,
+    config,
+    years,
+    min_train_years,
+    entry_filter_variants,
+    output_dir,
+    prefix,
+    monitor_list_file=None,
+    portfolio_overrides=None,
+    enable_overlay: bool = None,
+    ranking_mode: str = "target20",
+):
+    _log_step("walk-forward: 开始解析本轮参数")
+    eval_cfg = config.get("evaluation", {})
+    entry_filter_variants = _dedupe_filter_variants(entry_filter_variants)
+
+    exit_confirm_days = getattr(args, "exit_confirm_days", None)
+    if exit_confirm_days is None:
+        exit_confirm_days = int(eval_cfg.get("exit_confirmation_days", 1))
+    exit_confirm_days = max(1, int(exit_confirm_days))
+
+    use_overlay, _ = _resolve_overlay_config(
+        config=config,
+        args=args,
+        enable_overlay_override=enable_overlay,
+    )
+    _log_step(f"walk-forward: overlay={'on' if use_overlay else 'off'}")
+
+    entry_strategies, exit_strategies = _resolve_entry_exit_strategies(args, eval_cfg)
+    windows = _build_walk_forward_windows(years, min_train_years)
+    filter_cfg_map = {name: (cfg or {}) for name, cfg in entry_filter_variants}
+    out_dir = Path(output_dir)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    train_rank_frames = []
+    selection_rows = []
+    oos_frames = []
+    oos_trade_frames = []
+
+    print(f"🧷 Exit确认天数: {exit_confirm_days}")
+    print(f"🪟 Walk-forward窗口数: {len(windows)}")
+
+    for window in windows:
+        train_periods = create_annual_periods(window["train_years"])
+        test_periods = create_annual_periods([window["test_year"]])
+        print(
+            f"\n[WF {window['window_index']}/{len(windows)}] 训练 {window['train_label']} -> 测试 {window['test_year']}",
+            flush=True,
+        )
+
+        train_evaluator = _build_evaluator(
+            args=args,
+            config=config,
+            output_dir=output_dir,
+            monitor_list_file=monitor_list_file,
+            portfolio_overrides=portfolio_overrides,
+            enable_overlay=enable_overlay,
+            exit_confirm_days=exit_confirm_days,
+            entry_filter_variants=entry_filter_variants,
+        )
+        train_df = train_evaluator.run_evaluation(
+            periods=train_periods,
+            entry_strategies=entry_strategies,
+            exit_strategies=exit_strategies,
+        )
+        if train_df.empty:
+            print("⚠️ 训练结果为空，跳过该窗口")
+            continue
+
+        train_rank_df, score_col = _select_rank_df(train_evaluator, ranking_mode)
+        if train_rank_df.empty:
+            print("⚠️ 训练排名为空，跳过该窗口")
+            continue
+
+        train_rank_df = train_rank_df.copy()
+        train_rank_df.insert(0, "window_index", window["window_index"])
+        train_rank_df.insert(1, "train_label", window["train_label"])
+        train_rank_df.insert(2, "test_year", window["test_year"])
+        train_rank_frames.append(train_rank_df)
+
+        selected = train_rank_df.iloc[0]
+        selected_filter_name = str(selected["entry_filter"])
+        selected_filter_cfg = filter_cfg_map.get(selected_filter_name, {})
+        selection_rows.append(
+            {
+                "window_index": window["window_index"],
+                "train_label": window["train_label"],
+                "test_year": window["test_year"],
+                "selected_entry_strategy": selected["entry_strategy"],
+                "selected_exit_strategy": selected["exit_strategy"],
+                "selected_entry_filter": selected_filter_name,
+                "train_score_metric": score_col,
+                "train_selection_score": selected.get(score_col),
+            }
+        )
+
+        print(
+            "   训练期选中: "
+            f"{selected['entry_strategy']} × {selected['exit_strategy']} × {selected_filter_name} "
+            f"({score_col}={selected.get(score_col)})",
+            flush=True,
+        )
+
+        test_evaluator = _build_evaluator(
+            args=args,
+            config=config,
+            output_dir=output_dir,
+            monitor_list_file=monitor_list_file,
+            portfolio_overrides=portfolio_overrides,
+            enable_overlay=enable_overlay,
+            exit_confirm_days=exit_confirm_days,
+            entry_filter_variants=[(selected_filter_name, selected_filter_cfg)],
+        )
+        test_df = test_evaluator.run_evaluation(
+            periods=test_periods,
+            entry_strategies=[selected["entry_strategy"]],
+            exit_strategies=[selected["exit_strategy"]],
+        )
+        if test_df.empty:
+            print("⚠️ 测试结果为空，跳过该窗口")
+            continue
+
+        test_df = test_df.copy()
+        test_df.insert(0, "window_index", window["window_index"])
+        test_df.insert(1, "train_label", window["train_label"])
+        test_df.insert(2, "test_year", window["test_year"])
+        test_df["train_score_metric"] = score_col
+        test_df["train_selection_score"] = selected.get(score_col)
+        oos_frames.append(test_df)
+
+        trade_df = test_evaluator._create_trade_results_dataframe()
+        if not trade_df.empty:
+            trade_df = trade_df.copy()
+            trade_df.insert(0, "window_index", window["window_index"])
+            trade_df.insert(1, "train_label", window["train_label"])
+            trade_df.insert(2, "test_year", window["test_year"])
+            oos_trade_frames.append(trade_df)
+
+    selection_df = pd.DataFrame(selection_rows)
+    train_rank_all_df = pd.concat(train_rank_frames, ignore_index=True) if train_rank_frames else pd.DataFrame()
+    oos_df = pd.concat(oos_frames, ignore_index=True) if oos_frames else pd.DataFrame()
+    oos_trade_df = pd.concat(oos_trade_frames, ignore_index=True) if oos_trade_frames else pd.DataFrame()
+
+    selection_freq_df = pd.DataFrame()
+    if not selection_df.empty:
+        selection_freq_df = (
+            selection_df.groupby(
+                ["selected_entry_strategy", "selected_exit_strategy", "selected_entry_filter"],
+                dropna=False,
+            )
+            .agg(
+                selected_windows=("test_year", "count"),
+                test_years=("test_year", lambda s: ", ".join(map(str, s))),
+            )
+            .reset_index()
+            .sort_values(["selected_windows", "selected_entry_strategy"], ascending=[False, True])
+        )
+
+    regime_df = _build_walk_forward_regime_summary(oos_df)
+
+    files = {}
+    selection_file = out_dir / f"{prefix}_selection_{timestamp}.csv"
+    selection_df.to_csv(selection_file, index=False, encoding="utf-8-sig")
+    files["selection"] = str(selection_file)
+
+    train_rank_file = out_dir / f"{prefix}_train_rank_{timestamp}.csv"
+    train_rank_all_df.to_csv(train_rank_file, index=False, encoding="utf-8-sig")
+    files["train_rank"] = str(train_rank_file)
+
+    oos_raw_file = out_dir / f"{prefix}_oos_raw_{timestamp}.csv"
+    oos_df.to_csv(oos_raw_file, index=False, encoding="utf-8-sig")
+    files["oos_raw"] = str(oos_raw_file)
+
+    regime_file = out_dir / f"{prefix}_oos_by_regime_{timestamp}.csv"
+    regime_df.to_csv(regime_file, index=False, encoding="utf-8-sig")
+    files["oos_regime"] = str(regime_file)
+
+    selection_freq_file = out_dir / f"{prefix}_selection_frequency_{timestamp}.csv"
+    selection_freq_df.to_csv(selection_freq_file, index=False, encoding="utf-8-sig")
+    files["selection_frequency"] = str(selection_freq_file)
+
+    trades_file = out_dir / f"{prefix}_oos_trades_{timestamp}.csv"
+    oos_trade_df.to_csv(trades_file, index=False, encoding="utf-8-sig")
+    files["oos_trades"] = str(trades_file)
+
+    report_file = out_dir / f"{prefix}_report_{timestamp}.md"
+    _write_walk_forward_report(
+        output_file=report_file,
+        ranking_mode=ranking_mode,
+        years=years,
+        min_train_years=min_train_years,
+        selection_df=selection_df,
+        selection_freq_df=selection_freq_df,
+        oos_df=oos_df,
+        regime_df=regime_df,
+    )
+    files["report"] = str(report_file)
+
+    print(f"✅ Walk-forward 选择结果已保存: {selection_file}")
+    print(f"✅ Walk-forward 训练排名已保存: {train_rank_file}")
+    print(f"✅ Walk-forward 测试结果已保存: {oos_raw_file}")
+    print(f"✅ Walk-forward 市场环境结果已保存: {regime_file}")
+    print(f"✅ Walk-forward 报告已保存: {report_file}")
+
+    return files
+
+
 def _run_contexts(
     args,
     config,
@@ -393,59 +887,34 @@ def _run_once(
     exit_confirm_days = max(1, int(exit_confirm_days))
     use_overlay = _resolve_effective_overlay_enabled(config=config, args=args, override=enable_overlay)
     if use_overlay:
-        overlay_config = dict(config)
-        overlays_cfg = dict(config.get("overlays", {}))
-        overlays_cfg["enabled"] = True
-        overlay_config["overlays"] = overlays_cfg
+        _, overlay_config = _resolve_overlay_config(
+            config=config,
+            args=args,
+            enable_overlay_override=enable_overlay,
+        )
     else:
-        overlay_config = {}
+        _, overlay_config = _resolve_overlay_config(
+            config=config,
+            args=args,
+            enable_overlay_override=enable_overlay,
+        )
     _log_step(f"_run_once: overlay={'on' if use_overlay else 'off'}")
 
-    evaluator = StrategyEvaluator(
-        data_root="data",
+    evaluator = _build_evaluator(
+        args=args,
+        config=config,
         output_dir=output_dir,
         monitor_list_file=monitor_list_file,
-        verbose=args.verbose,
-        exit_confirmation_days=exit_confirm_days,
-        overlay_config=overlay_config,
-        entry_filter_config=config.get("evaluation", {}).get("filters", {}).get("default", {}),
-        entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
+        enable_overlay=enable_overlay,
+        exit_confirm_days=exit_confirm_days,
+        entry_filter_variants=entry_filter_variants,
     )
     _log_step("_run_once: StrategyEvaluator 初始化完成")
 
     print(f"🧷 Exit确认天数: {exit_confirm_days}")
 
-    entry_strategies = args.entry_strategies
-    if not entry_strategies:
-        entry_strategies = eval_cfg.get("default_entry_strategies")
-        if entry_strategies:
-            print("\n🧭 使用 evaluation.default_entry_strategies")
-            print(f"   入场策略: {', '.join(entry_strategies)}")
-    original_entry_count = len(entry_strategies) if entry_strategies else 0
-    entry_strategies = _dedupe_preserve_order(entry_strategies)
-    if entry_strategies and len(entry_strategies) != original_entry_count:
-        print(
-            f"⚠️ 入场策略去重: {original_entry_count} -> {len(entry_strategies)}"
-        )
-
-    exit_strategies = args.exit_strategies
-    if not exit_strategies:
-        exit_strategies = eval_cfg.get("default_exit_strategies")
-        if exit_strategies:
-            print("\n🧭 使用 evaluation.default_exit_strategies")
-            print(f"   出场策略: {', '.join(exit_strategies)}")
-
-    if not exit_strategies:
-        print(
-            "\n⚠️ 警告: 未定义 evaluation.default_exit_strategies，将使用所有可用策略"
-        )
-    original_exit_count = len(exit_strategies) if exit_strategies else 0
-    exit_strategies = _dedupe_preserve_order(exit_strategies)
-    if exit_strategies and len(exit_strategies) != original_exit_count:
-        print(
-            f"⚠️ 出场策略去重: {original_exit_count} -> {len(exit_strategies)}"
-        )
+    entry_strategies, exit_strategies = _resolve_entry_exit_strategies(args, eval_cfg)
 
     _log_step(
         "_run_once: 执行评估 "
@@ -599,6 +1068,103 @@ def cmd_evaluate(args):
             print(f"  🎯 Target20排名: {files['target20_rank']}")
         if files.get("risk60_profit40_rank"):
             print(f"  ⚖️ Risk60/Profit40排名: {files['risk60_profit40_rank']}")
+        print(f"  📝 综合报告: {files['report']}")
+    print(f"{'=' * 80}\n")
+
+
+def cmd_walk_forward_evaluate(args):
+    """Anchored walk-forward strategy evaluation command."""
+    print("\n" + "=" * 80)
+    print("🧭 Anchored Walk-Forward 评价系统")
+    print("=" * 80 + "\n")
+    _log_step("walk-forward: 命令开始")
+
+    config = load_config()
+    _log_step("walk-forward: 配置加载完成")
+
+    try:
+        _log_step("walk-forward: 解析公共输入参数")
+        resolved = _prepare_walk_forward_inputs(args, config)
+        if resolved is None:
+            return
+        entry_filter_variants, years, universe_variants = resolved
+    except ValueError as e:
+        print(f"❌ 错误: {e}")
+        return
+
+    output_dir = _resolve_output_dir(args.output_dir)
+    ranking_mode = _resolve_ranking_mode(config, args)
+    effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
+    min_train_years = max(1, int(args.min_train_years))
+
+    contexts = []
+    for universe_name, universe_file in universe_variants:
+        prefix = "walk_forward_evaluation"
+        if len(universe_variants) > 1 or universe_file is not None:
+            prefix = f"walk_forward_evaluation_universe_{_sanitize_name(universe_name)}"
+        contexts.append(
+            EvaluationRunContext(
+                name=universe_name,
+                prefix=prefix,
+                monitor_list_file=universe_file,
+                portfolio_overrides=None,
+                enable_overlay=effective_overlay_on,
+                metadata={"universe_file": universe_file},
+            )
+        )
+
+    print(f"\n🧪 Entry Filter 变体: {len(entry_filter_variants)} 个")
+    print(f"   {', '.join(name for name, _ in entry_filter_variants)}")
+    print(f"🗂️ 股票池变体: {len(universe_variants)} 个")
+    print(f"   {', '.join(name for name, _ in universe_variants)}")
+    print(f"🧭 Overlay: {'ENABLED' if effective_overlay_on else 'DISABLED'}")
+    print(f"🏁 Ranking Mode: {ranking_mode}")
+    print("\n🚀 开始 anchored walk-forward 评估...")
+
+    all_files = []
+    for context in contexts:
+        print("\n" + "-" * 80)
+        print(
+            f"🧺 股票池: {context.name}"
+            + (
+                f" ({context.monitor_list_file})"
+                if context.monitor_list_file
+                else " (config默认)"
+            )
+        )
+        print("-" * 80)
+        files = _run_walk_forward_once(
+            args=args,
+            config=config,
+            years=years,
+            min_train_years=min_train_years,
+            entry_filter_variants=entry_filter_variants,
+            output_dir=output_dir,
+            prefix=context.prefix,
+            monitor_list_file=context.monitor_list_file,
+            portfolio_overrides=context.portfolio_overrides,
+            enable_overlay=context.enable_overlay,
+            ranking_mode=ranking_mode,
+        )
+        if files:
+            all_files.append((context, files))
+
+    if not all_files:
+        print("❌ Walk-forward 评估失败: 没有生成任何结果")
+        return
+
+    print(f"\n{'=' * 80}")
+    print("✅ Anchored Walk-Forward 评价完成！")
+    print(f"{'=' * 80}")
+    for context, files in all_files:
+        universe_file = context.metadata.get("universe_file")
+        print(f"[股票池: {context.name}] {universe_file or '(config默认)'}")
+        print(f"  🧭 选择明细: {files['selection']}")
+        print(f"  🏁 训练排名: {files['train_rank']}")
+        print(f"  📄 OOS原始结果: {files['oos_raw']}")
+        print(f"  📊 OOS市场环境分析: {files['oos_regime']}")
+        print(f"  🧾 OOS交易明细: {files['oos_trades']}")
+        print(f"  🔁 选择频率: {files['selection_frequency']}")
         print(f"  📝 综合报告: {files['report']}")
     print(f"{'=' * 80}\n")
 

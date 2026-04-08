@@ -32,6 +32,12 @@ def _cmd_pos_evaluation(args):
     return cmd_pos_evaluation(args)
 
 
+def _cmd_walk_forward_evaluate(args):
+    from src.cli.evaluate import cmd_walk_forward_evaluate
+
+    return cmd_walk_forward_evaluate(args)
+
+
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
@@ -109,6 +115,80 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
+
+def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
+    """Attach arguments for anchored walk-forward evaluation."""
+    parser.add_argument(
+        "--years",
+        nargs="+",
+        type=int,
+        required=True,
+        help="按年扩展的评估年份列表 (例如: 2021 2022 2023 2024 2025)",
+    )
+    parser.add_argument(
+        "--min-train-years",
+        type=int,
+        default=2,
+        help="每个窗口最少训练年份数（默认: 2）",
+    )
+    parser.add_argument(
+        "--entry-strategies", nargs="+", help="候选入场策略（默认全部）"
+    )
+    parser.add_argument(
+        "--exit-strategies", nargs="+", help="候选出场策略（默认全部）"
+    )
+    parser.add_argument(
+        "--exit-confirm-days",
+        type=int,
+        default=None,
+        help="出场确认天数（连续N天出现SELL才执行，默认读取evaluation.exit_confirmation_days）",
+    )
+    parser.add_argument(
+        "--entry-filter-mode",
+        choices=["auto", "off", "single", "grid"],
+        default="auto",
+        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
+    )
+    parser.add_argument(
+        "--entry-filter-name",
+        nargs="+",
+        help="指定entry_filters中的过滤器名称（single选1个，grid可选多个）",
+    )
+    parser.add_argument(
+        "--list-entry-filters",
+        action="store_true",
+        help="仅列出可用的entry filter并退出",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
+    )
+    parser.add_argument(
+        "--universe-file",
+        nargs="+",
+        default=None,
+        help="股票池文件路径（支持多个，用于同策略不同股票池比较；支持 json/csv/txt）",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
+    )
+    parser.add_argument(
+        "--enable-overlay",
+        action="store_true",
+        default=None,
+        help="按需启用overlay参与evaluation（默认关闭）",
+    )
+    parser.add_argument(
+        "--ranking-mode",
+        choices=["legacy", "target20", "risk60_profit40"],
+        default=None,
+        help=(
+            "训练阶段策略排序模式: legacy=旧版跨市场平均排名, "
+            "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%"
+        ),
+    )
+
 # Force UTF-8 output on Windows (一劳永逸解决 emoji 编码问题)
 if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(
@@ -157,6 +237,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  python main.py universe --top-n 50\n\n"
             "  # 策略综合评价\n"
             "  python main.py evaluate --mode annual --years 2024 2025\n"
+            "  python main.py walk-forward-evaluate --years 2021 2022 2023 2024 2025 --min-train-years 2\\\n"
+            "      --entry-strategies MACDCrossoverStrategy MACDPreCross2BarLiteComboEntry\\\n"
+            "      --exit-strategies MVX_N3_R3p25_T1p6_D21_B20p0 --entry-filter-mode off\n"
         ),
     )
 
@@ -481,6 +564,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_evaluation_arguments(evaluate_parser)
     evaluate_parser.set_defaults(func=_cmd_evaluate)
+
+    walk_forward_parser = subparsers.add_parser(
+        "walk-forward-evaluate",
+        aliases=["walk-forward-evaluation"],
+        help="Anchored walk-forward 策略评价（扩展训练窗 + 下一年测试）",
+    )
+    _add_walk_forward_evaluation_arguments(walk_forward_parser)
+    walk_forward_parser.set_defaults(func=_cmd_walk_forward_evaluate)
 
     pos_evaluate_parser = subparsers.add_parser(
         "pos-evaluation", help="仓位参数批量评价（读取evaluation-position.json）"
