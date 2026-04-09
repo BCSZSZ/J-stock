@@ -34,7 +34,7 @@
     "output_dir": "G:/My Drive/AI-Stock-Sync/strategy_evaluation",
     "default_entry_strategies": ["MACDCrossoverStrategy"],
     "default_exit_strategies": ["MVX_N9_R3p6_T1p7_D18_B20p0"],
-    "exit_confirmation_days": 2,
+    "exit_confirmation_days": 1,
     "filters": {
       "mode": "single",
       "default": {

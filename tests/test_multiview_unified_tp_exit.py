@@ -82,6 +82,7 @@ def test_unified_take_profit_triggers_full_exit_at_configured_r(
 @pytest.mark.parametrize(
     "strategy_name",
     [
+        "MVXNew_N3_R3p25_T1p6_D21_B20p0",
         "MVU12_N1_R3p4_T1p6_D18_B20p0",
         "MVU14_N2_R3p4_T1p6_D18_B20p0",
         "MVU_N3_R3p4_T1p6_D18_B20p0",
@@ -102,6 +103,9 @@ def test_unified_take_profit_triggers_full_exit_at_configured_r(
         "MVX_N3_R3p25_T1p6_D21_B20p0",
         "MVX_N3_R3p25_T1p65_D22_B20p0",
         "MVX_N3_R3p2_T1p6_D27_B20p0",
+        "MVX_N2_R3p0_T1p2_D21_B20p0",
+        "MVX_N4_R3p85_T1p9_D21_B20p0",
+        "MVX_N7_R4p2_T2p2_D21_B20p0",
         "MVX_N3_R3p5_T1p6_D18_B20p0",
         "MVX_N3_R3p6_T1p7_D18_B20p0",
         "MVX_N3_R3p4_T1p7_D18_B20p0",

@@ -13,6 +13,7 @@ single default MVX parameter set for evaluation and production use.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Dict
 
 import pandas as pd
@@ -368,6 +369,296 @@ class MultiViewCompositeExit(BaseExitStrategy):
         diffs = hist.diff().tail(n)
         return bool((diffs < 0).all())
 
+    @staticmethod
+    def _macd_dead_cross(df_features: pd.DataFrame) -> bool:
+        if (
+            df_features.empty
+            or len(df_features) < 2
+            or "MACD" not in df_features.columns
+            or "MACD_Signal" not in df_features.columns
+        ):
+            return False
+
+        tail = df_features[["MACD", "MACD_Signal"]].tail(2)
+        if tail.isna().any().any():
+            return False
+
+        prev = tail.iloc[-2]
+        curr = tail.iloc[-1]
+        return bool(
+            prev["MACD"] >= prev["MACD_Signal"]
+            and curr["MACD"] < curr["MACD_Signal"]
+        )
+
+
+class MVXNew_N3_R3p25_T1p6_D21_B20p0(MultiViewCompositeExit):
+    """Production MVX parameters plus an extra MACD dead-cross full exit."""
+
+    def __init__(self):
+        super().__init__(
+            hist_shrink_n=3,
+            r_mult=3.25,
+            trail_mult=1.6,
+            time_stop_days=21,
+            bias_exit_threshold_pct=20.0,
+        )
+        self.strategy_name = "MVXNew_N3_R3p25_T1p6_D21_B20p0"
+
+    def get_evaluation_details(
+        self, position: Position, market_data: MarketData
+    ) -> Dict:
+        df = market_data.df_features
+        if df.empty or len(df) < max(self.hist_shrink_n + 1, 2):
+            return {"layers": [], "summary": "Insufficient data"}
+
+        required = ["Close", "ATR", "MACD_Hist", "MACD", "MACD_Signal"]
+        if not all(col in df.columns for col in required):
+            return {"layers": [], "summary": "Missing indicators"}
+
+        latest = df.iloc[-1]
+        current_price = latest["Close"]
+        current_atr = latest["ATR"]
+
+        if pd.isna(current_atr) or current_atr <= 0:
+            return {"layers": [], "summary": "Invalid ATR"}
+
+        entry_atr = self._resolve_entry_atr(df, position.entry_date, current_atr)
+        r_value = max(self.r_mult * entry_atr, 1e-6)
+        pnl_abs = current_price - position.entry_price
+        pnl_r = pnl_abs / r_value
+        holding_days = self._count_trading_days(
+            df, position.entry_date, market_data.current_date
+        )
+
+        layers = []
+
+        trail_level = position.peak_price_since_entry - (self.trail_mult * current_atr)
+        layers.append(
+            {
+                "name": "R1_TrailingStop",
+                "status": "SAFE" if current_price >= trail_level else "TRIGGER",
+                "value": f"¥{current_price:.2f}",
+                "threshold": f"¥{trail_level:.2f}",
+                "triggered": current_price < trail_level,
+            }
+        )
+
+        hist_shrinking = self._hist_shrinking(df, self.hist_shrink_n)
+        layers.append(
+            {
+                "name": "L2_HistShrink",
+                "status": "TRIGGER" if hist_shrinking else "PASS",
+                "value": f"{self.hist_shrink_n} bars",
+                "threshold": "consecutive decline",
+                "triggered": hist_shrinking,
+            }
+        )
+
+        macd_dead_cross = self._macd_dead_cross(df)
+        layers.append(
+            {
+                "name": "L3_MACD_DeadCross",
+                "status": "TRIGGER" if macd_dead_cross else "PASS",
+                "value": (
+                    f"DIF {latest['MACD']:.2f} vs DEA {latest['MACD_Signal']:.2f}"
+                ),
+                "threshold": "cross below signal",
+                "triggered": macd_dead_cross,
+            }
+        )
+
+        layers.append(
+            {
+                "name": "T1_TimeStop",
+                "status": "TRIGGER" if holding_days >= self.time_stop_days else "SAFE",
+                "value": f"{holding_days} days",
+                "threshold": f"{self.time_stop_days} days",
+                "triggered": holding_days >= self.time_stop_days,
+            }
+        )
+
+        tp2_triggered = pnl_abs >= self.tp2_r * r_value
+        tp1_triggered = pnl_abs >= self.tp1_r * r_value
+
+        bias_pct = self._calc_bias_pct(latest)
+        bias_triggered = (
+            bias_pct is not None
+            and pnl_abs > 0
+            and bias_pct >= self.bias_exit_threshold_pct
+        )
+
+        layers.append(
+            {
+                "name": "P_TP2",
+                "status": "TRIGGER" if tp2_triggered else "PENDING",
+                "value": f"+{pnl_r:.2f}R",
+                "threshold": f"+{self.tp2_r:.1f}R",
+                "triggered": tp2_triggered,
+            }
+        )
+
+        layers.append(
+            {
+                "name": "P_TP1",
+                "status": "TRIGGER" if tp1_triggered else "PENDING",
+                "value": f"+{pnl_r:.2f}R",
+                "threshold": f"+{self.tp1_r:.1f}R",
+                "triggered": tp1_triggered,
+            }
+        )
+
+        if bias_pct is not None:
+            layers.append(
+                {
+                    "name": "P_BiasOverheat",
+                    "status": "TRIGGER" if bias_triggered else "PASS",
+                    "value": f"{bias_pct:.1f}%",
+                    "threshold": f"{self.bias_exit_threshold_pct:.1f}%",
+                    "triggered": bias_triggered,
+                }
+            )
+
+        triggered_count = sum(1 for layer in layers if layer["triggered"])
+        summary = f"{triggered_count}/{len(layers)} conditions triggered"
+
+        return {
+            "layers": layers,
+            "summary": summary,
+            "r_value": float(r_value),
+            "pnl_r": float(pnl_r),
+            "holding_days": int(holding_days),
+        }
+
+    def generate_exit_signal(
+        self, position: Position, market_data: MarketData
+    ) -> TradingSignal:
+        self.update_position(position, market_data.latest_price)
+
+        df = market_data.df_features
+        if df.empty or len(df) < max(self.hist_shrink_n + 1, 2):
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Insufficient data"],
+                strategy_name=self.strategy_name,
+            )
+
+        required = ["Close", "ATR", "MACD_Hist", "MACD", "MACD_Signal"]
+        if not all(col in df.columns for col in required):
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Missing required indicators"],
+                strategy_name=self.strategy_name,
+            )
+
+        latest = df.iloc[-1]
+        current_price = latest["Close"]
+        current_atr = latest["ATR"]
+        if pd.isna(current_atr) or current_atr <= 0:
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Invalid ATR"],
+                strategy_name=self.strategy_name,
+            )
+
+        entry_atr = self._resolve_entry_atr(df, position.entry_date, current_atr)
+        r_value = max(self.r_mult * entry_atr, 1e-6)
+        pnl_abs = current_price - position.entry_price
+        pnl_pct = position.current_pnl_pct(current_price)
+
+        trail_level = position.peak_price_since_entry - (self.trail_mult * current_atr)
+        if current_price < trail_level:
+            return self._sell_signal(
+                sell_percentage=1.0,
+                confidence=1.0,
+                reason="R1 trailing stop",
+                trigger="R1_ATRTrailing",
+                r_value=r_value,
+                pnl_pct=pnl_pct,
+            )
+
+        if self._hist_shrinking(df, self.hist_shrink_n):
+            return self._sell_signal(
+                sell_percentage=1.0,
+                confidence=0.9,
+                reason=f"L2 histogram shrink x{self.hist_shrink_n}",
+                trigger="L2_HistShrink",
+                r_value=r_value,
+                pnl_pct=pnl_pct,
+            )
+
+        if self._macd_dead_cross(df):
+            return self._sell_signal(
+                sell_percentage=1.0,
+                confidence=0.88,
+                reason="L3 MACD dead cross",
+                trigger="L3_MACDDeadCross",
+                r_value=r_value,
+                pnl_pct=pnl_pct,
+            )
+
+        holding_days = self._count_trading_days(
+            df, position.entry_date, market_data.current_date
+        )
+        if holding_days >= self.time_stop_days:
+            return self._sell_signal(
+                sell_percentage=1.0,
+                confidence=0.85,
+                reason=f"Time stop: {holding_days} days",
+                trigger="T1_TimeStop",
+                r_value=r_value,
+                pnl_pct=pnl_pct,
+            )
+
+        if pnl_abs >= self.tp2_r * r_value:
+            return self._sell_signal(
+                sell_percentage=1.0,
+                confidence=0.8,
+                reason=f"TP2 hit: +{self.tp2_r:.1f}R",
+                trigger="P_TP2",
+                r_value=r_value,
+                pnl_pct=pnl_pct,
+            )
+
+        bias_pct = self._calc_bias_pct(latest)
+        if (
+            bias_pct is not None
+            and pnl_abs > 0
+            and bias_pct >= self.bias_exit_threshold_pct
+        ):
+            return self._sell_signal(
+                sell_percentage=1.0,
+                confidence=0.75,
+                reason="Bias overheat",
+                trigger="P_BiasOverheat",
+                r_value=r_value,
+                pnl_pct=pnl_pct,
+            )
+
+        if pnl_abs >= self.tp1_r * r_value:
+            return self._sell_signal(
+                sell_percentage=0.5,
+                confidence=0.7,
+                reason=f"TP1 hit: +{self.tp1_r:.1f}R",
+                trigger="P_TP1",
+                r_value=r_value,
+                pnl_pct=pnl_pct,
+            )
+
+        return TradingSignal(
+            action=SignalAction.HOLD,
+            confidence=0.0,
+            reasons=["No exit condition met"],
+            metadata={
+                "r_value": float(r_value),
+                "pnl_pct": float(pnl_pct),
+                "holding_days": int(holding_days),
+            },
+            strategy_name=self.strategy_name,
+        )
+
 
 class MultiViewUnifiedTakeProfitExit(BaseExitStrategy):
     """MVX variant with a single full-exit take-profit threshold."""
@@ -643,7 +934,12 @@ class MultiViewUnifiedTakeProfitExit(BaseExitStrategy):
 
 
 def _float_token(value: float) -> str:
-    return str(value).replace(".", "p")
+    normalized = f"{float(value):.2f}"
+    if normalized.endswith("00"):
+        normalized = normalized[:-1]
+    elif normalized.endswith("0"):
+        normalized = normalized[:-1]
+    return normalized.replace(".", "p")
 
 
 GRID_EXIT_STRATEGY_MAP: Dict[str, str] = {}
@@ -696,18 +992,36 @@ def _build_unified_tp_variant_class(
     return type(name, (MultiViewUnifiedTakeProfitExit,), {"__init__": __init__})
 
 
+def _register_grid_exit_variant(name: str, cls) -> None:
+    globals()[name] = cls
+    GRID_EXIT_STRATEGY_MAP[name] = (
+        f"src.analysis.strategies.exit.multiview_grid_exit.{name}"
+    )
+
+
+def _register_standard_variant(n: int, r: float, t: float, d: int, b: float) -> None:
+    name = f"MVX_N{n}_R{_float_token(r)}_T{_float_token(t)}_D{d}_B{_float_token(b)}"
+    if name in GRID_EXIT_STRATEGY_MAP:
+        return
+    _register_grid_exit_variant(name, _build_variant_class(name, n, r, t, d, b))
+
+
+def _expand_refinement_values(base_values, step: float, rounds: int):
+    step_decimal = Decimal(str(step))
+    expanded = set()
+    for base_value in base_values:
+        base_decimal = Decimal(str(base_value))
+        for offset in range(-rounds, rounds + 1):
+            expanded.add(float(base_decimal + (step_decimal * offset)))
+    return sorted(expanded)
+
+
 for _n in _N_VALUES:
     for _r in _R_VALUES:
         for _t in _T_VALUES:
             for _d in _D_VALUES:
                 for _b in _B_VALUES:
-                    # B值支持浮点数，使用_float_token处理
-                    _name = f"MVX_N{_n}_R{_float_token(_r)}_T{_float_token(_t)}_D{_d}_B{_float_token(_b)}"
-                    _cls = _build_variant_class(_name, _n, _r, _t, _d, _b)
-                    globals()[_name] = _cls
-                    GRID_EXIT_STRATEGY_MAP[_name] = (
-                        f"src.analysis.strategies.exit.multiview_grid_exit.{_name}"
-                    )
+                    _register_standard_variant(_n, _r, _t, _d, _b)
 
 
 _EXTRA_VARIANTS = [
@@ -766,14 +1080,29 @@ _EXTRA_VARIANTS = [
 
 
 for _n, _r, _t, _d, _b in _EXTRA_VARIANTS:
-    _name = f"MVX_N{_n}_R{_float_token(_r)}_T{_float_token(_t)}_D{_d}_B{_float_token(_b)}"
-    if _name in GRID_EXIT_STRATEGY_MAP:
-        continue
-    _cls = _build_variant_class(_name, _n, _r, _t, _d, _b)
-    globals()[_name] = _cls
-    GRID_EXIT_STRATEGY_MAP[_name] = (
-        f"src.analysis.strategies.exit.multiview_grid_exit.{_name}"
-    )
+    _register_standard_variant(_n, _r, _t, _d, _b)
+
+
+# D21/B20 parameter family for the dedicated MACD/2bar MVX study.
+# The refinement lists cover the initial sweep and two later 0.1-step grid rounds.
+_D21_B20_SWEEP_N_VALUES = [2, 3, 4, 5, 6, 7]
+_D21_B20_SWEEP_R_BASE_VALUES = [3.0, 3.25, 3.5, 3.75, 4.0]
+_D21_B20_SWEEP_T_BASE_VALUES = [1.2, 1.4, 1.6, 1.8, 2.0]
+_D21_B20_REFINED_R_VALUES = _expand_refinement_values(
+    _D21_B20_SWEEP_R_BASE_VALUES,
+    step=0.1,
+    rounds=2,
+)
+_D21_B20_REFINED_T_VALUES = _expand_refinement_values(
+    _D21_B20_SWEEP_T_BASE_VALUES,
+    step=0.1,
+    rounds=2,
+)
+
+for _n in _D21_B20_SWEEP_N_VALUES:
+    for _r in _D21_B20_REFINED_R_VALUES:
+        for _t in _D21_B20_REFINED_T_VALUES:
+            _register_standard_variant(_n, _r, _t, 21, 20.0)
 
 
 _UNIFIED_TP_VARIANTS = [
@@ -797,24 +1126,29 @@ for _take_profit_r, _family_prefix in _UNIFIED_TP_FAMILIES:
         )
         if _name in GRID_EXIT_STRATEGY_MAP:
             continue
-        _cls = _build_unified_tp_variant_class(
+        _register_grid_exit_variant(
             _name,
-            _n,
-            _r,
-            _t,
-            _d,
-            _b,
-            _take_profit_r,
+            _build_unified_tp_variant_class(
+                _name,
+                _n,
+                _r,
+                _t,
+                _d,
+                _b,
+                _take_profit_r,
+            ),
         )
-        globals()[_name] = _cls
-        GRID_EXIT_STRATEGY_MAP[_name] = (
-            f"src.analysis.strategies.exit.multiview_grid_exit.{_name}"
-        )
+
+
+GRID_EXIT_STRATEGY_MAP["MVXNew_N3_R3p25_T1p6_D21_B20p0"] = (
+    "src.analysis.strategies.exit.multiview_grid_exit.MVXNew_N3_R3p25_T1p6_D21_B20p0"
+)
 
 
 __all__ = [
     "MultiViewCompositeExit",
     "MultiViewUnifiedTakeProfitExit",
+    "MVXNew_N3_R3p25_T1p6_D21_B20p0",
     "GRID_EXIT_STRATEGY_MAP",
     *list(GRID_EXIT_STRATEGY_MAP.keys()),
 ]

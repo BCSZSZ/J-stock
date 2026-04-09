@@ -133,6 +133,141 @@ def build_precross_momentum_flags(
     return flags
 
 
+def _latest_precross_momentum_flags(
+    df: pd.DataFrame,
+    hist_rise_days: int = 3,
+    price_rise_days: int = 3,
+    require_hist_below_zero: bool = True,
+    max_hist_abs_norm: float | None = None,
+    require_above_ema200: bool = False,
+    require_peak_at_window_start: bool = False,
+    max_gap_above_ema20_pct: float | None = None,
+    max_return_5d: float | None = None,
+    min_adx_14: float | None = None,
+) -> dict:
+    hist_window = max(2, int(hist_rise_days))
+    price_window = max(2, int(price_rise_days))
+
+    close = pd.to_numeric(df["Close"], errors="coerce")
+    macd_hist = pd.to_numeric(df["MACD_Hist"], errors="coerce")
+    latest_close = close.iloc[-1]
+    latest_hist = macd_hist.iloc[-1]
+
+    hist_window_values = macd_hist.tail(hist_window)
+    price_window_values = close.tail(price_window)
+
+    hist_rising = bool(
+        len(hist_window_values) == hist_window
+        and hist_window_values.notna().all()
+        and hist_window_values.diff().iloc[1:].gt(0).all()
+    )
+    price_rising = bool(
+        len(price_window_values) == price_window
+        and price_window_values.notna().all()
+        and price_window_values.diff().iloc[1:].gt(0).all()
+    )
+
+    latest_hist_negative = bool(pd.notna(latest_hist) and latest_hist < 0)
+    trailing_negative_segment = []
+    for value in reversed(macd_hist.tolist()):
+        if pd.isna(value) or value >= 0:
+            break
+        trailing_negative_segment.append(float(value))
+    trailing_negative_segment.reverse()
+
+    peak_at_window_start = False
+    if len(hist_window_values) == hist_window and hist_window_values.notna().all():
+        start_value = float(hist_window_values.iloc[0])
+        same_negative_segment = latest_hist_negative and hist_window_values.lt(0).all()
+        if same_negative_segment and trailing_negative_segment:
+            peak_at_window_start = bool(start_value == min(trailing_negative_segment))
+
+    if require_hist_below_zero:
+        hist_below_zero = latest_hist_negative
+    else:
+        hist_below_zero = True
+
+    hist_abs_norm = np.nan
+    if pd.notna(latest_close) and latest_close != 0 and pd.notna(latest_hist):
+        hist_abs_norm = abs(float(latest_hist)) / float(latest_close)
+
+    if max_hist_abs_norm is None:
+        near_zero_ok = True
+    else:
+        near_zero_ok = bool(pd.notna(hist_abs_norm) and hist_abs_norm <= float(max_hist_abs_norm))
+
+    if require_above_ema200:
+        if "EMA_200" in df.columns:
+            ema_200 = pd.to_numeric(df["EMA_200"], errors="coerce").iloc[-1]
+            above_ema200 = bool(pd.notna(latest_close) and pd.notna(ema_200) and latest_close > ema_200)
+        else:
+            above_ema200 = False
+    else:
+        above_ema200 = True
+
+    ema20 = pd.to_numeric(df["EMA_20"], errors="coerce").iloc[-1] if "EMA_20" in df.columns else np.nan
+    gap_above_ema20_pct = np.nan
+    if pd.notna(latest_close) and pd.notna(ema20) and ema20 != 0:
+        gap_above_ema20_pct = ((float(latest_close) / float(ema20)) - 1.0) * 100.0
+    if max_gap_above_ema20_pct is None:
+        gap_above_ema20_ok = True
+    else:
+        gap_above_ema20_ok = bool(pd.notna(gap_above_ema20_pct) and gap_above_ema20_pct <= float(max_gap_above_ema20_pct))
+
+    return_5d = pd.to_numeric(df["Return_5d"], errors="coerce").iloc[-1] if "Return_5d" in df.columns else np.nan
+    if max_return_5d is None:
+        return_5d_ok = True
+    else:
+        return_5d_ok = bool(pd.notna(return_5d) and float(return_5d) <= float(max_return_5d))
+
+    adx_14 = pd.to_numeric(df["ADX_14"], errors="coerce").iloc[-1] if "ADX_14" in df.columns else np.nan
+    if min_adx_14 is None:
+        adx_ok = True
+    else:
+        adx_ok = bool(pd.notna(adx_14) and float(adx_14) >= float(min_adx_14))
+
+    volume_ratio = np.nan
+    if "Volume" in df.columns and "Volume_SMA_20" in df.columns:
+        volume = pd.to_numeric(df["Volume"], errors="coerce").iloc[-1]
+        volume_sma_20 = pd.to_numeric(df["Volume_SMA_20"], errors="coerce").iloc[-1]
+        if pd.notna(volume) and pd.notna(volume_sma_20) and volume_sma_20 != 0:
+            volume_ratio = float(volume) / float(volume_sma_20)
+
+    peak_ok = peak_at_window_start if require_peak_at_window_start else True
+    signal = all(
+        [
+            hist_rising,
+            price_rising,
+            hist_below_zero,
+            near_zero_ok,
+            above_ema200,
+            peak_ok,
+            gap_above_ema20_ok,
+            return_5d_ok,
+            adx_ok,
+        ]
+    )
+
+    return {
+        "hist_rising": hist_rising,
+        "price_rising": price_rising,
+        "peak_at_window_start": peak_at_window_start,
+        "hist_below_zero": hist_below_zero,
+        "hist_abs_norm": hist_abs_norm,
+        "near_zero_ok": near_zero_ok,
+        "above_ema200": above_ema200,
+        "gap_above_ema20_pct": gap_above_ema20_pct,
+        "gap_above_ema20_ok": gap_above_ema20_ok,
+        "return_5d": return_5d,
+        "return_5d_ok": return_5d_ok,
+        "adx_14": adx_14,
+        "adx_ok": adx_ok,
+        "volume_ratio": volume_ratio,
+        "peak_ok": peak_ok,
+        "signal": signal,
+    }
+
+
 class MACDPreCrossMomentumEntry(BaseEntryStrategy):
     """Enter before MACD crosses above zero when histogram and price both strengthen."""
 
@@ -187,7 +322,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
                 strategy_name=self.strategy_name,
             )
 
-        flags = build_precross_momentum_flags(
+        latest_flags = _latest_precross_momentum_flags(
             df,
             hist_rise_days=self.hist_rise_days,
             price_rise_days=self.price_rise_days,
@@ -200,7 +335,6 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             min_adx_14=self.min_adx_14,
         )
         latest = df.iloc[-1]
-        latest_flags = flags.iloc[-1]
 
         metadata = {
             "entry_stage": "PRE_CROSS_MOMENTUM" if bool(latest_flags["signal"]) else "NONE",

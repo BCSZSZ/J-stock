@@ -10,7 +10,7 @@
   - 作用命令：`evaluate`、`evaluation`、`pos-evaluation`
   - 优先级：CLI 参数 > `config.json` 的 `evaluation.exit_confirmation_days` > 默认值 `1`
 - 新增配置项：`evaluation.exit_confirmation_days`
-  - 本地默认建议：`2`
+  - 本地默认建议：`1`
 - 回测引擎新增确认层：
   - 持仓股票若当天出现 `SELL`，计数 +1
   - 仅当连续计数 `>= N` 时才产生实际卖出信号（按原有 T+1 执行卖出）
@@ -48,12 +48,12 @@ python main.py pos-evaluation --years 2021 2022 2023 2024 2025 --exit-confirm-da
 
 ```json
 "evaluation": {
-  "exit_confirmation_days": 2
+  "exit_confirmation_days": 1
 }
 ```
 
 4. 若某终端不希望改本地 `config.json`，可统一通过命令行覆盖：
-   - `--exit-confirm-days 2`
+   - `--exit-confirm-days 1`
 
 ## 影响范围
 

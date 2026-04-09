@@ -34,6 +34,15 @@ class EvaluationRunContext:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class EvaluationOutputBundle:
+    """Segmented and optional annual-continuous outputs for one run context."""
+
+    segmented: Dict[str, str]
+    continuous: Optional[Dict[str, str]] = None
+    annual_companion: Optional[Dict[str, str]] = None
+
+
 def _log_step(message: str):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
 
@@ -210,6 +219,22 @@ def _build_periods(args):
     return periods
 
 
+def _build_annual_continuous_periods(args, periods: List[Tuple[str, str, str]]):
+    """Build a single full-span continuous period companion for annual mode."""
+    if getattr(args, "mode", None) != "annual" or len(periods) < 2:
+        return []
+
+    start_date = min(start for _, start, _ in periods)
+    end_date = max(end for _, _, end in periods)
+    years = [int(year) for year in (getattr(args, "years", []) or [])]
+    if years:
+        label = f"{min(years)}-{max(years)}_continuous"
+    else:
+        label = f"{start_date}_to_{end_date}_continuous"
+
+    return [(label, start_date, end_date)]
+
+
 def _sanitize_name(name: str) -> str:
     return "".join(ch if (ch.isalnum() or ch in ["-", "_"]) else "_" for ch in name)
 
@@ -306,6 +331,14 @@ def _prepare_walk_forward_inputs(args, config):
     return entry_filter_variants, years, universe_variants
 
 
+def _resolve_exit_confirm_days(args, eval_cfg) -> int:
+    """Resolve exit confirmation days with CLI override precedence."""
+    exit_confirm_days = getattr(args, "exit_confirm_days", None)
+    if exit_confirm_days is None:
+        exit_confirm_days = int(eval_cfg.get("exit_confirmation_days", 1))
+    return max(1, int(exit_confirm_days))
+
+
 def _resolve_entry_exit_strategies(args, eval_cfg):
     """Resolve entry and exit strategy lists from CLI/config with de-duplication."""
     entry_strategies = args.entry_strategies
@@ -370,6 +403,7 @@ def _build_evaluator(
         args=args,
         enable_overlay_override=enable_overlay,
     )
+
     return StrategyEvaluator(
         data_root="data",
         output_dir=output_dir,
@@ -383,6 +417,337 @@ def _build_evaluator(
         entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
     )
+
+
+def _print_saved_files(files: Dict[str, str], indent: str = "  ") -> None:
+    print(f"{indent}📄 原始结果: {files['raw']}")
+    print(f"{indent}📊 市场环境分析: {files['regime']}")
+    if files.get("trades"):
+        print(f"{indent}🧾 原始交易明细: {files['trades']}")
+    if files.get("exit_trigger_summary"):
+        print(f"{indent}🚪 第一层退出原因明细: {files['exit_trigger_summary']}")
+    if files.get("exit_urgency_summary"):
+        print(f"{indent}📚 第二层退出类型汇总: {files['exit_urgency_summary']}")
+    if files.get("exit_urgency_contribution"):
+        print(f"{indent}📈 第三层退出贡献汇总: {files['exit_urgency_contribution']}")
+    if files.get("exit_summary_report"):
+        print(f"{indent}🧠 退出结果总结报告: {files['exit_summary_report']}")
+    if files.get("legacy_rank"):
+        print(f"{indent}🏁 Legacy排名: {files['legacy_rank']}")
+    if files.get("target20_rank"):
+        print(f"{indent}🎯 Target20排名: {files['target20_rank']}")
+    if files.get("risk60_profit40_rank"):
+        print(f"{indent}⚖️ Risk60/Profit40排名: {files['risk60_profit40_rank']}")
+    print(f"{indent}📝 综合报告: {files['report']}")
+
+
+def _print_companion_files(files: Optional[Dict[str, str]], indent: str = "  ") -> None:
+    if not files:
+        return
+
+    if files.get("continuous_stability_rank"):
+        print(
+            f"{indent}🏆 Continuous+Stability排名: {files['continuous_stability_rank']}"
+        )
+
+
+def _markdown_table(df: pd.DataFrame) -> str:
+    table = df.fillna("N/A").astype(str)
+    headers = list(table.columns)
+    rows = table.values.tolist()
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines)
+
+
+def _annual_rank_group_columns(segmented_df: pd.DataFrame, continuous_df: pd.DataFrame) -> List[str]:
+    candidate_columns = [
+        "entry_strategy",
+        "exit_strategy",
+        "entry_filter",
+        "exit_confirmation_days",
+        "position_profile",
+        "overlay_mode",
+        "universe_name",
+        "universe_file",
+        "max_positions",
+        "max_position_pct",
+        "starting_capital_jpy",
+    ]
+    return [
+        column
+        for column in candidate_columns
+        if column in segmented_df.columns or column in continuous_df.columns
+    ]
+
+
+def _annual_std(series: pd.Series) -> float:
+    numeric = pd.to_numeric(series, errors="coerce").dropna()
+    if len(numeric) <= 1:
+        return 0.0
+    return float(numeric.std(ddof=0))
+
+
+def _build_annual_continuous_stability_rank_df(
+    segmented_df: pd.DataFrame,
+    continuous_df: pd.DataFrame,
+) -> pd.DataFrame:
+    group_columns = _annual_rank_group_columns(segmented_df, continuous_df)
+    if not {"entry_strategy", "exit_strategy", "entry_filter"}.issubset(group_columns):
+        raise ValueError("annual stability ranking 缺少必要策略列")
+
+    annual_stats = (
+        segmented_df.groupby(group_columns, as_index=False)
+        .agg(
+            avg_yearly_return_pct=("return_pct", "mean"),
+            avg_yearly_alpha_pct=("alpha", "mean"),
+            avg_yearly_sharpe_ratio=("sharpe_ratio", "mean"),
+            avg_yearly_mdd_pct=("max_drawdown_pct", "mean"),
+            total_yearly_trades=("num_trades", "sum"),
+            positive_years=(
+                "return_pct",
+                lambda series: int((pd.to_numeric(series, errors="coerce") > 0).sum()),
+            ),
+            positive_alpha_years=(
+                "alpha",
+                lambda series: int((pd.to_numeric(series, errors="coerce") > 0).sum()),
+            ),
+            worst_year_return_pct=("return_pct", "min"),
+            annual_return_std_pct=("return_pct", _annual_std),
+        )
+    )
+
+    yearly_return_pivot = (
+        segmented_df.pivot_table(
+            index=group_columns,
+            columns="period",
+            values="return_pct",
+            aggfunc="first",
+        )
+        .reset_index()
+    )
+    yearly_return_pivot.columns = [
+        column if column in group_columns else f"year_return_{column}"
+        for column in yearly_return_pivot.columns
+    ]
+
+    continuous_stats = (
+        continuous_df.groupby(group_columns, as_index=False)
+        .agg(
+            continuous_period=("period", "first"),
+            continuous_start_date=("start_date", "first"),
+            continuous_end_date=("end_date", "first"),
+            continuous_return_pct=("return_pct", "mean"),
+            continuous_topix_return_pct=("topix_return_pct", "mean"),
+            continuous_alpha_pct=("alpha", "mean"),
+            continuous_sharpe_ratio=("sharpe_ratio", "mean"),
+            continuous_mdd_pct=("max_drawdown_pct", "mean"),
+            continuous_num_trades=("num_trades", "sum"),
+            continuous_win_rate_pct=("win_rate_pct", "mean"),
+        )
+    )
+
+    rank_df = annual_stats.merge(yearly_return_pivot, on=group_columns, how="left")
+    rank_df = rank_df.merge(continuous_stats, on=group_columns, how="left")
+    rank_df = rank_df.sort_values(
+        [
+            "continuous_return_pct",
+            "continuous_alpha_pct",
+            "positive_years",
+            "positive_alpha_years",
+            "avg_yearly_alpha_pct",
+            "annual_return_std_pct",
+            "worst_year_return_pct",
+            "avg_yearly_mdd_pct",
+            "continuous_mdd_pct",
+            "continuous_sharpe_ratio",
+        ],
+        ascending=[False, False, False, False, False, True, False, True, True, False],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    rank_df.insert(0, "continuous_stability_rank", range(1, len(rank_df) + 1))
+    return rank_df
+
+
+def _write_annual_continuous_stability_rank(
+    output_dir: str,
+    prefix: str,
+    segmented_raw_path: Optional[str],
+    continuous_raw_path: Optional[str],
+) -> Optional[Dict[str, str]]:
+    if not segmented_raw_path or not continuous_raw_path:
+        return None
+
+    try:
+        segmented_df = pd.read_csv(segmented_raw_path)
+        continuous_df = pd.read_csv(continuous_raw_path)
+        rank_df = _build_annual_continuous_stability_rank_df(
+            segmented_df=segmented_df,
+            continuous_df=continuous_df,
+        )
+    except Exception as e:
+        print(f"⚠️ Continuous+Stability排名生成失败 ({prefix}): {e}")
+        return None
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_root = Path(output_dir)
+    rank_path = output_root / f"{prefix}_continuous_stability_rank_{timestamp}.csv"
+    rank_df.to_csv(rank_path, index=False, encoding="utf-8-sig")
+    print(f"✅ Continuous+Stability排名已保存: {rank_path}")
+
+    top_columns = [
+        column
+        for column in [
+            "continuous_stability_rank",
+            "entry_strategy",
+            "exit_strategy",
+            "entry_filter",
+            "position_profile",
+            "overlay_mode",
+            "universe_name",
+            "continuous_return_pct",
+            "continuous_alpha_pct",
+            "positive_years",
+            "positive_alpha_years",
+            "avg_yearly_alpha_pct",
+            "annual_return_std_pct",
+            "worst_year_return_pct",
+            "avg_yearly_mdd_pct",
+            "continuous_mdd_pct",
+        ]
+        if column in rank_df.columns
+    ]
+    report_path = output_root / f"{prefix}_continuous_stability_top10_{timestamp}.md"
+    report_lines = [
+        "# Annual Continuous + Stability Top 10",
+        "",
+        f"- segmented raw: {segmented_raw_path}",
+        f"- continuous raw: {continuous_raw_path}",
+        "",
+        _markdown_table(rank_df[top_columns].head(10).round(4)),
+        "",
+    ]
+    report_path.write_text("\n".join(report_lines), encoding="utf-8")
+    print(f"✅ Continuous+Stability Top10已保存: {report_path}")
+
+    return {
+        "continuous_stability_rank": str(rank_path),
+        "continuous_stability_report": str(report_path),
+    }
+
+
+def _append_combined_context_frame(
+    file_path: Optional[str],
+    meta: Dict[str, Any],
+    collector: List[pd.DataFrame],
+    label: str,
+):
+    if not file_path:
+        return
+
+    try:
+        frame = pd.read_csv(file_path)
+        for key, value in meta.items():
+            frame[key] = value
+        collector.append(frame)
+    except Exception as e:
+        print(
+            f"⚠️ 合并{label}失败 ("
+            f"{meta.get('position_profile', 'n/a')}/"
+            f"{meta.get('overlay_mode', 'n/a')}/"
+            f"{meta.get('universe_name', 'n/a')}): {e}"
+        )
+
+
+def _write_combined_position_output_family(
+    output_dir: str,
+    family_prefix: str,
+    raw_frames: List[pd.DataFrame],
+    regime_frames: List[pd.DataFrame],
+    trade_frames: List[pd.DataFrame],
+):
+    files: Dict[str, str] = {}
+    if not raw_frames and not regime_frames and not trade_frames:
+        return files
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_root = Path(output_dir)
+
+    if raw_frames:
+        combined_raw = pd.concat(raw_frames, ignore_index=True)
+        combined_raw_path = output_root / f"{family_prefix}_raw_{ts}.csv"
+        combined_raw.to_csv(combined_raw_path, index=False, encoding="utf-8-sig")
+        print(f"\n📦 合并Raw结果: {combined_raw_path}")
+        files["raw"] = str(combined_raw_path)
+
+    if regime_frames:
+        combined_regime = pd.concat(regime_frames, ignore_index=True)
+        combined_regime_path = output_root / f"{family_prefix}_by_regime_{ts}.csv"
+        combined_regime.to_csv(combined_regime_path, index=False, encoding="utf-8-sig")
+        print(f"📦 合并Regime结果: {combined_regime_path}")
+        files["regime"] = str(combined_regime_path)
+
+    if trade_frames:
+        combined_trades = pd.concat(trade_frames, ignore_index=True)
+        combined_trades_path = output_root / f"{family_prefix}_trades_{ts}.csv"
+        combined_trades.to_csv(combined_trades_path, index=False, encoding="utf-8-sig")
+        print(f"📦 合并Trade结果: {combined_trades_path}")
+        files["trades"] = str(combined_trades_path)
+
+        combined_reason_detail = StrategyEvaluator.build_exit_reason_detail_df(
+            combined_trades,
+            full_exit_only=False,
+        )
+        combined_trigger_summary_path = output_root / f"{family_prefix}_exit_trigger_summary_{ts}.csv"
+        combined_reason_detail.to_csv(
+            combined_trigger_summary_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"📦 合并第一层退出原因明细: {combined_trigger_summary_path}")
+        files["exit_trigger_summary"] = str(combined_trigger_summary_path)
+
+        combined_urgency_summary = StrategyEvaluator.build_exit_urgency_summary_df(
+            combined_trades,
+            full_exit_only=False,
+        )
+        combined_urgency_summary_path = output_root / f"{family_prefix}_exit_urgency_summary_{ts}.csv"
+        combined_urgency_summary.to_csv(
+            combined_urgency_summary_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"📦 合并第二层退出类型汇总: {combined_urgency_summary_path}")
+        files["exit_urgency_summary"] = str(combined_urgency_summary_path)
+
+        combined_urgency_contribution = StrategyEvaluator.build_exit_urgency_contribution_df(
+            combined_trades,
+            full_exit_only=False,
+        )
+        combined_urgency_contribution_path = output_root / f"{family_prefix}_exit_urgency_contribution_{ts}.csv"
+        combined_urgency_contribution.to_csv(
+            combined_urgency_contribution_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"📦 合并第三层退出贡献汇总: {combined_urgency_contribution_path}")
+        files["exit_urgency_contribution"] = str(combined_urgency_contribution_path)
+
+        combined_exit_summary_report_path = output_root / f"{family_prefix}_exit_summary_report_{ts}.md"
+        StrategyEvaluator.write_exit_summary_markdown(
+            combined_exit_summary_report_path,
+            combined_reason_detail,
+            combined_urgency_summary,
+            combined_urgency_contribution,
+        )
+        print(f"📦 合并退出结果总结报告: {combined_exit_summary_report_path}")
+        files["exit_summary_report"] = str(combined_exit_summary_report_path)
+
+    return files
 
 
 def _select_rank_df(evaluator: StrategyEvaluator, ranking_mode: str):
@@ -573,11 +938,7 @@ def _run_walk_forward_once(
     _log_step("walk-forward: 开始解析本轮参数")
     eval_cfg = config.get("evaluation", {})
     entry_filter_variants = _dedupe_filter_variants(entry_filter_variants)
-
-    exit_confirm_days = getattr(args, "exit_confirm_days", None)
-    if exit_confirm_days is None:
-        exit_confirm_days = int(eval_cfg.get("exit_confirmation_days", 1))
-    exit_confirm_days = max(1, int(exit_confirm_days))
+    exit_confirm_days = _resolve_exit_confirm_days(args, eval_cfg)
 
     use_overlay, _ = _resolve_overlay_config(
         config=config,
@@ -774,10 +1135,10 @@ def _run_contexts(
     contexts: List[EvaluationRunContext],
     ranking_mode: str,
 ):
-    """Run all contexts and return list of successful (context, files)."""
-    results: List[Tuple[EvaluationRunContext, Dict[str, str]]] = []
+    """Run all contexts and return list of successful segmented/continuous bundles."""
+    results: List[Tuple[EvaluationRunContext, EvaluationOutputBundle]] = []
     for context in contexts:
-        files = _run_once(
+        bundle = _run_context_bundle(
             args=args,
             config=config,
             periods=periods,
@@ -789,9 +1150,72 @@ def _run_contexts(
             enable_overlay=context.enable_overlay,
             ranking_mode=ranking_mode,
         )
-        if files:
-            results.append((context, files))
+        if bundle:
+            results.append((context, bundle))
     return results
+
+
+def _run_context_bundle(
+    args,
+    config,
+    periods,
+    entry_filter_variants,
+    output_dir,
+    prefix,
+    monitor_list_file=None,
+    portfolio_overrides=None,
+    enable_overlay: bool = None,
+    ranking_mode: str = "target20",
+):
+    segmented_files = _run_once(
+        args=args,
+        config=config,
+        periods=periods,
+        entry_filter_variants=entry_filter_variants,
+        output_dir=output_dir,
+        prefix=prefix,
+        monitor_list_file=monitor_list_file,
+        portfolio_overrides=portfolio_overrides,
+        enable_overlay=enable_overlay,
+        ranking_mode=ranking_mode,
+    )
+    if not segmented_files:
+        return None
+
+    bundle = EvaluationOutputBundle(segmented=segmented_files)
+    continuous_periods = _build_annual_continuous_periods(args, periods)
+    if not continuous_periods:
+        return bundle
+
+    continuous_label, continuous_start, continuous_end = continuous_periods[0]
+    print(
+        f"♾️ 追加全年连续聚合: {continuous_label} "
+        f"({continuous_start} ~ {continuous_end})"
+    )
+    _log_step(
+        f"annual-continuous: 开始 {continuous_label} ({continuous_start} ~ {continuous_end})"
+    )
+    continuous_files = _run_once(
+        args=args,
+        config=config,
+        periods=continuous_periods,
+        entry_filter_variants=entry_filter_variants,
+        output_dir=output_dir,
+        prefix=f"{prefix}_continuous",
+        monitor_list_file=monitor_list_file,
+        portfolio_overrides=portfolio_overrides,
+        enable_overlay=enable_overlay,
+        ranking_mode=ranking_mode,
+    )
+    if continuous_files:
+        bundle.continuous = continuous_files
+        bundle.annual_companion = _write_annual_continuous_stability_rank(
+            output_dir=output_dir,
+            prefix=prefix,
+            segmented_raw_path=segmented_files.get("raw"),
+            continuous_raw_path=continuous_files.get("raw"),
+        )
+    return bundle
 
 
 def _load_position_profiles(args, eval_cfg):
@@ -881,10 +1305,7 @@ def _run_once(
         print(
             f"⚠️ Entry Filter 变体去重: {original_filter_variant_count} -> {len(entry_filter_variants)}"
         )
-    exit_confirm_days = getattr(args, "exit_confirm_days", None)
-    if exit_confirm_days is None:
-        exit_confirm_days = int(eval_cfg.get("exit_confirmation_days", 1))
-    exit_confirm_days = max(1, int(exit_confirm_days))
+    exit_confirm_days = _resolve_exit_confirm_days(args, eval_cfg)
     use_overlay = _resolve_effective_overlay_enabled(config=config, args=args, override=enable_overlay)
     if use_overlay:
         _, overlay_config = _resolve_overlay_config(
@@ -1047,28 +1468,17 @@ def cmd_evaluate(args):
     print(f"\n{'=' * 80}")
     print("✅ 策略评价完成！")
     print(f"{'=' * 80}")
-    for context, files in all_files:
+    for context, bundle in all_files:
         universe_file = context.metadata.get("universe_file")
         print(f"[股票池: {context.name}] {universe_file or '(config默认)'}")
-        print(f"  📄 原始结果: {files['raw']}")
-        print(f"  📊 市场环境分析: {files['regime']}")
-        if files.get("trades"):
-            print(f"  🧾 原始交易明细: {files['trades']}")
-        if files.get("exit_trigger_summary"):
-            print(f"  🚪 第一层退出原因明细: {files['exit_trigger_summary']}")
-        if files.get("exit_urgency_summary"):
-            print(f"  📚 第二层退出类型汇总: {files['exit_urgency_summary']}")
-        if files.get("exit_urgency_contribution"):
-            print(f"  📈 第三层退出贡献汇总: {files['exit_urgency_contribution']}")
-        if files.get("exit_summary_report"):
-            print(f"  🧠 退出结果总结报告: {files['exit_summary_report']}")
-        if files.get("legacy_rank"):
-            print(f"  🏁 Legacy排名: {files['legacy_rank']}")
-        if files.get("target20_rank"):
-            print(f"  🎯 Target20排名: {files['target20_rank']}")
-        if files.get("risk60_profit40_rank"):
-            print(f"  ⚖️ Risk60/Profit40排名: {files['risk60_profit40_rank']}")
-        print(f"  📝 综合报告: {files['report']}")
+        print("  🧩 按年分段结果:")
+        _print_saved_files(bundle.segmented, indent="    ")
+        if bundle.continuous:
+            print("  ♾️ 全年连续聚合结果:")
+            _print_saved_files(bundle.continuous, indent="    ")
+        if bundle.annual_companion:
+            print("  🏆 Continuous+Stability结果:")
+            _print_companion_files(bundle.annual_companion, indent="    ")
     print(f"{'=' * 80}\n")
 
 
@@ -1241,10 +1651,13 @@ def cmd_pos_evaluation(args):
     print(f"🏁 Ranking Mode: {ranking_mode}")
     print(f"\n📚 仓位组合: {len(normalized_profiles)} 个")
 
-    all_files: List[Tuple[EvaluationRunContext, Dict[str, str]]] = []
+    all_files: List[Tuple[EvaluationRunContext, EvaluationOutputBundle]] = []
     combined_raw_frames = []
     combined_regime_frames = []
     combined_trade_frames = []
+    combined_continuous_raw_frames = []
+    combined_continuous_regime_frames = []
+    combined_continuous_trade_frames = []
     for context in contexts:
         meta = context.metadata
         print("\n" + "-" * 80)
@@ -1277,42 +1690,50 @@ def cmd_pos_evaluation(args):
             )
             continue
 
-        context_result, files = results[0]
-        all_files.append((context_result, files))
+        context_result, bundle = results[0]
+        all_files.append((context_result, bundle))
         print(
             f"✅ 组合 {meta['position_profile']} [{meta['overlay_mode'].upper()}] × "
             f"股票池 {meta['universe_name']} 完成"
         )
 
-        try:
-            raw_df = pd.read_csv(files["raw"])
-            for key, value in meta.items():
-                raw_df[key] = value
-            combined_raw_frames.append(raw_df)
-        except Exception as e:
-            print(
-                f"⚠️ 合并raw失败 ({meta['position_profile']}/{meta['overlay_mode']}/{meta['universe_name']}): {e}"
-            )
+        _append_combined_context_frame(
+            bundle.segmented.get("raw"),
+            meta,
+            combined_raw_frames,
+            "segmented raw",
+        )
+        _append_combined_context_frame(
+            bundle.segmented.get("regime"),
+            meta,
+            combined_regime_frames,
+            "segmented regime",
+        )
+        _append_combined_context_frame(
+            bundle.segmented.get("trades"),
+            meta,
+            combined_trade_frames,
+            "segmented trades",
+        )
 
-        try:
-            regime_df = pd.read_csv(files["regime"])
-            for key, value in meta.items():
-                regime_df[key] = value
-            combined_regime_frames.append(regime_df)
-        except Exception as e:
-            print(
-                f"⚠️ 合并regime失败 ({meta['position_profile']}/{meta['overlay_mode']}/{meta['universe_name']}): {e}"
+        if bundle.continuous:
+            _append_combined_context_frame(
+                bundle.continuous.get("raw"),
+                meta,
+                combined_continuous_raw_frames,
+                "continuous raw",
             )
-
-        try:
-            if files.get("trades"):
-                trades_df = pd.read_csv(files["trades"])
-                for key, value in meta.items():
-                    trades_df[key] = value
-                combined_trade_frames.append(trades_df)
-        except Exception as e:
-            print(
-                f"⚠️ 合并trades失败 ({meta['position_profile']}/{meta['overlay_mode']}/{meta['universe_name']}): {e}"
+            _append_combined_context_frame(
+                bundle.continuous.get("regime"),
+                meta,
+                combined_continuous_regime_frames,
+                "continuous regime",
+            )
+            _append_combined_context_frame(
+                bundle.continuous.get("trades"),
+                meta,
+                combined_continuous_trade_frames,
+                "continuous trades",
             )
 
     if not all_files:
@@ -1322,92 +1743,39 @@ def cmd_pos_evaluation(args):
     print(f"\n{'=' * 80}")
     print("✅ pos-evaluation 完成")
     print(f"{'=' * 80}")
-    for context, files in all_files:
+    for context, bundle in all_files:
         print(f"[{context.name}]")
-        print(f"  📄 原始结果: {files['raw']}")
-        print(f"  📊 市场环境分析: {files['regime']}")
-        if files.get("trades"):
-            print(f"  🧾 原始交易明细: {files['trades']}")
-        if files.get("exit_trigger_summary"):
-            print(f"  🚪 第一层退出原因明细: {files['exit_trigger_summary']}")
-        if files.get("exit_urgency_summary"):
-            print(f"  📚 第二层退出类型汇总: {files['exit_urgency_summary']}")
-        if files.get("exit_urgency_contribution"):
-            print(f"  📈 第三层退出贡献汇总: {files['exit_urgency_contribution']}")
-        if files.get("exit_summary_report"):
-            print(f"  🧠 退出结果总结报告: {files['exit_summary_report']}")
-        if files.get("legacy_rank"):
-            print(f"  🏁 Legacy排名: {files['legacy_rank']}")
-        if files.get("target20_rank"):
-            print(f"  🎯 Target20排名: {files['target20_rank']}")
-        if files.get("risk60_profit40_rank"):
-            print(f"  ⚖️ Risk60/Profit40排名: {files['risk60_profit40_rank']}")
-        print(f"  📝 综合报告: {files['report']}")
+        print("  🧩 按年分段结果:")
+        _print_saved_files(bundle.segmented, indent="    ")
+        if bundle.continuous:
+            print("  ♾️ 全年连续聚合结果:")
+            _print_saved_files(bundle.continuous, indent="    ")
+        if bundle.annual_companion:
+            print("  🏆 Continuous+Stability结果:")
+            _print_companion_files(bundle.annual_companion, indent="    ")
 
-    if combined_raw_frames:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        combined_raw = pd.concat(combined_raw_frames, ignore_index=True)
-        combined_raw_path = Path(output_dir) / f"position_eval_combined_raw_{ts}.csv"
-        combined_raw.to_csv(combined_raw_path, index=False, encoding="utf-8-sig")
-        print(f"\n📦 合并Raw结果: {combined_raw_path}")
-
-    if combined_regime_frames:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        combined_regime = pd.concat(combined_regime_frames, ignore_index=True)
-        combined_regime_path = Path(output_dir) / f"position_eval_combined_by_regime_{ts}.csv"
-        combined_regime.to_csv(combined_regime_path, index=False, encoding="utf-8-sig")
-        print(f"📦 合并Regime结果: {combined_regime_path}")
-
-    if combined_trade_frames:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        combined_trades = pd.concat(combined_trade_frames, ignore_index=True)
-        combined_trades_path = Path(output_dir) / f"position_eval_combined_trades_{ts}.csv"
-        combined_trades.to_csv(combined_trades_path, index=False, encoding="utf-8-sig")
-        print(f"📦 合并Trade结果: {combined_trades_path}")
-
-        combined_reason_detail = StrategyEvaluator.build_exit_reason_detail_df(
-            combined_trades,
-            full_exit_only=False,
-        )
-        combined_trigger_summary_path = Path(output_dir) / f"position_eval_combined_exit_trigger_summary_{ts}.csv"
-        combined_reason_detail.to_csv(
-            combined_trigger_summary_path,
-            index=False,
-            encoding="utf-8-sig",
-        )
-        print(f"📦 合并第一层退出原因明细: {combined_trigger_summary_path}")
-
-        combined_urgency_summary = StrategyEvaluator.build_exit_urgency_summary_df(
-            combined_trades,
-            full_exit_only=False,
-        )
-        combined_urgency_summary_path = Path(output_dir) / f"position_eval_combined_exit_urgency_summary_{ts}.csv"
-        combined_urgency_summary.to_csv(
-            combined_urgency_summary_path,
-            index=False,
-            encoding="utf-8-sig",
-        )
-        print(f"📦 合并第二层退出类型汇总: {combined_urgency_summary_path}")
-
-        combined_urgency_contribution = StrategyEvaluator.build_exit_urgency_contribution_df(
-            combined_trades,
-            full_exit_only=False,
-        )
-        combined_urgency_contribution_path = Path(output_dir) / f"position_eval_combined_exit_urgency_contribution_{ts}.csv"
-        combined_urgency_contribution.to_csv(
-            combined_urgency_contribution_path,
-            index=False,
-            encoding="utf-8-sig",
-        )
-        print(f"📦 合并第三层退出贡献汇总: {combined_urgency_contribution_path}")
-
-        combined_exit_summary_report_path = Path(output_dir) / f"position_eval_combined_exit_summary_report_{ts}.md"
-        StrategyEvaluator.write_exit_summary_markdown(
-            combined_exit_summary_report_path,
-            combined_reason_detail,
-            combined_urgency_summary,
-            combined_urgency_contribution,
-        )
-        print(f"📦 合并退出结果总结报告: {combined_exit_summary_report_path}")
+    combined_segmented_files = _write_combined_position_output_family(
+        output_dir=output_dir,
+        family_prefix="position_eval_combined",
+        raw_frames=combined_raw_frames,
+        regime_frames=combined_regime_frames,
+        trade_frames=combined_trade_frames,
+    )
+    combined_continuous_files = _write_combined_position_output_family(
+        output_dir=output_dir,
+        family_prefix="position_eval_combined_continuous",
+        raw_frames=combined_continuous_raw_frames,
+        regime_frames=combined_continuous_regime_frames,
+        trade_frames=combined_continuous_trade_frames,
+    )
+    combined_companion_files = _write_annual_continuous_stability_rank(
+        output_dir=output_dir,
+        prefix="position_eval_combined",
+        segmented_raw_path=combined_segmented_files.get("raw"),
+        continuous_raw_path=combined_continuous_files.get("raw"),
+    )
+    if combined_companion_files:
+        print("📦 合并Continuous+Stability结果:")
+        _print_companion_files(combined_companion_files, indent="   ")
 
     print(f"{'=' * 80}\n")

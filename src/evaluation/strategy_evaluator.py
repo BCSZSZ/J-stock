@@ -677,7 +677,9 @@ class StrategyEvaluator:
 
         def _entry_feature_only(name: str) -> bool:
             path = entry_mapping.get(name, "")
-            return path.endswith("entry.macd_crossover.MACDCrossoverStrategy")
+            return path.endswith("entry.macd_crossover.MACDCrossoverStrategy") or (
+                "entry.macd_precross_momentum_entry" in path
+            )
 
         def _exit_feature_only(name: str) -> bool:
             path = exit_mapping.get(name, "")

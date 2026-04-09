@@ -6,6 +6,7 @@ from src.analysis.strategies.entry.macd_precross_momentum_entry import (
     MACDPreCross2BarLiteComboEntry,
     MACDPreCross2BarRet5d008Entry,
     MACDPreCrossMomentumEntry,
+    _latest_precross_momentum_flags,
     build_precross_momentum_flags,
 )
 from src.utils.strategy_loader import ENTRY_STRATEGIES, create_strategy_instance
@@ -242,3 +243,87 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     assert lite.max_hist_abs_norm == 0.01
     assert lite.min_adx_14 == 10.0
     assert lite.max_return_5d == 0.08
+
+
+def test_latest_precross_flags_match_batch_flags_for_latest_row():
+    df = pd.DataFrame(
+        {
+            "Close": [100.0, 101.0, 102.0, 103.0],
+            "MACD_Hist": [-0.40, -0.22, -0.10, -0.04],
+            "EMA_20": [98.0, 99.0, 100.0, 101.0],
+            "EMA_200": [95.0, 95.0, 95.0, 95.0],
+            "Return_5d": [0.01, 0.02, 0.03, 0.04],
+            "ADX_14": [9.0, 10.0, 11.0, 12.0],
+            "Volume": [1000.0, 1100.0, 1200.0, 1300.0],
+            "Volume_SMA_20": [1000.0, 1000.0, 1000.0, 1000.0],
+        }
+    )
+
+    batch_flags = build_precross_momentum_flags(
+        df,
+        hist_rise_days=3,
+        price_rise_days=3,
+        require_hist_below_zero=True,
+        max_hist_abs_norm=0.01,
+        require_above_ema200=True,
+        require_peak_at_window_start=True,
+        max_gap_above_ema20_pct=5.0,
+        max_return_5d=0.08,
+        min_adx_14=10.0,
+    ).iloc[-1]
+
+    latest_flags = _latest_precross_momentum_flags(
+        df,
+        hist_rise_days=3,
+        price_rise_days=3,
+        require_hist_below_zero=True,
+        max_hist_abs_norm=0.01,
+        require_above_ema200=True,
+        require_peak_at_window_start=True,
+        max_gap_above_ema20_pct=5.0,
+        max_return_5d=0.08,
+        min_adx_14=10.0,
+    )
+
+    for key in [
+        "hist_rising",
+        "price_rising",
+        "peak_at_window_start",
+        "hist_below_zero",
+        "near_zero_ok",
+        "above_ema200",
+        "gap_above_ema20_ok",
+        "return_5d_ok",
+        "adx_ok",
+        "peak_ok",
+        "signal",
+    ]:
+        assert bool(latest_flags[key]) == bool(batch_flags[key])
+
+
+def test_latest_precross_flags_respect_peak_check_across_longer_negative_segment():
+    df = pd.DataFrame(
+        {
+            "Close": [99.0, 100.0, 101.0, 102.0],
+            "MACD_Hist": [-0.70, -0.50, -0.30, -0.10],
+            "MACD": [-0.9, -0.7, -0.5, -0.3],
+            "MACD_Signal": [-0.8, -0.6, -0.4, -0.25],
+        }
+    )
+
+    batch_flags = build_precross_momentum_flags(
+        df,
+        hist_rise_days=3,
+        price_rise_days=3,
+        require_peak_at_window_start=True,
+    ).iloc[-1]
+    latest_flags = _latest_precross_momentum_flags(
+        df,
+        hist_rise_days=3,
+        price_rise_days=3,
+        require_peak_at_window_start=True,
+    )
+
+    assert bool(latest_flags["peak_at_window_start"]) is False
+    assert bool(latest_flags["peak_at_window_start"]) == bool(batch_flags["peak_at_window_start"])
+    assert bool(latest_flags["signal"]) == bool(batch_flags["signal"])
