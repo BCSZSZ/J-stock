@@ -1,6 +1,6 @@
 # MVX D21 CLI Study Stop Note
 
-Date: 2026-04-09
+Date: 2026-04-10
 
 ## Scope
 
@@ -75,26 +75,39 @@ Current production reference result:
 - Continuous Sharpe: `1.5077`
 - Continuous MDD: `23.1513%`
 
-### 2bar Completed Before Stop
+### 2bar Completed
 
 - `twobar_round1_n`
 - `twobar_round1_r`
 - `twobar_round1_t`
+- `twobar_grid1`
+- `twobar_grid2`
+- `twobar_grid3`
 
-Current best completed 2bar result remains:
+Final 2bar best result:
 
 - Entry: `MACDPreCross2BarEntry`
-- Exit: `MVX_N5_R3p25_T1p6_D21_B20p0`
+- Exit: `MVX_N3_R3p35_T1p6_D21_B20p0`
 - Sources:
-  - `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_round1_n/strategy_evaluation_continuous_stability_rank_20260409_133115.csv`
-  - `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_round1_r/strategy_evaluation_continuous_stability_rank_20260409_171101.csv`
-  - `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_round1_t/strategy_evaluation_continuous_stability_rank_20260409_173311.csv`
-- 5Y segmented returns: `0.9980, 17.3800, 33.5731, 7.7416, 120.8672`
-- 20% hit count: `2/5`
-- Continuous return: `329.5931%`
-- Continuous alpha: `246.8182%`
-- Continuous Sharpe: `1.4661`
-- Continuous MDD: `24.9684%`
+  - `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_grid3/strategy_evaluation_continuous_stability_rank_20260410_111409.csv`
+  - `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_grid3/strategy_evaluation_raw_20260410_105157.csv`
+  - `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_grid3/strategy_evaluation_continuous_raw_20260410_111401.csv`
+- 5Y segmented returns: `-6.5389, 18.9122, 38.4349, 46.3693, 116.1021`
+- 20% hit count: `3/5`
+- Continuous return: `378.1765%`
+- Continuous alpha: `295.4017%`
+- Continuous Sharpe: `1.6158`
+- Continuous MDD: `21.2450%`
+
+Notable 2bar runner-up after `grid3`:
+
+- Entry: `MACDPreCross2BarEntry`
+- Exit: `MVX_N3_R3p25_T1p8_D21_B20p0`
+- 5Y segmented returns: `0.5842, 10.4856, 33.5392, 33.6084, 106.3192`
+- 20% hit count: `3/5`
+- Positive years: `5/5`
+- Continuous return: `364.8133%`
+- Continuous MDD: `17.1780%`
 
 Important 2bar follow-up observations from completed single-parameter rounds:
 
@@ -104,58 +117,41 @@ Important 2bar follow-up observations from completed single-parameter rounds:
 
 These were used to construct `twobar_grid1`.
 
-## Stop Point
+## Historical Stop Point
 
-`twobar_grid1` was started with these 8 combinations:
+This file originally captured a 2026-04-09 pause at `twobar_grid1`, before the study was resumed.
 
-- `MVX_N3_R3p0_T1p6_D21_B20p0`
-- `MVX_N3_R3p0_T2p0_D21_B20p0`
-- `MVX_N3_R3p25_T1p6_D21_B20p0`
-- `MVX_N3_R3p25_T2p0_D21_B20p0`
-- `MVX_N5_R3p0_T1p6_D21_B20p0`
-- `MVX_N5_R3p0_T2p0_D21_B20p0`
-- `MVX_N5_R3p25_T1p6_D21_B20p0`
-- `MVX_N5_R3p25_T2p0_D21_B20p0`
+- `twobar_grid1` later completed with full segmented + continuous + stability outputs.
+- `twobar_grid2` later completed with full segmented + continuous + stability outputs.
+- `twobar_grid3` later completed with full segmented + continuous + stability outputs.
 
-Segmented annual phase completed and saved these outputs:
-
-- `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_grid1/strategy_evaluation_raw_20260409_175503.csv`
-- `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_grid1/strategy_evaluation_report_20260409_175503.md`
-
-The continuous companion phase was still running when work was stopped.
-
-Exact stop status:
-
-- `twobar_grid1` continuous run had reached `6/8` tasks complete.
-- The background terminal was then explicitly killed.
-- No final `twobar_grid1` continuous raw file or `continuous_stability_rank` file should be assumed complete.
+The original interrupted state is no longer the active project state.
 
 ## Pending Work
 
-Still not completed:
+Core CLI evaluation work for this MVX D21 study is now complete.
 
-- rerun `twobar_grid1` to completion
-- derive `twobar_grid2` around the winning `R/T` center from `grid1`
-- derive `twobar_grid3` around the winning `R/T` center from `grid2`
-- produce the final three-way review: baseline best vs production vs final 2bar best
+No mandatory backtest rounds remain.
 
-## Resume Instructions
+Optional follow-up only:
 
-Recommended resume approach:
+- run one finalist robustness pass with `main.py pos-evaluation --mode annual` if position-profile validation is desired
+- package the final three-way review into a report or commit message if needed
 
-1. Rerun `twobar_grid1` from scratch using the same command.
-2. Read the resulting `continuous_stability_rank` winner.
-3. Build `twobar_grid2` as a `3 x 3` refinement around the winning `R/T` center, keeping `N={5,3}` if both remain competitive.
-4. Build `twobar_grid3` as the second `3 x 3` refinement around the new winning center.
-5. Redo the final three-way report using:
-   - baseline best from `baseline_grid3`
-   - production reference
-   - final 2bar best from `grid3`
+## Reference Commands
 
-Command to resume `twobar_grid1`:
+Final `twobar_grid3` command that completed the search:
 
 ```powershell
 Push-Location "c:\Github\personal\stock-AI-python\j-stock-analyzer"
-c:/Github/personal/stock-AI-python/j-stock-analyzer/.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-filter-mode off --entry-strategies MACDPreCross2BarEntry --exit-confirm-days 1 --exit-strategies MVX_N3_R3p0_T1p6_D21_B20p0 MVX_N3_R3p0_T2p0_D21_B20p0 MVX_N3_R3p25_T1p6_D21_B20p0 MVX_N3_R3p25_T2p0_D21_B20p0 MVX_N5_R3p0_T1p6_D21_B20p0 MVX_N5_R3p0_T2p0_D21_B20p0 MVX_N5_R3p25_T1p6_D21_B20p0 MVX_N5_R3p25_T2p0_D21_B20p0 --output-dir "G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_grid1"
+c:/Github/personal/stock-AI-python/j-stock-analyzer/.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-filter-mode off --entry-strategies MACDPreCross2BarEntry --exit-confirm-days 1 --exit-strategies MVX_N3_R3p15_T1p6_D21_B20p0 MVX_N3_R3p15_T1p7_D21_B20p0 MVX_N3_R3p15_T1p8_D21_B20p0 MVX_N3_R3p25_T1p6_D21_B20p0 MVX_N3_R3p25_T1p7_D21_B20p0 MVX_N3_R3p25_T1p8_D21_B20p0 MVX_N3_R3p35_T1p6_D21_B20p0 MVX_N3_R3p35_T1p7_D21_B20p0 MVX_N3_R3p35_T1p8_D21_B20p0 --output-dir "G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/twobar_grid3"
+Pop-Location
+```
+
+Optional robustness-validation direction, still using CLI rather than custom scripts:
+
+```powershell
+Push-Location "c:\Github\personal\stock-AI-python\j-stock-analyzer"
+c:/Github/personal/stock-AI-python/j-stock-analyzer/.venv/Scripts/python.exe main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --entry-filter-mode off --exit-confirm-days 1 --entry-strategies MACDCrossoverStrategy MACDPreCross2BarEntry --exit-strategies MVX_N3_R3p85_T2p0_D21_B20p0 MVX_N3_R3p25_T1p6_D21_B20p0 MVX_N3_R3p35_T1p6_D21_B20p0 MVX_N3_R3p25_T1p8_D21_B20p0 --output-dir "G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvx_d21_cli_20260409/finalists_pos_eval"
 Pop-Location
 ```

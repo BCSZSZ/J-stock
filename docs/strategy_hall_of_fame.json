@@ -1,0 +1,368 @@
+{
+  "schema_version": "1.0",
+  "record_type": "strategy_hall_of_fame",
+  "description": "Reusable reference strategy registry for future annual CLI strategy comparisons under the locked 2021-2025 evaluation basis.",
+  "updated_at": "2026-04-10",
+  "evaluation_basis": {
+    "mode": "annual",
+    "years": [
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "entry_filter_mode": "off",
+    "exit_confirmation_days": 1,
+    "ranking_mode": "target20",
+    "selection_rank_field": "continuous_stability_rank"
+  },
+  "comparison_contract": {
+    "final_review_metrics": [
+      "annual_period_return_pct_by_year",
+      "hit20_years",
+      "positive_years",
+      "worst_year_return_pct",
+      "annual_return_std_pct",
+      "continuous_return_pct",
+      "continuous_alpha_pct",
+      "continuous_sharpe_ratio",
+      "continuous_mdd_pct"
+    ],
+    "metric_sources": {
+      "segmented_raw_file": [
+        "annual_period_metrics.*.return_pct",
+        "annual_period_metrics.*.alpha_pct",
+        "annual_period_metrics.*.max_drawdown_pct",
+        "comparison_summary.hit20_years",
+        "comparison_summary.positive_years",
+        "comparison_summary.positive_alpha_years",
+        "comparison_summary.avg_yearly_return_pct",
+        "comparison_summary.avg_yearly_alpha_pct",
+        "comparison_summary.worst_year_return_pct",
+        "comparison_summary.annual_return_std_pct"
+      ],
+      "continuous_raw_file": [
+        "continuous_period_metrics.*",
+        "comparison_summary.continuous_return_pct",
+        "comparison_summary.continuous_alpha_pct",
+        "comparison_summary.continuous_sharpe_ratio",
+        "comparison_summary.continuous_mdd_pct"
+      ],
+      "continuous_stability_rank": [
+        "selection.ranking_position"
+      ]
+    }
+  },
+  "references": {
+    "baseline_champion": {
+      "reference_id": "baseline_champion",
+      "display_name": "Baseline Champion",
+      "entry_strategy": "MACDCrossoverStrategy",
+      "exit_strategy": "MVX_N3_R3p85_T2p0_D21_B20p0",
+      "tags": [
+        "baseline",
+        "benchmark",
+        "champion"
+      ],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\baseline_grid3",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\baseline_grid3\\strategy_evaluation_continuous_stability_rank_20260409_133712.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\baseline_grid3\\strategy_evaluation_raw_20260409_131306.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\baseline_grid3\\strategy_evaluation_continuous_raw_20260409_133658.csv",
+        "ranking_position": 1,
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "Primary baseline benchmark for future strategy comparisons."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 4,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 40.788528,
+        "avg_yearly_alpha_pct": 27.305152,
+        "worst_year_return_pct": 6.391092,
+        "annual_return_std_pct": 36.869363,
+        "continuous_return_pct": 349.923336,
+        "continuous_alpha_pct": 267.148501,
+        "continuous_sharpe_ratio": 1.676799,
+        "continuous_mdd_pct": 24.702983
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 21.868134,
+          "alpha_pct": 15.047661,
+          "max_drawdown_pct": 12.952677
+        },
+        "2022": {
+          "return_pct": 37.193742,
+          "alpha_pct": 44.016155,
+          "max_drawdown_pct": 10.989476
+        },
+        "2023": {
+          "return_pct": 26.682296,
+          "alpha_pct": 0.012061,
+          "max_drawdown_pct": 11.458793
+        },
+        "2024": {
+          "return_pct": 6.391092,
+          "alpha_pct": -10.681874,
+          "max_drawdown_pct": 21.923916
+        },
+        "2025": {
+          "return_pct": 111.807375,
+          "alpha_pct": 88.131757,
+          "max_drawdown_pct": 6.000946
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 349.923336,
+        "alpha_pct": 267.148501,
+        "sharpe_ratio": 1.676799,
+        "max_drawdown_pct": 24.702983,
+        "num_trades": 1006
+      }
+    },
+    "production_reference": {
+      "reference_id": "production_reference",
+      "display_name": "Production Reference",
+      "entry_strategy": "MACDCrossoverStrategy",
+      "exit_strategy": "MVX_N3_R3p25_T1p6_D21_B20p0",
+      "tags": [
+        "benchmark",
+        "production",
+        "reference"
+      ],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\production_reference",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\production_reference\\strategy_evaluation_continuous_stability_rank_20260409_135229.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\production_reference\\strategy_evaluation_raw_20260409_135039.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\production_reference\\strategy_evaluation_continuous_raw_20260409_135227.csv",
+        "ranking_position": 1,
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "Current production-aligned reference under the same annual CLI basis."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 4,
+        "positive_years": 5,
+        "positive_alpha_years": 3,
+        "avg_yearly_return_pct": 30.013497,
+        "avg_yearly_alpha_pct": 16.530121,
+        "worst_year_return_pct": 1.139613,
+        "annual_return_std_pct": 24.432882,
+        "continuous_return_pct": 275.026757,
+        "continuous_alpha_pct": 192.251922,
+        "continuous_sharpe_ratio": 1.507654,
+        "continuous_mdd_pct": 23.151346
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 21.198474,
+          "alpha_pct": 14.378002,
+          "max_drawdown_pct": 10.623733
+        },
+        "2022": {
+          "return_pct": 32.426297,
+          "alpha_pct": 39.24871,
+          "max_drawdown_pct": 8.899539
+        },
+        "2023": {
+          "return_pct": 20.768476,
+          "alpha_pct": -5.90176,
+          "max_drawdown_pct": 10.078282
+        },
+        "2024": {
+          "return_pct": 1.139613,
+          "alpha_pct": -15.933353,
+          "max_drawdown_pct": 23.076398
+        },
+        "2025": {
+          "return_pct": 74.534625,
+          "alpha_pct": 50.859007,
+          "max_drawdown_pct": 7.519625
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 275.026757,
+        "alpha_pct": 192.251922,
+        "sharpe_ratio": 1.507654,
+        "max_drawdown_pct": 23.151346,
+        "num_trades": 1128
+      }
+    },
+    "twobar_champion": {
+      "reference_id": "twobar_champion",
+      "display_name": "2Bar Champion",
+      "entry_strategy": "MACDPreCross2BarEntry",
+      "exit_strategy": "MVX_N3_R3p35_T1p6_D21_B20p0",
+      "tags": [
+        "benchmark",
+        "champion",
+        "twobar"
+      ],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_continuous_stability_rank_20260410_111409.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_raw_20260410_105157.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_continuous_raw_20260410_111401.csv",
+        "ranking_position": 1,
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "Final 2bar winner by continuous_stability_rank after grid3."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 3,
+        "positive_years": 4,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 42.655904,
+        "avg_yearly_alpha_pct": 29.172528,
+        "worst_year_return_pct": -6.53889,
+        "annual_return_std_pct": 41.011819,
+        "continuous_return_pct": 378.176536,
+        "continuous_alpha_pct": 295.401701,
+        "continuous_sharpe_ratio": 1.615811,
+        "continuous_mdd_pct": 21.245021
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": -6.53889,
+          "alpha_pct": -13.359363,
+          "max_drawdown_pct": 19.124865
+        },
+        "2022": {
+          "return_pct": 18.912165,
+          "alpha_pct": 25.734578,
+          "max_drawdown_pct": 12.437823
+        },
+        "2023": {
+          "return_pct": 38.434868,
+          "alpha_pct": 11.764633,
+          "max_drawdown_pct": 9.650707
+        },
+        "2024": {
+          "return_pct": 46.369251,
+          "alpha_pct": 29.296285,
+          "max_drawdown_pct": 15.443296
+        },
+        "2025": {
+          "return_pct": 116.102125,
+          "alpha_pct": 92.426507,
+          "max_drawdown_pct": 17.748893
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 378.176536,
+        "alpha_pct": 295.401701,
+        "sharpe_ratio": 1.615811,
+        "max_drawdown_pct": 21.245021,
+        "num_trades": 1195
+      }
+    },
+    "twobar_runner_up": {
+      "reference_id": "twobar_runner_up",
+      "display_name": "2Bar Runner-Up",
+      "entry_strategy": "MACDPreCross2BarEntry",
+      "exit_strategy": "MVX_N3_R3p25_T1p8_D21_B20p0",
+      "tags": [
+        "benchmark",
+        "runner_up",
+        "stability_alternative",
+        "twobar"
+      ],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_continuous_stability_rank_20260410_111409.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_raw_20260410_105157.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_continuous_raw_20260410_111401.csv",
+        "ranking_position": 2,
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "Preferred 2bar runner-up with 5/5 positive years and lower drawdown."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 3,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 36.907333,
+        "avg_yearly_alpha_pct": 23.423957,
+        "worst_year_return_pct": 0.584235,
+        "annual_return_std_pct": 37.034354,
+        "continuous_return_pct": 364.813315,
+        "continuous_alpha_pct": 282.03848,
+        "continuous_sharpe_ratio": 1.604726,
+        "continuous_mdd_pct": 17.178047
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 0.584235,
+          "alpha_pct": -6.236238,
+          "max_drawdown_pct": 13.707712
+        },
+        "2022": {
+          "return_pct": 10.485604,
+          "alpha_pct": 17.308017,
+          "max_drawdown_pct": 14.522438
+        },
+        "2023": {
+          "return_pct": 33.539202,
+          "alpha_pct": 6.868967,
+          "max_drawdown_pct": 9.925127
+        },
+        "2024": {
+          "return_pct": 33.608376,
+          "alpha_pct": 16.53541,
+          "max_drawdown_pct": 17.28652
+        },
+        "2025": {
+          "return_pct": 106.319249,
+          "alpha_pct": 82.643631,
+          "max_drawdown_pct": 17.555388
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 364.813315,
+        "alpha_pct": 282.03848,
+        "sharpe_ratio": 1.604726,
+        "max_drawdown_pct": 17.178047,
+        "num_trades": 1172
+      }
+    }
+  }
+}

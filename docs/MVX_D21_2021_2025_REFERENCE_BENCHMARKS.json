@@ -1,0 +1,626 @@
+{
+  "schema_version": "1.0",
+  "record_type": "strategy_benchmark_snapshot",
+  "study": {
+    "study_id": "mvx_d21_cli_annual_2021_2025_snapshot_20260410",
+    "created_at": "2026-04-10",
+    "title": "MVX D21/B20 annual CLI benchmark references",
+    "description": "Reference benchmark set for comparing future strategy candidates without rerunning the baseline champion, production reference, or the final 2bar references.",
+    "evaluation_basis": {
+      "mode": "annual",
+      "years": [
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "continuous_companion_enabled": true,
+      "entry_filter_mode": "off",
+      "exit_confirmation_days": 1,
+      "ranking_mode": "target20",
+      "core_evaluation_command": "main.py evaluate",
+      "finalist_validation_command": "main.py pos-evaluation",
+      "core_workflow_constraint": "Use evaluate or pos-evaluation for core comparisons; do not rely on custom scripts for benchmark decisions."
+    },
+    "selection_policy": {
+      "primary_reference": "continuous_stability_rank",
+      "primary_evidence": [
+        "continuous_return_pct",
+        "continuous_alpha_pct"
+      ],
+      "secondary_evidence": [
+        "positive_years",
+        "positive_alpha_years",
+        "annual_return_std_pct",
+        "worst_year_return_pct",
+        "avg_yearly_mdd_pct",
+        "continuous_mdd_pct"
+      ],
+      "note": "This mirrors the companion ranking logic used in the CLI outputs."
+    },
+    "future_candidate_protocol": {
+      "compare_against_reference_ids": [
+        "baseline_champion",
+        "production_reference",
+        "twobar_champion",
+        "twobar_runner_up"
+      ],
+      "minimum_metrics_to_compare": [
+        "annual_period_metrics",
+        "hit20_years",
+        "positive_years",
+        "positive_alpha_years",
+        "avg_yearly_return_pct",
+        "worst_year_return_pct",
+        "annual_return_std_pct",
+        "continuous_return_pct",
+        "continuous_alpha_pct",
+        "continuous_sharpe_ratio",
+        "continuous_mdd_pct"
+      ],
+      "evaluate_command_template": "main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-filter-mode off --exit-confirm-days 1 --entry-strategies {entry_strategy} --exit-strategies {exit_strategy} --output-dir {output_dir}",
+      "optional_pos_evaluation_template": "main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --entry-filter-mode off --exit-confirm-days 1 --entry-strategies {entry_strategies} --exit-strategies {exit_strategies} --output-dir {output_dir}"
+    }
+  },
+  "reference_strategies": {
+    "baseline_champion": {
+      "reference_id": "baseline_champion",
+      "role": [
+        "baseline",
+        "champion",
+        "benchmark"
+      ],
+      "entry_strategy": "MACDCrossoverStrategy",
+      "exit_strategy": "MVX_N3_R3p85_T2p0_D21_B20p0",
+      "selection_context": {
+        "round": "baseline_grid3",
+        "ranking_position": 1,
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\baseline_grid3\\strategy_evaluation_continuous_stability_rank_20260409_133712.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\baseline_grid3\\strategy_evaluation_raw_20260409_131306.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\baseline_grid3\\strategy_evaluation_continuous_raw_20260409_133658.csv",
+        "notes": [
+          "Primary baseline benchmark for future strategy comparisons.",
+          "Selected by continuous_stability_rank position 1 in baseline_grid3."
+        ]
+      },
+      "summary_metrics": {
+        "hit20_years": 4,
+        "hit20_ratio": 0.8,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 40.78852760772705,
+        "avg_yearly_alpha_pct": 27.30515194963034,
+        "avg_yearly_sharpe_ratio": 1.8102735121572173,
+        "avg_yearly_mdd_pct": 12.665161559058882,
+        "total_yearly_trades": 961,
+        "worst_year_return_pct": 6.391091857910158,
+        "annual_return_std_pct": 36.86936350256547,
+        "continuous_return_pct": 349.9233356170654,
+        "continuous_topix_return_pct": 82.77483486317234,
+        "continuous_alpha_pct": 267.148500753893,
+        "continuous_sharpe_ratio": 1.676798808686809,
+        "continuous_mdd_pct": 24.70298266074665,
+        "continuous_num_trades": 1006,
+        "continuous_win_rate_pct": 57.85288270377733
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 21.868133544921875,
+          "topix_return_pct": 6.820472677361256,
+          "alpha_pct": 15.04766086756062,
+          "sharpe_ratio": 1.6602804403496434,
+          "max_drawdown_pct": 12.952677385713745,
+          "num_trades": 133,
+          "win_rate_pct": 60.902255639097746,
+          "avg_gain_pct": 9.502396834725493,
+          "avg_loss_pct": -4.349910677307493
+        },
+        "2022": {
+          "return_pct": 37.193741981506356,
+          "topix_return_pct": -6.822413334515476,
+          "alpha_pct": 44.01615531602183,
+          "sharpe_ratio": 1.7737416636817085,
+          "max_drawdown_pct": 10.989475677834022,
+          "num_trades": 197,
+          "win_rate_pct": 57.868020304568525,
+          "avg_gain_pct": 8.543343912535065,
+          "avg_loss_pct": -4.367052120915457
+        },
+        "2023": {
+          "return_pct": 26.682295776367184,
+          "topix_return_pct": 26.670235259481288,
+          "alpha_pct": 0.012060516885895822,
+          "sharpe_ratio": 1.4628307313868125,
+          "max_drawdown_pct": 11.458792584278829,
+          "num_trades": 216,
+          "win_rate_pct": 56.94444444444444,
+          "avg_gain_pct": 6.94002720501802,
+          "avg_loss_pct": -3.581191903171976
+        },
+        "2024": {
+          "return_pct": 6.391091857910158,
+          "topix_return_pct": 17.07296566741916,
+          "alpha_pct": -10.681873809509003,
+          "sharpe_ratio": 0.394868287691377,
+          "max_drawdown_pct": 21.923916413671797,
+          "num_trades": 183,
+          "win_rate_pct": 48.08743169398907,
+          "avg_gain_pct": 7.39961945519045,
+          "avg_loss_pct": -4.4784793191934895
+        },
+        "2025": {
+          "return_pct": 111.80737487792966,
+          "topix_return_pct": 23.67561802073732,
+          "alpha_pct": 88.13175685719234,
+          "sharpe_ratio": 3.7596464376765457,
+          "max_drawdown_pct": 6.000945733796018,
+          "num_trades": 232,
+          "win_rate_pct": 62.5,
+          "avg_gain_pct": 10.14790566505466,
+          "avg_loss_pct": -4.072626343389303
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 349.9233356170654,
+        "topix_return_pct": 82.77483486317234,
+        "alpha_pct": 267.148500753893,
+        "sharpe_ratio": 1.676798808686809,
+        "max_drawdown_pct": 24.702982660746652,
+        "num_trades": 1006,
+        "win_rate_pct": 57.85288270377733,
+        "avg_gain_pct": 8.787861773992839,
+        "avg_loss_pct": -4.149795191996597
+      }
+    },
+    "production_reference": {
+      "reference_id": "production_reference",
+      "role": [
+        "production",
+        "reference",
+        "benchmark"
+      ],
+      "entry_strategy": "MACDCrossoverStrategy",
+      "exit_strategy": "MVX_N3_R3p25_T1p6_D21_B20p0",
+      "selection_context": {
+        "round": "production_reference",
+        "ranking_position": 1,
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\production_reference\\strategy_evaluation_continuous_stability_rank_20260409_135229.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\production_reference\\strategy_evaluation_raw_20260409_135039.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\production_reference\\strategy_evaluation_continuous_raw_20260409_135227.csv",
+        "notes": [
+          "Represents the current production-aligned reference strategy under the same annual CLI basis."
+        ]
+      },
+      "summary_metrics": {
+        "hit20_years": 4,
+        "hit20_ratio": 0.8,
+        "positive_years": 5,
+        "positive_alpha_years": 3,
+        "avg_yearly_return_pct": 30.01349703216554,
+        "avg_yearly_alpha_pct": 16.530121374068823,
+        "avg_yearly_sharpe_ratio": 1.505232363779939,
+        "avg_yearly_mdd_pct": 12.039515446554569,
+        "total_yearly_trades": 1070,
+        "worst_year_return_pct": 1.1396131591796976,
+        "annual_return_std_pct": 24.432882108048062,
+        "continuous_return_pct": 275.0267569885254,
+        "continuous_topix_return_pct": 82.77483486317234,
+        "continuous_alpha_pct": 192.25192212535305,
+        "continuous_sharpe_ratio": 1.5076543515612504,
+        "continuous_mdd_pct": 23.15134625902807,
+        "continuous_num_trades": 1128,
+        "continuous_win_rate_pct": 60.1063829787234
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 21.198474349975594,
+          "topix_return_pct": 6.820472677361256,
+          "alpha_pct": 14.378001672614339,
+          "sharpe_ratio": 1.6611657613618913,
+          "max_drawdown_pct": 10.623733253915628,
+          "num_trades": 148,
+          "win_rate_pct": 60.13513513513513,
+          "avg_gain_pct": 9.09910797856437,
+          "avg_loss_pct": -4.018141710551166
+        },
+        "2022": {
+          "return_pct": 32.42629711151124,
+          "topix_return_pct": -6.822413334515476,
+          "alpha_pct": 39.24871044602671,
+          "sharpe_ratio": 1.6098806802609715,
+          "max_drawdown_pct": 8.899539460442787,
+          "num_trades": 223,
+          "win_rate_pct": 59.19282511210763,
+          "avg_gain_pct": 8.037624294966808,
+          "avg_loss_pct": -3.997609337791707
+        },
+        "2023": {
+          "return_pct": 20.76847569274902,
+          "topix_return_pct": 26.670235259481288,
+          "alpha_pct": -5.901759566732267,
+          "sharpe_ratio": 1.243560928233494,
+          "max_drawdown_pct": 10.078281849038543,
+          "num_trades": 231,
+          "win_rate_pct": 58.00865800865801,
+          "avg_gain_pct": 6.507250616323781,
+          "avg_loss_pct": -3.2331738572842155
+        },
+        "2024": {
+          "return_pct": 1.1396131591796976,
+          "topix_return_pct": 17.07296566741916,
+          "alpha_pct": -15.933352508239464,
+          "sharpe_ratio": 0.16912497277235972,
+          "max_drawdown_pct": 23.07639752484963,
+          "num_trades": 212,
+          "win_rate_pct": 50,
+          "avg_gain_pct": 7.206689066324998,
+          "avg_loss_pct": -4.616125199196044
+        },
+        "2025": {
+          "return_pct": 74.53462484741212,
+          "topix_return_pct": 23.67561802073732,
+          "alpha_pct": 50.8590068266748,
+          "sharpe_ratio": 2.842429476270978,
+          "max_drawdown_pct": 7.519625144526258,
+          "num_trades": 256,
+          "win_rate_pct": 62.5,
+          "avg_gain_pct": 9.692592131016562,
+          "avg_loss_pct": -4.403936629590311
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 275.0267569885254,
+        "topix_return_pct": 82.77483486317234,
+        "alpha_pct": 192.25192212535305,
+        "sharpe_ratio": 1.5076543515612504,
+        "max_drawdown_pct": 23.15134625902807,
+        "num_trades": 1128,
+        "win_rate_pct": 60.1063829787234,
+        "avg_gain_pct": 8.417650233167903,
+        "avg_loss_pct": -4.074922781151984
+      }
+    },
+    "twobar_champion": {
+      "reference_id": "twobar_champion",
+      "role": [
+        "twobar",
+        "champion",
+        "benchmark"
+      ],
+      "entry_strategy": "MACDPreCross2BarEntry",
+      "exit_strategy": "MVX_N3_R3p35_T1p6_D21_B20p0",
+      "selection_context": {
+        "round": "twobar_grid3",
+        "ranking_position": 1,
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_continuous_stability_rank_20260410_111409.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_raw_20260410_105157.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_continuous_raw_20260410_111401.csv",
+        "notes": [
+          "Final 2bar winner by continuous_stability_rank after grid3.",
+          "Strongest full-span return among all final references, but with one negative year."
+        ]
+      },
+      "summary_metrics": {
+        "hit20_years": 3,
+        "hit20_ratio": 0.6,
+        "positive_years": 4,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 42.6559036895752,
+        "avg_yearly_alpha_pct": 29.172528031478485,
+        "avg_yearly_sharpe_ratio": 1.5310491417453955,
+        "avg_yearly_mdd_pct": 14.88111687321631,
+        "total_yearly_trades": 1152,
+        "worst_year_return_pct": -6.538889854431151,
+        "annual_return_std_pct": 41.01181862779627,
+        "continuous_return_pct": 378.17653575897214,
+        "continuous_topix_return_pct": 82.77483486317234,
+        "continuous_alpha_pct": 295.40170089579976,
+        "continuous_sharpe_ratio": 1.6158109572395487,
+        "continuous_mdd_pct": 21.245021157514756,
+        "continuous_num_trades": 1195,
+        "continuous_win_rate_pct": 59.91631799163179
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": -6.538889854431151,
+          "topix_return_pct": 6.820472677361256,
+          "alpha_pct": -13.359362531792407,
+          "sharpe_ratio": -0.35300680735449524,
+          "max_drawdown_pct": 19.124865439189048,
+          "num_trades": 170,
+          "win_rate_pct": 44.70588235294118,
+          "avg_gain_pct": 5.949854655183718,
+          "avg_loss_pct": -3.5089558834354997
+        },
+        "2022": {
+          "return_pct": 18.912164573669443,
+          "topix_return_pct": -6.822413334515476,
+          "alpha_pct": 25.734577908184917,
+          "sharpe_ratio": 0.9712641616760446,
+          "max_drawdown_pct": 12.437822852941952,
+          "num_trades": 226,
+          "win_rate_pct": 50,
+          "avg_gain_pct": 9.429758252352656,
+          "avg_loss_pct": -3.947747504556596
+        },
+        "2023": {
+          "return_pct": 38.43486788940429,
+          "topix_return_pct": 26.670235259481288,
+          "alpha_pct": 11.764632629923,
+          "sharpe_ratio": 1.758227899561447,
+          "max_drawdown_pct": 9.650706725016635,
+          "num_trades": 251,
+          "win_rate_pct": 59.76095617529881,
+          "avg_gain_pct": 8.700410679232943,
+          "avg_loss_pct": -3.6938786011961273
+        },
+        "2024": {
+          "return_pct": 46.36925111389161,
+          "topix_return_pct": 17.07296566741916,
+          "alpha_pct": 29.296285446472446,
+          "sharpe_ratio": 1.7250259053914596,
+          "max_drawdown_pct": 15.44329608142264,
+          "num_trades": 219,
+          "win_rate_pct": 58.44748858447488,
+          "avg_gain_pct": 9.4960513559973,
+          "avg_loss_pct": -4.00383062226873
+        },
+        "2025": {
+          "return_pct": 116.10212472534181,
+          "topix_return_pct": 23.67561802073732,
+          "alpha_pct": 92.42650670460449,
+          "sharpe_ratio": 3.5537345494525217,
+          "max_drawdown_pct": 17.74889326751128,
+          "num_trades": 286,
+          "win_rate_pct": 69.23076923076923,
+          "avg_gain_pct": 10.105828726871636,
+          "avg_loss_pct": -4.4103431090880525
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 378.17653575897214,
+        "topix_return_pct": 82.77483486317234,
+        "alpha_pct": 295.40170089579976,
+        "sharpe_ratio": 1.6158109572395487,
+        "max_drawdown_pct": 21.245021157514753,
+        "num_trades": 1195,
+        "win_rate_pct": 59.91631799163179,
+        "avg_gain_pct": 9.46857292001197,
+        "avg_loss_pct": -3.8252705946280354
+      }
+    },
+    "twobar_runner_up": {
+      "reference_id": "twobar_runner_up",
+      "role": [
+        "twobar",
+        "runner_up",
+        "stability_alternative",
+        "benchmark"
+      ],
+      "entry_strategy": "MACDPreCross2BarEntry",
+      "exit_strategy": "MVX_N3_R3p25_T1p8_D21_B20p0",
+      "selection_context": {
+        "round": "twobar_grid3",
+        "ranking_position": 2,
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_continuous_stability_rank_20260410_111409.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_raw_20260410_105157.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_d21_cli_20260409\\twobar_grid3\\strategy_evaluation_continuous_raw_20260410_111401.csv",
+        "notes": [
+          "Preferred 2bar runner-up to preserve as a stability-friendly alternative.",
+          "Keeps 5/5 positive years and materially lower continuous MDD than the 2bar champion."
+        ]
+      },
+      "summary_metrics": {
+        "hit20_years": 3,
+        "hit20_ratio": 0.6,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 36.907333245849614,
+        "avg_yearly_alpha_pct": 23.423957587752902,
+        "avg_yearly_sharpe_ratio": 1.4151370397796823,
+        "avg_yearly_mdd_pct": 14.599437051074357,
+        "total_yearly_trades": 1118,
+        "worst_year_return_pct": 0.5842347793579172,
+        "annual_return_std_pct": 37.03435383831495,
+        "continuous_return_pct": 364.81331531524654,
+        "continuous_topix_return_pct": 82.77483486317234,
+        "continuous_alpha_pct": 282.03848045207417,
+        "continuous_sharpe_ratio": 1.60472626472276,
+        "continuous_mdd_pct": 17.178047009313538,
+        "continuous_num_trades": 1172,
+        "continuous_win_rate_pct": 62.28668941979522
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 0.5842347793579172,
+          "topix_return_pct": 6.820472677361256,
+          "alpha_pct": -6.236237898003338,
+          "sharpe_ratio": 0.11822250422328141,
+          "max_drawdown_pct": 13.707712206899428,
+          "num_trades": 166,
+          "win_rate_pct": 50.602409638554214,
+          "avg_gain_pct": 6.2646671529962505,
+          "avg_loss_pct": -3.434141507925701
+        },
+        "2022": {
+          "return_pct": 10.485603569030765,
+          "topix_return_pct": -6.822413334515476,
+          "alpha_pct": 17.30801690354624,
+          "sharpe_ratio": 0.6099562459449576,
+          "max_drawdown_pct": 14.522438293595666,
+          "num_trades": 204,
+          "win_rate_pct": 49.50980392156863,
+          "avg_gain_pct": 8.36931868354403,
+          "avg_loss_pct": -4.129982323623422
+        },
+        "2023": {
+          "return_pct": 33.53920228576661,
+          "topix_return_pct": 26.670235259481288,
+          "alpha_pct": 6.8689670262853255,
+          "sharpe_ratio": 1.667931927927832,
+          "max_drawdown_pct": 9.925127151313902,
+          "num_trades": 263,
+          "win_rate_pct": 60.45627376425855,
+          "avg_gain_pct": 8.4069761062612,
+          "avg_loss_pct": -3.9438389936166676
+        },
+        "2024": {
+          "return_pct": 33.6083761138916,
+          "topix_return_pct": 17.07296566741916,
+          "alpha_pct": 16.53541044647244,
+          "sharpe_ratio": 1.358591708792308,
+          "max_drawdown_pct": 17.286520024450265,
+          "num_trades": 214,
+          "win_rate_pct": 56.54205607476636,
+          "avg_gain_pct": 9.268250157915,
+          "avg_loss_pct": -4.366523839930219
+        },
+        "2025": {
+          "return_pct": 106.31924948120117,
+          "topix_return_pct": 23.67561802073732,
+          "alpha_pct": 82.64363146046385,
+          "sharpe_ratio": 3.3209828120100324,
+          "max_drawdown_pct": 17.555387579112523,
+          "num_trades": 271,
+          "win_rate_pct": 69.37269372693727,
+          "avg_gain_pct": 10.26508467593642,
+          "avg_loss_pct": -4.181505465331473
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 364.81331531524654,
+        "topix_return_pct": 82.77483486317234,
+        "alpha_pct": 282.03848045207417,
+        "sharpe_ratio": 1.60472626472276,
+        "max_drawdown_pct": 17.178047009313538,
+        "num_trades": 1172,
+        "win_rate_pct": 62.28668941979522,
+        "avg_gain_pct": 9.200210044032655,
+        "avg_loss_pct": -4.090254955355027
+      }
+    }
+  },
+  "comparisons": {
+    "baseline_vs_production": {
+      "lhs_reference_id": "baseline_champion",
+      "rhs_reference_id": "production_reference",
+      "summary": "Baseline champion beats the current production reference on return, alpha, and Sharpe, while production is steadier on annual dispersion and continuous MDD.",
+      "deltas_lhs_minus_rhs": {
+        "hit20_years": 0,
+        "positive_years": 0,
+        "positive_alpha_years": 1,
+        "avg_yearly_return_pct": 10.775030575561509,
+        "avg_yearly_alpha_pct": 10.775030575561516,
+        "annual_return_std_pct": 12.436481394517408,
+        "worst_year_return_pct": 5.251478698730461,
+        "continuous_return_pct": 74.89657862854,
+        "continuous_alpha_pct": 74.89657862853997,
+        "continuous_sharpe_ratio": 0.1691444571255587,
+        "continuous_mdd_pct": 1.5516364017185786
+      }
+    },
+    "twobar_champion_vs_baseline": {
+      "lhs_reference_id": "twobar_champion",
+      "rhs_reference_id": "baseline_champion",
+      "summary": "Final 2bar champion beats the baseline champion on continuous return, continuous alpha, average yearly return, and continuous MDD, but trails on hit20 rate and worst-year stability.",
+      "deltas_lhs_minus_rhs": {
+        "hit20_years": -1,
+        "positive_years": -1,
+        "positive_alpha_years": 0,
+        "avg_yearly_return_pct": 1.8673760818481497,
+        "avg_yearly_alpha_pct": 1.8673760818481462,
+        "annual_return_std_pct": 4.1424551252308035,
+        "worst_year_return_pct": -12.92998171234131,
+        "continuous_return_pct": 28.253200141906746,
+        "continuous_alpha_pct": 28.253200141906746,
+        "continuous_sharpe_ratio": -0.06098785144726038,
+        "continuous_mdd_pct": -3.4579615032318927
+      }
+    },
+    "twobar_champion_vs_production": {
+      "lhs_reference_id": "twobar_champion",
+      "rhs_reference_id": "production_reference",
+      "summary": "Final 2bar champion clearly beats the production reference on return, alpha, Sharpe, and MDD, while production remains more stable by hit20 rate and worst-year outcome.",
+      "deltas_lhs_minus_rhs": {
+        "hit20_years": -1,
+        "positive_years": -1,
+        "positive_alpha_years": 1,
+        "avg_yearly_return_pct": 12.642406657409659,
+        "avg_yearly_alpha_pct": 12.642406657409662,
+        "annual_return_std_pct": 16.57893651974821,
+        "worst_year_return_pct": -7.6785030136108485,
+        "continuous_return_pct": 103.14977877044674,
+        "continuous_alpha_pct": 103.14977877044672,
+        "continuous_sharpe_ratio": 0.10815660567829832,
+        "continuous_mdd_pct": -1.906325101513314
+      }
+    },
+    "twobar_runner_up_vs_twobar_champion": {
+      "lhs_reference_id": "twobar_runner_up",
+      "rhs_reference_id": "twobar_champion",
+      "summary": "The preferred 2bar runner-up gives up some return for a 5/5 positive-year profile and materially lower drawdown.",
+      "deltas_lhs_minus_rhs": {
+        "hit20_years": 0,
+        "positive_years": 1,
+        "positive_alpha_years": 0,
+        "avg_yearly_return_pct": -5.748570443725583,
+        "avg_yearly_alpha_pct": -5.748570443725583,
+        "annual_return_std_pct": -3.977464789481324,
+        "worst_year_return_pct": 7.123124633789068,
+        "continuous_return_pct": -13.363220443725595,
+        "continuous_alpha_pct": -13.363220443725595,
+        "continuous_sharpe_ratio": -0.011084692516788675,
+        "continuous_mdd_pct": -4.0669741482012185
+      }
+    },
+    "twobar_runner_up_vs_baseline": {
+      "lhs_reference_id": "twobar_runner_up",
+      "rhs_reference_id": "baseline_champion",
+      "summary": "The preferred 2bar runner-up still beats baseline on continuous return and lower MDD, but baseline remains better on hit20 rate and worst-year stability.",
+      "deltas_lhs_minus_rhs": {
+        "hit20_years": -1,
+        "positive_years": 0,
+        "positive_alpha_years": 0,
+        "avg_yearly_return_pct": -3.8811943618774336,
+        "avg_yearly_alpha_pct": -3.881194361877437,
+        "annual_return_std_pct": 0.1649903357494793,
+        "worst_year_return_pct": -5.806857078552241,
+        "continuous_return_pct": 14.88997969818115,
+        "continuous_alpha_pct": 14.88997969818115,
+        "continuous_sharpe_ratio": -0.07207254396404905,
+        "continuous_mdd_pct": -7.524935651433111
+      }
+    },
+    "twobar_runner_up_vs_production": {
+      "lhs_reference_id": "twobar_runner_up",
+      "rhs_reference_id": "production_reference",
+      "summary": "The preferred 2bar runner-up is a strong alternative to production, with meaningfully higher return and lower drawdown while preserving 5/5 positive years.",
+      "deltas_lhs_minus_rhs": {
+        "hit20_years": -1,
+        "positive_years": 0,
+        "positive_alpha_years": 1,
+        "avg_yearly_return_pct": 6.893836213684075,
+        "avg_yearly_alpha_pct": 6.893836213684079,
+        "annual_return_std_pct": 12.601471730266887,
+        "worst_year_return_pct": -0.5553783798217804,
+        "continuous_return_pct": 89.78655832672115,
+        "continuous_alpha_pct": 89.78655832672112,
+        "continuous_sharpe_ratio": 0.09707191316150965,
+        "continuous_mdd_pct": -5.9732992497145325
+      }
+    }
+  }
+}
