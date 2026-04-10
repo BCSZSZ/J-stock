@@ -9,7 +9,16 @@ from src.analysis.signals import MarketData, Position, SignalAction, TradingSign
 from src.utils.strategy_loader import load_exit_strategy
 
 
-MVXW_VARIANT_NAMES: Final[list[str]] = [
+def _float_token(value: float) -> str:
+    normalized = f"{float(value):.2f}"
+    if normalized.endswith("00"):
+        normalized = normalized[:-1]
+    elif normalized.endswith("0"):
+        normalized = normalized[:-1]
+    return normalized.replace(".", "p")
+
+
+SEED_SWEEP_VARIANT_NAMES: Final[list[str]] = [
     "MVXW_N2_R3p85_T2p0_D21_B20p0",
     "MVXW_N3_R3p85_T2p0_D21_B20p0",
     "MVXW_N4_R3p85_T2p0_D21_B20p0",
@@ -32,6 +41,20 @@ MVXW_VARIANT_NAMES: Final[list[str]] = [
     "MVXW_N7_R3p25_T1p8_D21_B20p0",
     "MVXW_N8_R3p25_T1p8_D21_B20p0",
 ]
+
+RT_TUNING_R_VALUES: Final[list[float]] = [3.2, 3.25, 3.3, 3.35, 3.4, 3.45, 3.5]
+RT_TUNING_T_VALUES: Final[list[float]] = [1.45, 1.5, 1.55, 1.6, 1.65, 1.7, 1.75]
+
+MVXW_VARIANT_NAMES: Final[list[str]] = list(
+    dict.fromkeys(
+        SEED_SWEEP_VARIANT_NAMES
+        + [
+            f"MVXW_N5_R{_float_token(r_value)}_T{_float_token(t_value)}_D21_B20p0"
+            for r_value in RT_TUNING_R_VALUES
+            for t_value in RT_TUNING_T_VALUES
+        ]
+    )
+)
 
 
 def _build_entry_signal() -> TradingSignal:

@@ -1222,8 +1222,16 @@ _MVXW_VARIANTS = [
 ]
 
 
+_MVXW_N5_RT_TUNING_R_VALUES = [3.2, 3.25, 3.3, 3.35, 3.4, 3.45, 3.5]
+_MVXW_N5_RT_TUNING_T_VALUES = [1.45, 1.5, 1.55, 1.6, 1.65, 1.7, 1.75]
+
+
 for _n, _r, _t, _d, _b in _MVXW_VARIANTS:
     _register_window_decay_variant(_n, _r, _t, _d, _b)
+
+for _r in _MVXW_N5_RT_TUNING_R_VALUES:
+    for _t in _MVXW_N5_RT_TUNING_T_VALUES:
+        _register_window_decay_variant(5, _r, _t, 21, 20.0)
 
 
 _UNIFIED_TP_VARIANTS = [
