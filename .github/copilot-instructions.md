@@ -63,6 +63,16 @@ For multi-step tasks, state a brief plan:
 3. [Step] → verify: [check]
 ```
 
+## 5. Technology-Specific Routing (Python Context)
+
+**Silently load context based on the current stack. Do not narrate skill loading.**
+
+When working in this repository (especially Python code), evaluate the user's intent and implicitly apply the following technical constraints by loading the respective rules from `.github/skills/`:
+
+- **For Complex Logic & State Machines:** Apply `ai-native-architecture`. Use pure functions, stateless classes, and the Receive an Object, Return an Object (RORO) pattern. Never mutate state internally.
+- **For Data Structures & Interfaces:** Apply `strict-type-defense`. Zero `Any` tolerance. Enforce Pydantic v2 models and complete type hints before writing execution logic.
+- **For Dependencies & Scripts:** Apply `modern-uv-workflow`. Exclusively use `uv` for package management and PEP 723 inline-metadata for standalone scripts.
+
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
 ---

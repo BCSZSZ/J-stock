@@ -1,8 +1,10 @@
 # SKILL.md
+
 name: strict-type-defense
-description: Mandates strict Type Hinting and Interface Contracts to ensure code predictability and ease of automated refactoring.
+description: TRIGGERS AUTOMATICALLY on EVERY Python file edit or generation. Enforces Pydantic, strict type hints, and prohibits 'Any'.
 
 ## Core Directives
+
 1. **Type First**: Always define structural types (`Protocol`, `TypedDict`, `Pydantic v2`) before implementing any execution logic.
 2. **Zero 'Any' Tolerance**: Implicit or explicit `Any` is strictly forbidden. Use `TypeVar` or generic constraints for dynamic structures.
 3. **Explicit Returns**: Every function and method MUST have a defined return type, including `-> None`.

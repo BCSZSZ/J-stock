@@ -1,7 +1,7 @@
 # SKILL.md
 
 name: ai-native-architecture
-description: Enforces stateless object-oriented design and RORO (Receive an Object, Return an Object) patterns to maximize AI context comprehension and prevent state hallucinations.
+description: TRIGGERS AUTOMATICALLY when creating new classes, designing system architecture, generating business logic, or refactoring object-oriented code. Enforces stateless design and RORO.
 
 ## Core Directives
 
