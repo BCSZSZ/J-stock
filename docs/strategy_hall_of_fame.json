@@ -132,6 +132,86 @@
         "num_trades": 1006
       }
     },
+    "mvxw_champion": {
+      "reference_id": "mvxw_champion",
+      "display_name": "MVXW Champion",
+      "entry_strategy": "MACDPreCross2BarEntry",
+      "exit_strategy": "MVXW_N5_R3p35_T1p6_D21_B20p0",
+      "tags": [
+        "benchmark",
+        "champion",
+        "global_best",
+        "mvxw",
+        "twobar"
+      ],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_d21_cli_20260410\\twobar_champion_sweep",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_d21_cli_20260410\\twobar_champion_sweep\\strategy_evaluation_continuous_stability_rank_20260410_150547.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_d21_cli_20260410\\twobar_champion_sweep\\strategy_evaluation_raw_20260410_144821.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_d21_cli_20260410\\twobar_champion_sweep\\strategy_evaluation_continuous_raw_20260410_150539.csv",
+        "ranking_position": 1,
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "MVXW follow-up winner selected by continuous_stability_rank from the 2bar champion seed sweep.",
+          "Current strongest full-span reference under the locked 2021-2025 annual CLI basis, with 5/5 positive years."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 4,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 56.391949,
+        "avg_yearly_alpha_pct": 42.908573,
+        "worst_year_return_pct": 6.093728,
+        "annual_return_std_pct": 53.675213,
+        "continuous_return_pct": 519.970687,
+        "continuous_alpha_pct": 437.195852,
+        "continuous_sharpe_ratio": 1.864636,
+        "continuous_mdd_pct": 22.883091
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 6.093728,
+          "alpha_pct": -0.726745,
+          "max_drawdown_pct": 14.905305
+        },
+        "2022": {
+          "return_pct": 26.183063,
+          "alpha_pct": 33.005476,
+          "max_drawdown_pct": 13.478572
+        },
+        "2023": {
+          "return_pct": 47.897743,
+          "alpha_pct": 21.227508,
+          "max_drawdown_pct": 10.449954
+        },
+        "2024": {
+          "return_pct": 42.028838,
+          "alpha_pct": 24.955873,
+          "max_drawdown_pct": 21.498151
+        },
+        "2025": {
+          "return_pct": 159.756373,
+          "alpha_pct": 136.080755,
+          "max_drawdown_pct": 7.488756
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 519.970687,
+        "alpha_pct": 437.195852,
+        "sharpe_ratio": 1.864636,
+        "max_drawdown_pct": 22.883091,
+        "num_trades": 1284
+      }
+    },
     "production_reference": {
       "reference_id": "production_reference",
       "display_name": "Production Reference",

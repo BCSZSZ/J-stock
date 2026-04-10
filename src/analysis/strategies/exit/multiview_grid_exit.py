@@ -44,6 +44,18 @@ class MultiViewCompositeExit(BaseExitStrategy):
         self.tp1_r = float(tp1_r)
         self.tp2_r = float(tp2_r)
 
+    def _l2_is_triggered(self, df_features: pd.DataFrame) -> bool:
+        return self._hist_shrinking(df_features, self.hist_shrink_n)
+
+    def _l2_trigger_name(self) -> str:
+        return "L2_HistShrink"
+
+    def _l2_reason(self) -> str:
+        return f"L2 histogram shrink x{self.hist_shrink_n}"
+
+    def _l2_threshold(self) -> str:
+        return "consecutive decline"
+
     def get_evaluation_details(
         self, position: Position, market_data: MarketData
     ) -> Dict:
@@ -92,13 +104,13 @@ class MultiViewCompositeExit(BaseExitStrategy):
         )
 
         # L2: Histogram shrinking
-        hist_shrinking = self._hist_shrinking(df, self.hist_shrink_n)
+        hist_shrinking = self._l2_is_triggered(df)
         layers.append(
             {
-                "name": "L2_HistShrink",
+                "name": self._l2_trigger_name(),
                 "status": "TRIGGER" if hist_shrinking else "PASS",
                 "value": f"{self.hist_shrink_n} bars",
-                "threshold": "consecutive decline",
+                "threshold": self._l2_threshold(),
                 "triggered": hist_shrinking,
             }
         )
@@ -219,12 +231,12 @@ class MultiViewCompositeExit(BaseExitStrategy):
             )
 
         # L2: signal inversion by momentum decay (full exit)
-        if self._hist_shrinking(df, self.hist_shrink_n):
+        if self._l2_is_triggered(df):
             return self._sell_signal(
                 sell_percentage=1.0,
                 confidence=0.9,
-                reason=f"L2 histogram shrink x{self.hist_shrink_n}",
-                trigger="L2_HistShrink",
+                reason=self._l2_reason(),
+                trigger=self._l2_trigger_name(),
                 r_value=r_value,
                 pnl_pct=pnl_pct,
             )
@@ -368,6 +380,38 @@ class MultiViewCompositeExit(BaseExitStrategy):
             return False
         diffs = hist.diff().tail(n)
         return bool((diffs < 0).all())
+
+    @staticmethod
+    def _hist_window_decay(df_features: pd.DataFrame, n: int) -> bool:
+        hist = df_features["MACD_Hist"].tail(n + 1)
+        if len(hist) < n + 1 or hist.isna().any():
+            return False
+
+        diffs = hist.diff().tail(n)
+        if len(diffs) < n or diffs.isna().any():
+            return False
+
+        negative_changes = int((diffs < 0).sum())
+        if negative_changes < max(n - 1, 0):
+            return False
+
+        if not bool(diffs.iloc[-1] < 0):
+            return False
+
+        y_values = [float(value) for value in hist.tolist()]
+        x_values = list(range(len(y_values)))
+        x_mean = sum(x_values) / len(x_values)
+        y_mean = sum(y_values) / len(y_values)
+        numerator = sum(
+            (x_value - x_mean) * (y_value - y_mean)
+            for x_value, y_value in zip(x_values, y_values)
+        )
+        denominator = sum((x_value - x_mean) ** 2 for x_value in x_values)
+        if denominator == 0:
+            return False
+
+        slope = numerator / denominator
+        return slope < 0.0
 
     @staticmethod
     def _macd_dead_cross(df_features: pd.DataFrame) -> bool:
@@ -658,6 +702,22 @@ class MVXNew_N3_R3p25_T1p6_D21_B20p0(MultiViewCompositeExit):
             },
             strategy_name=self.strategy_name,
         )
+
+
+class MultiViewWindowDecayExit(MultiViewCompositeExit):
+    """MVX variant that replaces strict histogram shrinking with window decay."""
+
+    def _l2_is_triggered(self, df_features: pd.DataFrame) -> bool:
+        return self._hist_window_decay(df_features, self.hist_shrink_n)
+
+    def _l2_trigger_name(self) -> str:
+        return "L2_HistWindowDecay"
+
+    def _l2_reason(self) -> str:
+        return f"L2 histogram window decay x{self.hist_shrink_n}"
+
+    def _l2_threshold(self) -> str:
+        return "n-1 of n down, latest down, negative slope"
 
 
 class MultiViewUnifiedTakeProfitExit(BaseExitStrategy):
@@ -968,6 +1028,28 @@ def _build_variant_class(name: str, n: int, r: float, t: float, d: int, b: float
     return type(name, (MultiViewCompositeExit,), {"__init__": __init__})
 
 
+def _build_window_decay_variant_class(
+    name: str,
+    n: int,
+    r: float,
+    t: float,
+    d: int,
+    b: float,
+):
+    def __init__(self):
+        MultiViewWindowDecayExit.__init__(
+            self,
+            hist_shrink_n=n,
+            r_mult=r,
+            trail_mult=t,
+            time_stop_days=d,
+            bias_exit_threshold_pct=b,
+        )
+        self.strategy_name = name
+
+    return type(name, (MultiViewWindowDecayExit,), {"__init__": __init__})
+
+
 def _build_unified_tp_variant_class(
     name: str,
     n: int,
@@ -1004,6 +1086,16 @@ def _register_standard_variant(n: int, r: float, t: float, d: int, b: float) -> 
     if name in GRID_EXIT_STRATEGY_MAP:
         return
     _register_grid_exit_variant(name, _build_variant_class(name, n, r, t, d, b))
+
+
+def _register_window_decay_variant(n: int, r: float, t: float, d: int, b: float) -> None:
+    name = f"MVXW_N{n}_R{_float_token(r)}_T{_float_token(t)}_D{d}_B{_float_token(b)}"
+    if name in GRID_EXIT_STRATEGY_MAP:
+        return
+    _register_grid_exit_variant(
+        name,
+        _build_window_decay_variant_class(name, n, r, t, d, b),
+    )
 
 
 def _expand_refinement_values(base_values, step: float, rounds: int):
@@ -1105,6 +1197,35 @@ for _n in _D21_B20_SWEEP_N_VALUES:
             _register_standard_variant(_n, _r, _t, 21, 20.0)
 
 
+_MVXW_VARIANTS = [
+    (2, 3.85, 2.0, 21, 20.0),
+    (3, 3.85, 2.0, 21, 20.0),
+    (4, 3.85, 2.0, 21, 20.0),
+    (5, 3.85, 2.0, 21, 20.0),
+    (6, 3.85, 2.0, 21, 20.0),
+    (7, 3.85, 2.0, 21, 20.0),
+    (8, 3.85, 2.0, 21, 20.0),
+    (2, 3.35, 1.6, 21, 20.0),
+    (3, 3.35, 1.6, 21, 20.0),
+    (4, 3.35, 1.6, 21, 20.0),
+    (5, 3.35, 1.6, 21, 20.0),
+    (6, 3.35, 1.6, 21, 20.0),
+    (7, 3.35, 1.6, 21, 20.0),
+    (8, 3.35, 1.6, 21, 20.0),
+    (2, 3.25, 1.8, 21, 20.0),
+    (3, 3.25, 1.8, 21, 20.0),
+    (4, 3.25, 1.8, 21, 20.0),
+    (5, 3.25, 1.8, 21, 20.0),
+    (6, 3.25, 1.8, 21, 20.0),
+    (7, 3.25, 1.8, 21, 20.0),
+    (8, 3.25, 1.8, 21, 20.0),
+]
+
+
+for _n, _r, _t, _d, _b in _MVXW_VARIANTS:
+    _register_window_decay_variant(_n, _r, _t, _d, _b)
+
+
 _UNIFIED_TP_VARIANTS = [
     (1, 3.4, 1.6, 18, 20.0),
     (2, 3.4, 1.6, 18, 20.0),
@@ -1147,6 +1268,7 @@ GRID_EXIT_STRATEGY_MAP["MVXNew_N3_R3p25_T1p6_D21_B20p0"] = (
 
 __all__ = [
     "MultiViewCompositeExit",
+    "MultiViewWindowDecayExit",
     "MultiViewUnifiedTakeProfitExit",
     "MVXNew_N3_R3p25_T1p6_D21_B20p0",
     "GRID_EXIT_STRATEGY_MAP",
