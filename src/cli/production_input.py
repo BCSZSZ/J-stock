@@ -487,12 +487,12 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             continue
 
         ref_price = float(sig.get("current_price", 0) or 0)
-        default_qty = max(
-            1, int(held_qty * _parse_sell_action_to_pct(sig.get("action", "SELL_100%")))
-        )
+        sell_pct = sig.get("sell_percentage") or _parse_sell_action_to_pct(sig.get("action", "SELL_100%"))
+        default_qty = max(1, int(held_qty * sell_pct))
+        sell_label = f"SELL_{sell_pct * 100:.0f}%"
         ans = (
             input(
-                f"SELL {group_id} {ticker} held={held_qty} action={sig.get('action', 'SELL_100%')} executed? [y/N]: "
+                f"SELL {group_id} {ticker} held={held_qty} action={sell_label} executed? [y/N]: "
             )
             .strip()
             .lower()

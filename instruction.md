@@ -249,11 +249,11 @@ aws s3 cp "G:/My Drive/AI-Stock-Sync/state/production_monitor_list.json" s3://bc
 本地手动录入后推送到 S3：
 
 ```powershell
-.venv/Scripts/python.exe tools/sync_ops_state_s3.py push --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops --config config.local.json
+.venv/Scripts/python.exe tools/sync_ops_state_s3.py push --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops
 ```
 
 需要从 S3 拉回本地时：
 
 ```powershell
-.venv/Scripts/python.exe tools/sync_ops_state_s3.py pull --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops --config config.local.json
+.venv/Scripts/python.exe tools/sync_ops_state_s3.py pull --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops
 ```

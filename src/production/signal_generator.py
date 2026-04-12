@@ -35,7 +35,7 @@ class Signal:
     ticker: str
     ticker_name: str
     signal_type: str  # "BUY", "SELL", "HOLD", "EXIT"
-    action: str  # "BUY", "SELL_25%", "SELL_50%", "SELL_75%", "SELL_100%", "HOLD"
+    action: str  # "BUY", "SELL", "HOLD" (for SELL, see sell_percentage)
     confidence: float  # 0-1
     score: float  # 0-100 (for entry signals)
     reason: str  # Human-readable explanation
@@ -46,6 +46,7 @@ class Signal:
     sell_price_factor: Optional[float] = None
 
     # For SELL signals
+    sell_percentage: float = 1.0  # 0.0-1.0, exact ratio from exit strategy
     position_qty: Optional[int] = None
     entry_price: Optional[float] = None
     entry_date: Optional[str] = None
@@ -295,17 +296,7 @@ class SignalGenerator:
 
             # Convert to Production Signal
             if trading_signal.action == SignalAction.SELL:
-                # Parse sell percentage from metadata
                 sell_pct = trading_signal.metadata.get("sell_percentage", 1.0)
-
-                if sell_pct >= 0.9:
-                    action = "SELL_100%"
-                elif sell_pct >= 0.7:
-                    action = "SELL_75%"
-                elif sell_pct >= 0.45:
-                    action = "SELL_50%"
-                else:
-                    action = "SELL_25%"
 
                 holding_days = (
                     pd.Timestamp(current_date) - pd.Timestamp(position.entry_date)
@@ -316,7 +307,8 @@ class SignalGenerator:
                     ticker=ticker,
                     ticker_name=ticker,  # TODO: lookup name
                     signal_type="SELL",
-                    action=action,
+                    action="SELL",
+                    sell_percentage=float(sell_pct),
                     confidence=trading_signal.confidence,
                     score=0.0,  # N/A for exit
                     reason=", ".join(trading_signal.reasons),

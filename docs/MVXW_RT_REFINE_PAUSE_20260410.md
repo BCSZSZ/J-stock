@@ -83,41 +83,43 @@ Concrete fine candidates:
 8. `MVXW_N5_R3p3_T1p7_D21_B20p0`
 9. `MVXW_N5_R3p3_T1p75_D21_B20p0`
 
-## Pause Status
+## Completion Status
 
-Fine-grid execution was started once, then intentionally stopped to pause the workflow.
+Fine-grid execution completed on 2026-04-11.
 
 - fine output directory: `G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvxw_rt_refine_20260410/fine_grid_r3p25_t1p7`
-- status at pause time: no output files present
+- output timestamp: `20260411_183639` (segmented), `20260411_185122` (continuous), `20260411_185128` (stability rank)
+- all three output sets present: ✅ segmented, ✅ continuous companion, ✅ continuous_stability_rank
 
-The workflow is paused cleanly at the point where the fine-grid center and exact candidate set are already locked.
+## Fine Grid Result
 
-## Remaining Work
+### Rank #1 (continuous_stability_rank)
 
-### 1. Run the fine 3x3 annual CLI
+`MVXW_N5_R3p2_T1p65_D21_B20p0`
 
-Use the same workflow pattern as coarse:
+| Metric | Value |
+|---|---|
+| continuous_return | 474.20% |
+| continuous_alpha | 401.04% |
+| continuous_sharpe | 1.862 |
+| continuous_mdd | 23.03% |
+| positive_years | 4/5 |
+| avg_yearly_return | 43.67% |
+| num_trades | 1291 |
 
-```powershell
-c:/Github/personal/stock-AI-python/j-stock-analyzer/.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-filter-mode off --entry-strategies MACDPreCross2BarEntry --exit-confirm-days 1 --exit-strategies MVXW_N5_R3p2_T1p65_D21_B20p0 MVXW_N5_R3p2_T1p7_D21_B20p0 MVXW_N5_R3p2_T1p75_D21_B20p0 MVXW_N5_R3p25_T1p65_D21_B20p0 MVXW_N5_R3p25_T1p7_D21_B20p0 MVXW_N5_R3p25_T1p75_D21_B20p0 MVXW_N5_R3p3_T1p65_D21_B20p0 MVXW_N5_R3p3_T1p7_D21_B20p0 MVXW_N5_R3p3_T1p75_D21_B20p0 --output-dir "G:/My Drive/AI-Stock-Sync/strategy_evaluation/mvxw_rt_refine_20260410/fine_grid_r3p25_t1p7"
-```
+### Comparison with current mvxw_champion
 
-### 2. Wait for the full annual workflow to finish
+| Metric | Fine Grid #1 | Current Champion |
+|---|---|---|
+| exit_strategy | MVXW_N5_R3p2_T1p65_D21_B20p0 | MVXW_N5_R3p35_T1p6_D21_B20p0 |
+| continuous_return | 474.20% | 519.97% |
+| continuous_alpha | 401.04% | 437.20% |
+| continuous_sharpe | 1.862 | 1.865 |
+| continuous_mdd | 23.03% | 22.88% |
+| positive_years | 4/5 | 5/5 |
 
-Do not stop at segmented `45/45`.
+### Decision
 
-Completion means all three are present:
-
-1. segmented outputs
-2. continuous companion outputs
-3. `strategy_evaluation_continuous_stability_rank_*.csv`
-
-### 3. Select the final retune winner
-
-Rule:
-
-- read `continuous_stability_rank` row 1 only
-
-### 4. Post-fine follow-up
-
-If the fine winner still beats the current hall entry, then update the hall/benchmark JSON references accordingly.
+Fine grid winner does **not** beat the current hall champion on any key metric.
+Hall of fame (`strategy_hall_of_fame.json`) was **not updated**.
+Current mvxw_champion `MVXW_N5_R3p35_T1p6_D21_B20p0` remains.

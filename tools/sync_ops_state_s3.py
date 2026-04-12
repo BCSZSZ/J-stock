@@ -27,7 +27,7 @@ def main():
     ap = argparse.ArgumentParser(description="Sync production state files between local and S3")
     ap.add_argument("mode", choices=["push", "pull"])
     ap.add_argument("--ops-s3-prefix", required=True, help="e.g. s3://bucket/prod/ops")
-    ap.add_argument("--config", default="config.local.json")
+    ap.add_argument("--config", default="G:/My Drive/AI-Stock-Sync/config.json")
     args = ap.parse_args()
 
     cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))

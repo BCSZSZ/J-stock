@@ -137,6 +137,7 @@ def _latest_precross_momentum_flags(
     df: pd.DataFrame,
     hist_rise_days: int = 3,
     price_rise_days: int = 3,
+    require_price_rising: bool = True,
     require_hist_below_zero: bool = True,
     max_hist_abs_norm: float | None = None,
     require_above_ema200: bool = False,
@@ -233,11 +234,12 @@ def _latest_precross_momentum_flags(
         if pd.notna(volume) and pd.notna(volume_sma_20) and volume_sma_20 != 0:
             volume_ratio = float(volume) / float(volume_sma_20)
 
+    price_rising_ok = price_rising if require_price_rising else True
     peak_ok = peak_at_window_start if require_peak_at_window_start else True
     signal = all(
         [
             hist_rising,
-            price_rising,
+            price_rising_ok,
             hist_below_zero,
             near_zero_ok,
             above_ema200,
@@ -275,6 +277,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         self,
         hist_rise_days: int = 3,
         price_rise_days: int = 3,
+        require_price_rising: bool = True,
         require_hist_below_zero: bool = True,
         max_hist_abs_norm: float | None = None,
         require_above_ema200: bool = False,
@@ -287,6 +290,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         super().__init__(strategy_name="MACDPreCrossMomentumEntry")
         self.hist_rise_days = max(2, int(hist_rise_days))
         self.price_rise_days = max(2, int(price_rise_days))
+        self.require_price_rising = bool(require_price_rising)
         self.require_hist_below_zero = bool(require_hist_below_zero)
         self.max_hist_abs_norm = (
             None if max_hist_abs_norm is None else max(0.0, float(max_hist_abs_norm))
@@ -326,6 +330,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             df,
             hist_rise_days=self.hist_rise_days,
             price_rise_days=self.price_rise_days,
+            require_price_rising=self.require_price_rising,
             require_hist_below_zero=self.require_hist_below_zero,
             max_hist_abs_norm=self.max_hist_abs_norm,
             require_above_ema200=self.require_above_ema200,
@@ -340,6 +345,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             "entry_stage": "PRE_CROSS_MOMENTUM" if bool(latest_flags["signal"]) else "NONE",
             "hist_rise_days": self.hist_rise_days,
             "price_rise_days": self.price_rise_days,
+            "require_price_rising": self.require_price_rising,
             "require_hist_below_zero": self.require_hist_below_zero,
             "require_above_ema200": self.require_above_ema200,
             "require_peak_at_window_start": self.require_peak_at_window_start,
@@ -366,7 +372,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             reasons = []
             if not bool(latest_flags["hist_rising"]):
                 reasons.append("MACD histogram not rising consecutively")
-            if not bool(latest_flags["price_rising"]):
+            if self.require_price_rising and not bool(latest_flags["price_rising"]):
                 reasons.append("Price not rising consecutively")
             if self.require_hist_below_zero and not bool(latest_flags["hist_below_zero"]):
                 reasons.append("Histogram is not below zero")
@@ -395,8 +401,9 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         confidence = 0.62
         reasons = [
             f"MACD histogram rising for {self.hist_rise_days} bars below zero",
-            f"Price rising for {self.price_rise_days} bars",
         ]
+        if self.require_price_rising:
+            reasons.append(f"Price rising for {self.price_rise_days} bars")
 
         if self.require_peak_at_window_start:
             reasons.append("Rising window starts at the negative histogram peak")
@@ -472,10 +479,48 @@ class MACDPreCross2BarLiteComboEntry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACDPreCross2BarLiteComboEntry"
 
 
+class MACDPreCrossHist2BarEntry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram rising only (no price rising requirement)."""
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+        )
+        self.strategy_name = "MACDPreCrossHist2BarEntry"
+
+
+class MACDPreCrossHist3BarEntry(MACDPreCrossMomentumEntry):
+    """3-bar MACD histogram rising only (no price rising requirement)."""
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=3,
+            price_rise_days=3,
+            require_price_rising=False,
+        )
+        self.strategy_name = "MACDPreCrossHist3BarEntry"
+
+
+class MACDPreCross3BarEntry(MACDPreCrossMomentumEntry):
+    """3-bar MACD histogram + price rising (synchronized momentum)."""
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=3,
+            price_rise_days=3,
+        )
+        self.strategy_name = "MACDPreCross3BarEntry"
+
+
 __all__ = [
     "MACDPreCrossMomentumEntry",
     "MACDPreCross2BarEntry",
     "MACDPreCross2BarRet5d008Entry",
     "MACDPreCross2BarLiteComboEntry",
+    "MACDPreCrossHist2BarEntry",
+    "MACDPreCrossHist3BarEntry",
+    "MACDPreCross3BarEntry",
     "build_precross_momentum_flags",
 ]

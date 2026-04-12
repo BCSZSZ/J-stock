@@ -1233,6 +1233,24 @@ for _r in _MVXW_N5_RT_TUNING_R_VALUES:
     for _t in _MVXW_N5_RT_TUNING_T_VALUES:
         _register_window_decay_variant(5, _r, _t, 21, 20.0)
 
+# D21/B20 full sweep for MVXW (mirrors MVX D21/B20 grid above).
+_MVXW_D21_B20_SWEEP_N_VALUES = [2, 3, 4, 5, 6, 7, 8, 9]
+for _n in _MVXW_D21_B20_SWEEP_N_VALUES:
+    for _r in _D21_B20_REFINED_R_VALUES:
+        for _t in _D21_B20_REFINED_T_VALUES:
+            _register_window_decay_variant(_n, _r, _t, 21, 20.0)
+
+# D sweep for MVXW champion fine-grid tuning.
+for _d in [15, 18, 24, 27]:
+    _register_window_decay_variant(5, 3.35, 1.6, _d, 20.0)
+
+# N cross-check for R×T grid winner (R=3.35, T=1.45).
+for _n in [2, 3, 4, 6, 7]:
+    _register_window_decay_variant(_n, 3.35, 1.45, 21, 20.0)
+
+# T boundary extension (T below 1.45 at 0.05 step).
+_register_window_decay_variant(5, 3.35, 1.35, 21, 20.0)
+
 
 _UNIFIED_TP_VARIANTS = [
     (1, 3.4, 1.6, 18, 20.0),

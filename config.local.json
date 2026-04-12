@@ -27,8 +27,8 @@
     "default": 100
   },
   "default_strategies": {
-    "entry": "SimpleScorerStrategy",
-    "exit": "MVX_N3_R3p25_T1p6_D21_B20p0"
+    "entry": "MACDPreCross2BarEntry",
+    "exit": "MVXW_N5_R3p35_T1p45_D21_B20p0"
   },
   "evaluation": {
     "output_dir": "G:/My Drive/AI-Stock-Sync/strategy_evaluation",
@@ -85,8 +85,8 @@
         "id": "group_main",
         "name": "主策略组",
         "initial_capital": 8000000,
-        "entry_strategy": "MACDCrossoverStrategy",
-        "exit_strategy": "MVX_N3_R3p25_T1p6_D21_B20p0"
+        "entry_strategy": "MACDPreCross2BarEntry",
+        "exit_strategy": "MVXW_N5_R3p35_T1p45_D21_B20p0"
       }
     ]
   }

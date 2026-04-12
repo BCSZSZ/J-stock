@@ -727,22 +727,22 @@ class ReportBuilder:
                 recommend = (
                     "YES" if (sig is not None and sig.signal_type == "SELL") else "NO"
                 )
-                action = sig.action if sig is not None else "HOLD"
+                if sig is not None and sig.signal_type == "SELL":
+                    sell_pct = getattr(sig, 'sell_percentage', 1.0)
+                    action = f"SELL_{sell_pct * 100:.0f}%"
+                else:
+                    action = sig.action if sig is not None else "HOLD"
 
                 sell_qty = "-"
                 est_proceeds = "-"
                 if sig is not None and sig.signal_type == "SELL":
                     planned_qty = getattr(sig, "planned_sell_qty", None)
                     if planned_qty is None:
-                        if action in ["SELL_25%", "SELL_50%", "SELL_75%"]:
-                            ratio_map = {
-                                "SELL_25%": 0.25,
-                                "SELL_50%": 0.50,
-                                "SELL_75%": 0.75,
-                            }
+                        sell_pct = getattr(sig, 'sell_percentage', 1.0)
+                        if sell_pct < 0.999:
                             planned_qty = max(
                                 1,
-                                int(pos.quantity * ratio_map.get(action, 1.0)),
+                                int(pos.quantity * sell_pct),
                             )
                         else:
                             planned_qty = pos.quantity
@@ -895,15 +895,11 @@ class ReportBuilder:
             for sig in group_sells:
                 planned_qty = getattr(sig, "planned_sell_qty", None)
                 if planned_qty is None and (sig.position_qty or 0) > 0:
-                    if sig.action in ["SELL_25%", "SELL_50%", "SELL_75%"]:
-                        ratio_map = {
-                            "SELL_25%": 0.25,
-                            "SELL_50%": 0.50,
-                            "SELL_75%": 0.75,
-                        }
+                    sell_pct = getattr(sig, 'sell_percentage', 1.0)
+                    if sell_pct < 0.999:
                         planned_qty = max(
                             1,
-                            int((sig.position_qty or 0) * ratio_map.get(sig.action, 1.0)),
+                            int((sig.position_qty or 0) * sell_pct),
                         )
                     else:
                         planned_qty = sig.position_qty
@@ -967,8 +963,9 @@ class ReportBuilder:
                     if planned_sell_price is None and planned_qty > 0:
                         planned_sell_price = planned_value / planned_qty
                     reason = (sig.reason or "...").replace("|", "/")
+                    sell_label = f"SELL_{getattr(sig, 'sell_percentage', 1.0) * 100:.0f}%"
                     lines.append(
-                        f"| {rank} | {sig.ticker} | {self._get_ticker_name(sig.ticker)} | {sig.action} | ¥{close_price:,.2f} | "
+                        f"| {rank} | {sig.ticker} | {self._get_ticker_name(sig.ticker)} | {sell_label} | ¥{close_price:,.2f} | "
                         f"¥{float(planned_sell_price or 0.0):,.2f} | {planned_qty} | {planned_value:,.0f} | {reason} |"
                     )
             else:
@@ -1035,9 +1032,10 @@ class ReportBuilder:
                 return "EMERGENCY"
             if signal.reason and "STOP" in signal.reason.upper():
                 return "EMERGENCY"
-            if signal.action == "SELL_100%":
+            sell_pct = getattr(signal, 'sell_percentage', 1.0)
+            if sell_pct >= 0.999:
                 return "HIGH"
-            if signal.action in ["SELL_75%", "SELL_50%"]:
+            if sell_pct >= 0.45:
                 return "MEDIUM"
             return "LOW"
 
@@ -1215,13 +1213,14 @@ class ReportBuilder:
 
 *No SELL signals generated.*"""
 
-        # Derive urgency from action and reason
+        # Derive urgency from sell_percentage and reason
         def get_urgency(signal: Signal) -> str:
             if "EMERGENCY" in signal.reason.upper() or "STOP" in signal.reason.upper():
                 return "EMERGENCY"
-            elif signal.action == "SELL_100%":
+            sell_pct = getattr(signal, 'sell_percentage', 1.0)
+            if sell_pct >= 0.999:
                 return "HIGH"
-            elif signal.action in ["SELL_75%", "SELL_50%"]:
+            elif sell_pct >= 0.45:
                 return "MEDIUM"
             else:
                 return "LOW"
@@ -1255,10 +1254,11 @@ class ReportBuilder:
         for signal in sorted_signals:
             icon = urgency_icons.get(signal.urgency_derived, "")
             urgency_display = f"{icon} {signal.urgency_derived}"
+            sell_label = f"SELL_{getattr(signal, 'sell_percentage', 1.0) * 100:.0f}%"
 
             lines.append(
                 f"| {urgency_display} | **{signal.ticker}** | {signal.score:.1f} | "
-                f"{signal.action} | {signal.reason or 'N/A'} | {signal.strategy_name} |"
+                f"{sell_label} | {signal.reason or 'N/A'} | {signal.strategy_name} |"
             )
 
         # Add details for high urgency
@@ -1272,8 +1272,9 @@ class ReportBuilder:
             lines.append("")
 
             for signal in high_urgency:
+                sell_label = f"SELL_{getattr(signal, 'sell_percentage', 1.0) * 100:.0f}%"
                 lines.append(f"#### {signal.ticker} ({signal.urgency_derived})")
-                lines.append(f"- **Action:** {signal.action}")
+                lines.append(f"- **Action:** {sell_label}")
                 lines.append(f"- **Reason:** {signal.reason or 'N/A'}")
                 lines.append(f"- **Current Score:** {signal.score:.1f}")
                 lines.append(f"- **Current Price:** ¥{signal.current_price:,.0f}")

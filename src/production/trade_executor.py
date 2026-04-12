@@ -233,8 +233,10 @@ class TradeExecutor:
                 reason=f"Group {signal.group_id} not found"
             )
         
-        # Parse sell action
-        sell_pct = self._parse_sell_action(signal.action)
+        # Use exact sell percentage from signal
+        sell_pct = getattr(signal, 'sell_percentage', None)
+        if sell_pct is None:
+            sell_pct = self._parse_sell_action(signal.action)
         
         # Get positions
         positions = group.get_positions_by_ticker(signal.ticker)
@@ -264,7 +266,8 @@ class TradeExecutor:
         
         if dry_run:
             if verbose:
-                print(f"✅ [DRY RUN] SELL {qty_to_sell}x{signal.ticker} @ ¥{price:,.0f} ({signal.action})")
+                pct_label = f"{sell_pct * 100:.0f}%"
+                print(f"✅ [DRY RUN] SELL {qty_to_sell}x{signal.ticker} @ ¥{price:,.0f} (SELL_{pct_label})")
             return ExecutionResult(
                 success=True,
                 signal=signal,

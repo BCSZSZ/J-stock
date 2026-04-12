@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "record_type": "strategy_hall_of_fame",
   "description": "Reusable reference strategy registry for future annual CLI strategy comparisons under the locked 2021-2025 evaluation basis.",
-  "updated_at": "2026-04-10",
+  "updated_at": "2026-04-12T12:00",
   "evaluation_basis": {
     "mode": "annual",
     "years": [
@@ -442,6 +442,532 @@
         "sharpe_ratio": 1.604726,
         "max_drawdown_pct": 17.178047,
         "num_trades": 1172
+      }
+    },
+    "hist2bar_mvx_target20": {
+      "reference_id": "hist2bar_mvx_target20",
+      "display_name": "Hist2Bar + MVX (target20)",
+      "entry_strategy": "MACDPreCrossHist2BarEntry",
+      "exit_strategy": "MVX_N3_R3p5_T1p4_D21_B20p0",
+      "tags": ["champion", "hist2bar", "mvx", "target20", "grid2"],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist2bar_20260412\\hist2bar_grid2",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist2bar_20260412\\hist2bar_grid2\\strategy_evaluation_target20_rank_20260412_110109.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist2bar_20260412\\hist2bar_grid2\\strategy_evaluation_raw_20260412_110109.csv",
+        "ranking_position": 1,
+        "ranking_mode": "target20",
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "MACDPreCrossHist2BarEntry + MVX champion by target20 ranking after 5-round tuning cascade (N→R→T→Grid1→Grid2).",
+          "Weakest combo: only 4/5 positive years, 2021 was negative."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 2,
+        "positive_years": 4,
+        "positive_alpha_years": 3,
+        "avg_yearly_return_pct": 22.485002,
+        "avg_yearly_alpha_pct": 10.125972,
+        "worst_year_return_pct": -5.141107,
+        "annual_return_std_pct": 24.579848,
+        "continuous_return_pct": 151.057360,
+        "continuous_alpha_pct": 49.367590,
+        "continuous_sharpe_ratio": 0.943711,
+        "continuous_mdd_pct": 22.997378
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": -5.141107,
+          "alpha_pct": -6.339850,
+          "max_drawdown_pct": 15.553442
+        },
+        "2022": {
+          "return_pct": 17.033931,
+          "alpha_pct": 23.856345,
+          "max_drawdown_pct": 11.713031
+        },
+        "2023": {
+          "return_pct": 26.779062,
+          "alpha_pct": 0.108827,
+          "max_drawdown_pct": 10.931935
+        },
+        "2024": {
+          "return_pct": 6.916125,
+          "alpha_pct": -10.156841,
+          "max_drawdown_pct": 21.881781
+        },
+        "2025": {
+          "return_pct": 66.836999,
+          "alpha_pct": 43.161381,
+          "max_drawdown_pct": 22.997378
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_annual_compound",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 151.057360,
+        "alpha_pct": 49.367590,
+        "sharpe_ratio": 0.943711,
+        "max_drawdown_pct": 22.997378,
+        "num_trades": 1111
+      }
+    },
+    "hist2bar_mvxw_target20": {
+      "reference_id": "hist2bar_mvxw_target20",
+      "display_name": "Hist2Bar + MVXW (target20)",
+      "entry_strategy": "MACDPreCrossHist2BarEntry",
+      "exit_strategy": "MVXW_N5_R3p25_T1p3_D21_B20p0",
+      "tags": ["champion", "hist2bar", "mvxw", "target20", "grid2"],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist2bar_20260412\\hist2bar_grid2",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist2bar_20260412\\hist2bar_grid2\\strategy_evaluation_target20_rank_20260412_110152.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist2bar_20260412\\hist2bar_grid2\\strategy_evaluation_raw_20260412_110152.csv",
+        "ranking_position": 1,
+        "ranking_mode": "target20",
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "MACDPreCrossHist2BarEntry + MVXW champion by target20 ranking after 5-round tuning cascade.",
+          "5/5 positive years, 106% in 2025, strong 280% continuous return. Highest target20_score=90.90."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 3,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 34.768381,
+        "avg_yearly_alpha_pct": 22.409352,
+        "worst_year_return_pct": 3.343535,
+        "annual_return_std_pct": 36.652838,
+        "continuous_return_pct": 280.574424,
+        "continuous_alpha_pct": 137.323548,
+        "continuous_sharpe_ratio": 1.424545,
+        "continuous_mdd_pct": 23.321562
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 3.343535,
+          "alpha_pct": 2.144793,
+          "max_drawdown_pct": 11.777539
+        },
+        "2022": {
+          "return_pct": 20.378857,
+          "alpha_pct": 27.201271,
+          "max_drawdown_pct": 10.524844
+        },
+        "2023": {
+          "return_pct": 27.020262,
+          "alpha_pct": 0.350027,
+          "max_drawdown_pct": 10.526874
+        },
+        "2024": {
+          "return_pct": 16.671626,
+          "alpha_pct": -0.401339,
+          "max_drawdown_pct": 23.321562
+        },
+        "2025": {
+          "return_pct": 106.427625,
+          "alpha_pct": 82.752007,
+          "max_drawdown_pct": 10.946114
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_annual_compound",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 280.574424,
+        "alpha_pct": 137.323548,
+        "sharpe_ratio": 1.424545,
+        "max_drawdown_pct": 23.321562,
+        "num_trades": 1253
+      }
+    },
+    "hist3bar_mvx_target20": {
+      "reference_id": "hist3bar_mvx_target20",
+      "display_name": "Hist3Bar + MVX (target20)",
+      "entry_strategy": "MACDPreCrossHist3BarEntry",
+      "exit_strategy": "MVX_N3_R3p5_T1p6_D21_B20p0",
+      "tags": ["champion", "hist3bar", "mvx", "target20", "grid2"],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist3bar_20260412\\hist3bar_grid2",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist3bar_20260412\\hist3bar_grid2\\strategy_evaluation_target20_rank_20260412_110221.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist3bar_20260412\\hist3bar_grid2\\strategy_evaluation_raw_20260412_110221.csv",
+        "ranking_position": 1,
+        "ranking_mode": "target20",
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "MACDPreCrossHist3BarEntry + MVX champion by target20 ranking after 5-round tuning cascade.",
+          "5/5 positive years, lowest max MDD (19.6%) among the 4 combos, best stability profile."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 3,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 31.339129,
+        "avg_yearly_alpha_pct": 18.980099,
+        "worst_year_return_pct": 0.819237,
+        "annual_return_std_pct": 32.832605,
+        "continuous_return_pct": 241.171169,
+        "continuous_alpha_pct": 115.467398,
+        "continuous_sharpe_ratio": 1.357402,
+        "continuous_mdd_pct": 19.605960
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 10.412786,
+          "alpha_pct": 9.214044,
+          "max_drawdown_pct": 8.700377
+        },
+        "2022": {
+          "return_pct": 0.819237,
+          "alpha_pct": 7.641650,
+          "max_drawdown_pct": 16.956724
+        },
+        "2023": {
+          "return_pct": 26.286996,
+          "alpha_pct": -0.383240,
+          "max_drawdown_pct": 7.879185
+        },
+        "2024": {
+          "return_pct": 24.954751,
+          "alpha_pct": 7.881786,
+          "max_drawdown_pct": 19.605960
+        },
+        "2025": {
+          "return_pct": 94.221875,
+          "alpha_pct": 70.546257,
+          "max_drawdown_pct": 8.774914
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_annual_compound",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 241.171169,
+        "alpha_pct": 115.467398,
+        "sharpe_ratio": 1.357402,
+        "max_drawdown_pct": 19.605960,
+        "num_trades": 974
+      }
+    },
+    "hist3bar_mvxw_target20": {
+      "reference_id": "hist3bar_mvxw_target20",
+      "display_name": "Hist3Bar + MVXW (target20)",
+      "entry_strategy": "MACDPreCrossHist3BarEntry",
+      "exit_strategy": "MVXW_N5_R3p6_T1p3_D21_B20p0",
+      "tags": ["champion", "hist3bar", "mvxw", "target20", "grid2"],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist3bar_20260412\\hist3bar_grid2",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist3bar_20260412\\hist3bar_grid2\\strategy_evaluation_target20_rank_20260412_110239.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist3bar_20260412\\hist3bar_grid2\\strategy_evaluation_raw_20260412_110239.csv",
+        "ranking_position": 1,
+        "ranking_mode": "target20",
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "MACDPreCrossHist3BarEntry + MVXW champion by target20 ranking after 5-round tuning cascade.",
+          "5/5 positive years, worst year 10.13% (best floor among all combos), but highest MDD at 26.2%."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 1,
+        "positive_years": 5,
+        "positive_alpha_years": 3,
+        "avg_yearly_return_pct": 29.704567,
+        "avg_yearly_alpha_pct": 17.345537,
+        "worst_year_return_pct": 10.134741,
+        "annual_return_std_pct": 34.320767,
+        "continuous_return_pct": 218.145575,
+        "continuous_alpha_pct": 91.148923,
+        "continuous_sharpe_ratio": 1.273330,
+        "continuous_mdd_pct": 26.227497
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 10.134741,
+          "alpha_pct": 8.935998,
+          "max_drawdown_pct": 10.087328
+        },
+        "2022": {
+          "return_pct": 13.353100,
+          "alpha_pct": 20.175513,
+          "max_drawdown_pct": 11.920656
+        },
+        "2023": {
+          "return_pct": 14.838242,
+          "alpha_pct": -11.831994,
+          "max_drawdown_pct": 12.742210
+        },
+        "2024": {
+          "return_pct": 11.921253,
+          "alpha_pct": -5.151713,
+          "max_drawdown_pct": 26.227497
+        },
+        "2025": {
+          "return_pct": 98.275499,
+          "alpha_pct": 74.599881,
+          "max_drawdown_pct": 8.908550
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_annual_compound",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 218.145575,
+        "alpha_pct": 91.148923,
+        "sharpe_ratio": 1.273330,
+        "max_drawdown_pct": 26.227497,
+        "num_trades": 1054
+      }
+    },
+    "3bar_mvxw_target20": {
+      "reference_id": "3bar_mvxw_target20",
+      "display_name": "3Bar + MVXW (target20)",
+      "entry_strategy": "MACDPreCross3BarEntry",
+      "exit_strategy": "MVXW_N5_R3p6_T1p9_D21_B20p0",
+      "tags": ["champion", "3bar", "mvxw", "target20", "grid2", "price_rising"],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_3bar_20260412\\3bar_grid2",
+        "ranking_position": 1,
+        "ranking_mode": "target20",
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "MACDPreCross3BarEntry (hist_rise_days=3, require_price_rising=True) + MVXW champion by target20.",
+          "5/5 positive years, worst year +15.1%. Continuous return 292.8%. T=1.9 (wider trailing stop)."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 2,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 34.557742,
+        "avg_yearly_alpha_pct": 22.198712,
+        "worst_year_return_pct": 15.108839,
+        "annual_return_std_pct": 31.773764,
+        "continuous_return_pct": 292.779143,
+        "continuous_alpha_pct": 141.877625,
+        "continuous_sharpe_ratio": 1.539566,
+        "continuous_mdd_pct": 21.323460
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 15.108839,
+          "alpha_pct": 13.910097,
+          "max_drawdown_pct": 8.898777
+        },
+        "2022": {
+          "return_pct": 19.356956,
+          "alpha_pct": 26.179370,
+          "max_drawdown_pct": 11.585905
+        },
+        "2023": {
+          "return_pct": 21.889413,
+          "alpha_pct": -4.780822,
+          "max_drawdown_pct": 8.029887
+        },
+        "2024": {
+          "return_pct": 18.490877,
+          "alpha_pct": 1.417911,
+          "max_drawdown_pct": 21.323460
+        },
+        "2025": {
+          "return_pct": 97.942624,
+          "alpha_pct": 74.267006,
+          "max_drawdown_pct": 7.068866
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_annual_compound",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 292.779143,
+        "alpha_pct": 141.877625,
+        "sharpe_ratio": 1.539566,
+        "max_drawdown_pct": 21.323460,
+        "num_trades": 886
+      }
+    },
+    "3bar_mvx_target20": {
+      "reference_id": "3bar_mvx_target20",
+      "display_name": "3Bar + MVX (target20)",
+      "entry_strategy": "MACDPreCross3BarEntry",
+      "exit_strategy": "MVX_N4_R3p75_T1p7_D21_B20p0",
+      "tags": ["champion", "3bar", "mvx", "target20", "grid2", "price_rising", "perfect_hit20"],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_3bar_20260412\\3bar_grid2",
+        "ranking_position": 1,
+        "ranking_mode": "target20",
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "MACDPreCross3BarEntry (hist_rise_days=3, require_price_rising=True) + MVX champion by target20.",
+          "PERFECT target20_score=100.0: 5/5 years above 20%. Worst year +20.0%. Continuous return 368.6%.",
+          "Only strategy in hall of fame with 100% hit20 rate."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 5,
+        "positive_years": 5,
+        "positive_alpha_years": 4,
+        "avg_yearly_return_pct": 38.595162,
+        "avg_yearly_alpha_pct": 26.236133,
+        "worst_year_return_pct": 20.007029,
+        "annual_return_std_pct": 27.866972,
+        "continuous_return_pct": 368.552775,
+        "continuous_alpha_pct": 193.249479,
+        "continuous_sharpe_ratio": 1.755198,
+        "continuous_mdd_pct": 17.248074
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 20.007029,
+          "alpha_pct": 18.808287,
+          "max_drawdown_pct": 11.248707
+        },
+        "2022": {
+          "return_pct": 22.444078,
+          "alpha_pct": 29.266492,
+          "max_drawdown_pct": 12.908554
+        },
+        "2023": {
+          "return_pct": 21.548076,
+          "alpha_pct": -5.122159,
+          "max_drawdown_pct": 7.543907
+        },
+        "2024": {
+          "return_pct": 35.812503,
+          "alpha_pct": 18.739538,
+          "max_drawdown_pct": 17.248074
+        },
+        "2025": {
+          "return_pct": 93.164124,
+          "alpha_pct": 69.488506,
+          "max_drawdown_pct": 5.464705
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_annual_compound",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 368.552775,
+        "alpha_pct": 193.249479,
+        "sharpe_ratio": 1.755198,
+        "max_drawdown_pct": 17.248074,
+        "num_trades": 896
+      }
+    },
+    "mvxw_champion_v2": {
+      "reference_id": "mvxw_champion_v2",
+      "display_name": "MVXW Champion v2 (Fine-Tuned)",
+      "entry_strategy": "MACDPreCross2BarEntry",
+      "exit_strategy": "MVXW_N5_R3p35_T1p45_D21_B20p0",
+      "tags": [
+        "champion",
+        "global_best",
+        "mvxw",
+        "twobar",
+        "fine_tuned",
+        "production"
+      ],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_2bar_champion_20260412\\champion_grid_rt",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_2bar_champion_20260412\\champion_grid_rt\\strategy_evaluation_target20_rank_20260412_201713.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_2bar_champion_20260412\\champion_grid_rt\\strategy_evaluation_raw_20260412_201713.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_2bar_champion_20260412\\champion_grid_rt\\strategy_evaluation_continuous_raw_20260412_205611.csv",
+        "ranking_position": 3,
+        "ranking_mode": "target20",
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": null,
+          "universe_name": null
+        },
+        "selection_notes": [
+          "Fine-tuned from mvxw_champion (T1.6 → T1.45) via 4-stage cascade: D sweep → R×T 5×5 grid → N cross-check → T boundary extension.",
+          "T=1.45 is a critical threshold: eliminates ALL losing years (0/5 vs 1/5 at T≥1.50).",
+          "Target20 rank #3 in 25-strategy grid but compound return rank #1 (595.4%). Best balanced choice.",
+          "N=5 confirmed optimal via N cross-check (93.25 vs 86.72 for N=6). T=1.45 confirmed not a boundary artifact.",
+          "Currently deployed in production (config.local.json)."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 4,
+        "positive_years": 5,
+        "positive_alpha_years": 5,
+        "avg_yearly_return_pct": 53.972521,
+        "avg_yearly_alpha_pct": 41.613491,
+        "worst_year_return_pct": 4.436722,
+        "annual_return_std_pct": 54.857710,
+        "continuous_return_pct": 499.073901,
+        "continuous_alpha_pct": 425.918110,
+        "continuous_sharpe_ratio": 1.877425,
+        "continuous_mdd_pct": 21.444097
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 4.436722,
+          "alpha_pct": 3.237979,
+          "max_drawdown_pct": 11.738398
+        },
+        "2022": {
+          "return_pct": 29.189431,
+          "alpha_pct": 36.011844,
+          "max_drawdown_pct": 13.524626
+        },
+        "2023": {
+          "return_pct": 48.227577,
+          "alpha_pct": 21.557341,
+          "max_drawdown_pct": 7.849287
+        },
+        "2024": {
+          "return_pct": 40.472376,
+          "alpha_pct": 23.399411,
+          "max_drawdown_pct": 20.976363
+        },
+        "2025": {
+          "return_pct": 147.536500,
+          "alpha_pct": 123.860882,
+          "max_drawdown_pct": 8.044026
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 499.073901,
+        "alpha_pct": 425.918110,
+        "sharpe_ratio": 1.877425,
+        "max_drawdown_pct": 21.444097,
+        "num_trades": 1247
       }
     }
   }
