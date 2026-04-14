@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 SPLIT_RATIO_CANDIDATES = [0.5, 0.3333, 0.25, 0.2, 0.1]
 SPLIT_TOLERANCE = 0.05
-SPLIT_ADJUSTED_VERSION = 1
-FEATURE_SCHEMA_VERSION = 1
+SPLIT_ADJUSTED_VERSION = 2
+FEATURE_SCHEMA_VERSION = 2
 
 
 REQUIRED_FEATURE_COLUMNS = {
@@ -417,15 +417,14 @@ class StockDataManager:
         """
         df = pd.DataFrame(bars)
 
-        # Rename abbreviated columns to human-readable
+        # Use split-adjusted prices from JQuants API
         column_mapping = {
             "Date": "Date",
-            "O": "Open",
-            "H": "High",
-            "L": "Low",
-            "C": "Close",
-            "Vo": "Volume",
-            "AdjustmentFactor": "AdjustmentFactor",
+            "AdjO": "Open",
+            "AdjH": "High",
+            "AdjL": "Low",
+            "AdjC": "Close",
+            "AdjVo": "Volume",
         }
 
         # Only rename columns that exist
@@ -665,10 +664,9 @@ class StockDataManager:
             logger.warning(f"[{code}] No valid OHLCV rows after sanitization")
             return df
 
-        split_events = self._detect_split_events(df)
-        if split_events:
-            logger.info(f"[{code}] Detected {len(split_events)} split events")
-        df = self._apply_split_adjustments(df, split_events)
+        # Split detection skipped: raw_prices now use API-adjusted prices
+        # (AdjO/AdjH/AdjL/AdjC/AdjVo) which already account for splits.
+        split_events: list = []
 
         if df.empty or len(df) < 200:
             logger.warning(
@@ -808,8 +806,9 @@ class StockDataManager:
 
         metadata["split_adjusted"] = True
         metadata["split_adjusted_version"] = SPLIT_ADJUSTED_VERSION
-        metadata["split_events"] = split_events
+        metadata["split_events"] = []
         metadata["split_last_checked"] = datetime.now().strftime("%Y-%m-%d")
+        metadata["price_source"] = "jquants_adjusted"
         metadata["feature_schema_version"] = FEATURE_SCHEMA_VERSION
         self._save_metadata_file(code, metadata)
 
