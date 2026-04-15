@@ -468,7 +468,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     universe_parser.add_argument(
         "--score-model",
-        choices=["v1", "v2"],
+        choices=["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"],
         default="v1",
         help="打分模型版本（默认: v1）",
     )
@@ -543,7 +543,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     universe_sector_parser.add_argument(
         "--score-model",
-        choices=["v1", "v2"],
+        choices=["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"],
         default="v2",
         help="打分模型版本（默认: v2）",
     )

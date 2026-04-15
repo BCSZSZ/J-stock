@@ -83,8 +83,9 @@ class UniverseSelector:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        if self.score_model not in {"v1", "v2"}:
-            raise ValueError("score_model must be 'v1' or 'v2'")
+        valid_models = {"v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"}
+        if self.score_model not in valid_models:
+            raise ValueError(f"score_model must be one of {sorted(valid_models)}")
 
         if not self.client:
             raise ValueError("StockDataManager must have API access (api_key required)")
@@ -419,7 +420,19 @@ class UniverseSelector:
             else:
                 volume_surge = np.nan
 
-        # Validate all required fields
+        # 6) ADX_14 (trend strength indicator)
+        adx_14 = latest.get("ADX_14", np.nan)
+
+        # 7) RSI
+        rsi = latest.get("RSI", np.nan)
+
+        # 8) BB_Width (Bollinger Band width)
+        bb_width = latest.get("BB_Width", np.nan)
+
+        # 9) OBV_Slope_20 (On-Balance Volume slope)
+        obv_slope_20 = latest.get("OBV_Slope_20", np.nan)
+
+        # Validate core required fields (original 5)
         if any(
             np.isnan(
                 [
@@ -446,6 +459,10 @@ class UniverseSelector:
             "TrendStrength": trend_strength,
             "Momentum_20d": momentum_20d,
             "Volume_Surge": volume_surge,
+            "ADX_14": adx_14,
+            "RSI": rsi,
+            "BB_Width": bb_width,
+            "OBV_Slope_20": obv_slope_20,
             "DataDate": latest.get("Date"),
         }
 
@@ -532,7 +549,32 @@ class UniverseSelector:
             pct=True, ascending=True
         )
 
-        logger.info(f"  - Normalized {len(df_norm)} stocks")
+        # Extended factors (v3+): only rank if columns exist and have data
+        if "ADX_14" in df_norm.columns and df_norm["ADX_14"].notna().any():
+            df_norm["Rank_ADX"] = df_norm["ADX_14"].rank(pct=True, ascending=True)
+        else:
+            df_norm["Rank_ADX"] = 0.5
+
+        if "RSI" in df_norm.columns and df_norm["RSI"].notna().any():
+            raw_rsi_rank = df_norm["RSI"].rank(pct=True, ascending=True)
+            # RSI centered: prefer mid-range (50-65), penalize extremes
+            df_norm["Rank_RSI_Centered"] = 1 - (raw_rsi_rank - 0.5).abs() * 2
+        else:
+            df_norm["Rank_RSI_Centered"] = 0.5
+
+        if "BB_Width" in df_norm.columns and df_norm["BB_Width"].notna().any():
+            df_norm["Rank_BB"] = df_norm["BB_Width"].rank(pct=True, ascending=True)
+        else:
+            df_norm["Rank_BB"] = 0.5
+
+        if "OBV_Slope_20" in df_norm.columns and df_norm["OBV_Slope_20"].notna().any():
+            df_norm["Rank_OBV"] = df_norm["OBV_Slope_20"].rank(
+                pct=True, ascending=True
+            )
+        else:
+            df_norm["Rank_OBV"] = 0.5
+
+        logger.info(f"  - Normalized {len(df_norm)} stocks (extended factors included)")
 
         return df_norm
 
@@ -554,7 +596,11 @@ class UniverseSelector:
 
         df_scored = df.copy()
 
+        # Precompute VolMod (volatility centered) for models that use it
+        vol_mod = 1 - (df_scored["Rank_Vol"] - 0.5).abs() * 2
+
         if self.score_model == "v1":
+            # v1: Balanced 5-factor (original baseline)
             df_scored["TotalScore"] = (
                 self.WEIGHT_VOLATILITY * df_scored["Rank_Vol"]
                 + self.WEIGHT_LIQUIDITY * df_scored["Rank_Liq"]
@@ -562,18 +608,87 @@ class UniverseSelector:
                 + self.WEIGHT_MOMENTUM * df_scored["Rank_Momentum"]
                 + self.WEIGHT_VOLUME_SURGE * df_scored["Rank_VolSurge"]
             )
-        else:
-            # v2 emphasizes liquidity/trend quality and moderates pure volatility preference.
+        elif self.score_model == "v2":
+            # v2: Liquidity-focused, volatility centered
             df_scored["TotalScore"] = (
                 0.30 * df_scored["Rank_Liq"]
                 + 0.25 * df_scored["Rank_Trend"]
                 + 0.20 * df_scored["Rank_Momentum"]
-                + 0.15 * (1 - (df_scored["Rank_Vol"] - 0.5).abs() * 2)
+                + 0.15 * vol_mod
                 + 0.10 * df_scored["Rank_VolSurge"]
             )
+        elif self.score_model == "v3":
+            # v3: Trend quality enhanced — ADX 20% + RSI centered 5%
+            df_scored["TotalScore"] = (
+                0.20 * df_scored["Rank_Liq"]
+                + 0.20 * df_scored["Rank_Trend"]
+                + 0.15 * df_scored["Rank_Momentum"]
+                + 0.20 * df_scored["Rank_ADX"]
+                + 0.10 * df_scored["Rank_Vol"]
+                + 0.10 * df_scored["Rank_VolSurge"]
+                + 0.05 * df_scored["Rank_RSI_Centered"]
+            )
+        elif self.score_model == "v4":
+            # v4: Momentum focused — Mom 25% + RSI 10%
+            df_scored["TotalScore"] = (
+                0.20 * df_scored["Rank_Liq"]
+                + 0.15 * df_scored["Rank_Trend"]
+                + 0.25 * df_scored["Rank_Momentum"]
+                + 0.15 * df_scored["Rank_ADX"]
+                + 0.10 * df_scored["Rank_RSI_Centered"]
+                + 0.10 * df_scored["Rank_Vol"]
+                + 0.05 * df_scored["Rank_VolSurge"]
+            )
+        elif self.score_model == "v5":
+            # v5: Money flow + trend — OBV 15%
+            df_scored["TotalScore"] = (
+                0.20 * df_scored["Rank_Liq"]
+                + 0.20 * df_scored["Rank_Trend"]
+                + 0.15 * df_scored["Rank_Momentum"]
+                + 0.15 * df_scored["Rank_ADX"]
+                + 0.15 * df_scored["Rank_OBV"]
+                + 0.10 * df_scored["Rank_Vol"]
+                + 0.05 * df_scored["Rank_VolSurge"]
+            )
+        elif self.score_model == "v6":
+            # v6: High-signal simplified — averaged factor pairs
+            trend_adx_avg = (df_scored["Rank_Trend"] + df_scored["Rank_ADX"]) / 2
+            mom_rsi_avg = (
+                df_scored["Rank_Momentum"] + df_scored["Rank_RSI_Centered"]
+            ) / 2
+            df_scored["TotalScore"] = (
+                0.25 * df_scored["Rank_Liq"]
+                + 0.25 * trend_adx_avg
+                + 0.25 * mom_rsi_avg
+                + 0.15 * df_scored["Rank_Vol"]
+                + 0.10 * df_scored["Rank_VolSurge"]
+            )
+        elif self.score_model == "v7":
+            # v7: Volatility-neutral + heavy trend — ADX 30%
+            df_scored["TotalScore"] = (
+                0.25 * df_scored["Rank_Liq"]
+                + 0.30 * df_scored["Rank_ADX"]
+                + 0.20 * df_scored["Rank_Momentum"]
+                + 0.15 * vol_mod
+                + 0.10 * df_scored["Rank_VolSurge"]
+            )
+        elif self.score_model == "v8":
+            # v8: Equal-weight all factors — maximum diversification
+            w = 1.0 / 9.0
+            df_scored["TotalScore"] = (
+                w * df_scored["Rank_Liq"]
+                + w * df_scored["Rank_Trend"]
+                + w * df_scored["Rank_Momentum"]
+                + w * df_scored["Rank_ADX"]
+                + w * df_scored["Rank_RSI_Centered"]
+                + w * df_scored["Rank_Vol"]
+                + w * df_scored["Rank_VolSurge"]
+                + w * df_scored["Rank_OBV"]
+                + w * df_scored["Rank_BB"]
+            )
 
-            # Clamp after transformation to ensure stable [0,1] scoring range.
-            df_scored["TotalScore"] = df_scored["TotalScore"].clip(0.0, 1.0)
+        # Clamp to ensure stable [0,1] scoring range for all models.
+        df_scored["TotalScore"] = df_scored["TotalScore"].clip(0.0, 1.0)
 
         logger.info(
             f"  - Score model: {self.score_model}, range: {df_scored['TotalScore'].min():.3f} - {df_scored['TotalScore'].max():.3f}"

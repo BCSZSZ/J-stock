@@ -37,7 +37,7 @@
     "default_exit_strategies": [
       "MVX_N9_R3p6_T1p7_D18_B20p0"
     ],
-    "exit_confirmation_days": 1,
+    "exit_confirmation_days": 2,
     "filters": {
       "mode": "single",
       "default": {
