@@ -41,6 +41,7 @@ class AnnualStrategyResult:
     avg_gain_pct: float
     avg_loss_pct: float
     exit_confirmation_days: int = 1
+    ranking_strategy: str = "default"
 
 
 TRADE_EXPORT_COLUMNS = [
@@ -217,6 +218,7 @@ class StrategyEvaluator:
         entry_filter_variants: Optional[List[Tuple[str, Dict]]] = None,
         portfolio_overrides: Optional[Dict] = None,
         use_cache: bool = True,
+        ranking_strategies: Optional[List[str]] = None,
     ):
         """
         Initialize strategy evaluator.
@@ -245,6 +247,7 @@ class StrategyEvaluator:
         )
         self.portfolio_overrides = portfolio_overrides or {}
         self.overlay_config = overlay_config or {}
+        self.ranking_strategies = ranking_strategies or ["default"]
 
         self.overlay_manager = OverlayManager.from_config(
             self.overlay_config,
@@ -418,6 +421,7 @@ class StrategyEvaluator:
             * len(entry_strategies)
             * len(exit_strategies)
             * len(self.entry_filter_variants)
+            * len(self.ranking_strategies)
         )
 
         # 总是显示的基本信息
@@ -428,6 +432,7 @@ class StrategyEvaluator:
         print(f"   入场策略: {len(entry_strategies)}个")
         print(f"   出场策略: {len(exit_strategies)}个")
         print(f"   入场过滤器: {len(self.entry_filter_variants)}个")
+        print(f"   排序策略: {len(self.ranking_strategies)}个")
         print(f"   总回测次数: {total_backtests}")
         print(f"   数据缓存: {'启用' if self.use_cache else '禁用'}")
         print(f"   输出模式: {'详细' if self.verbose else '简洁'}")
@@ -507,18 +512,20 @@ class StrategyEvaluator:
             for entry in entry_strategies:
                 for exit in exit_strategies:
                     for filter_name, filter_cfg in self.entry_filter_variants:
-                        tasks.append(
-                            {
-                                "period_label": period_label,
-                                "start_date": start_date,
-                                "end_date": end_date,
-                                "entry_strategy": entry,
-                                "exit_strategy": exit,
-                                "entry_filter": filter_name,
-                                "entry_filter_config": filter_cfg,
-                                "topix_return": topix_return,
-                            }
-                        )
+                        for ranking_name in self.ranking_strategies:
+                            tasks.append(
+                                {
+                                    "period_label": period_label,
+                                    "start_date": start_date,
+                                    "end_date": end_date,
+                                    "entry_strategy": entry,
+                                    "exit_strategy": exit,
+                                    "entry_filter": filter_name,
+                                    "entry_filter_config": filter_cfg,
+                                    "topix_return": topix_return,
+                                    "ranking_strategy": ranking_name,
+                                }
+                            )
         _phase_timer_end("phase_build_tasks", phase_started)
         _log_step(f"evaluator: 任务列表完成 (tasks={len(tasks)})")
 
@@ -539,7 +546,8 @@ class StrategyEvaluator:
             if self.verbose:
                 print(
                     f"[{completed}/{total_backtests} {progress:.1f}%] "
-                    f"{task['entry_strategy']} × {task['exit_strategy']} × {task['entry_filter']}... ",
+                    f"{task['entry_strategy']} × {task['exit_strategy']} × {task['entry_filter']}"
+                    f" × rank:{task['ranking_strategy']}... ",
                     end="",
                     flush=True,
                 )
@@ -555,6 +563,7 @@ class StrategyEvaluator:
                     entry_filter_config=task["entry_filter_config"],
                     topix_return=task["topix_return"],
                     preloaded_cache=preloaded_cache,
+                    ranking_strategy=task["ranking_strategy"],
                 )
 
                 self.results.append(result)
@@ -705,21 +714,27 @@ class StrategyEvaluator:
         entry_filter_config: Dict,
         topix_return: float,
         preloaded_cache=None,
+        ranking_strategy: str = "default",
     ) -> AnnualStrategyResult:
         """
-        执行单个策略的回测
-        调用现有的portfolio_engine（不修改任何现有代码）
+        執行単個策略的回測
 
         Args:
             preloaded_cache: Optional BacktestDataCache instance for performance
+            ranking_strategy: 信号排序策略名称
         """
         from src.backtest.portfolio_engine import PortfolioBacktestEngine
-        from src.utils.strategy_loader import load_entry_strategy, load_exit_strategy
+        from src.utils.strategy_loader import (
+            load_entry_strategy,
+            load_exit_strategy,
+            load_ranking_strategy,
+        )
 
-        # 加载策略实例
+        # 加載策略实例
         phase_started = time.perf_counter()
         entry = load_entry_strategy(entry_strategy)
         exit_inst = load_exit_strategy(exit_strategy)
+        ranker = load_ranking_strategy(ranking_strategy)
         self._timing_counters["task_strategy_load"] += time.perf_counter() - phase_started
 
         # 加载监视列表
@@ -739,6 +754,7 @@ class StrategyEvaluator:
             overlay_manager=self.overlay_manager,
             preloaded_cache=preloaded_cache,  # Pass cache to engine
             entry_filter_config=entry_filter_config,
+            signal_ranker=ranker,
         )
         self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 
@@ -789,6 +805,7 @@ class StrategyEvaluator:
             avg_gain_pct=result.avg_gain_pct,
             avg_loss_pct=result.avg_loss_pct,
             exit_confirmation_days=self.exit_confirmation_days,
+            ranking_strategy=ranking_strategy,
         )
 
     def _get_topix_return(self, start_date: str, end_date: str) -> Optional[float]:

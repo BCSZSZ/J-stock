@@ -404,6 +404,8 @@ def _build_evaluator(
         enable_overlay_override=enable_overlay,
     )
 
+    ranking_strategies = getattr(args, "ranking_strategies", None)
+
     return StrategyEvaluator(
         data_root="data",
         output_dir=output_dir,
@@ -416,6 +418,7 @@ def _build_evaluator(
         ),
         entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
+        ranking_strategies=ranking_strategies,
     )
 
 

@@ -6,7 +6,7 @@ Backtests portfolio strategies with multiple concurrent positions
 import logging
 import math
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -23,7 +23,7 @@ from ..utils.signal_sizing import extract_buy_size_multiplier
 from .lot_size_manager import LotSizeManager
 from .models import BacktestResult, Trade
 from .portfolio import Portfolio, Position
-from .signal_ranker import SignalRanker
+from .signal_ranker import DefaultSignalRanker, SignalRanker
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ class PortfolioBacktestEngine:
         preloaded_cache: Optional["BacktestDataCache"] = None,
         entry_filter_config: Optional[Dict] = None,
         buy_rank_buffer: int = 2,
+        signal_ranker: Optional[Union["DefaultSignalRanker", object]] = None,
     ):
         """
         Args:
@@ -60,12 +61,13 @@ class PortfolioBacktestEngine:
             max_position_pct: 单股最大仓位
             min_position_pct: 单股最小仓位
             exit_confirmation_days: 出场确认天数（连续N天SELL才执行）
-            signal_ranking_method: 信号排序方法
+            signal_ranking_method: 信号排序方法（旧接口，signal_ranker 优先）
             data_root: 数据根目录
             overlay_manager: Overlay管理器
             preloaded_cache: 预加载的数据缓存（可选，用于性能优化）
             entry_filter_config: 入场二级过滤配置（可选）
             buy_rank_buffer: 买入排序额外缓冲数量（TopN+buffer）
+            signal_ranker: 排序策略实例（优先于 signal_ranking_method）
         """
         self.starting_capital = starting_capital
         self.max_positions = max_positions
@@ -78,8 +80,11 @@ class PortfolioBacktestEngine:
         self.entry_filter = EntrySecondaryFilter.from_dict(entry_filter_config)
         self.buy_rank_buffer = max(0, int(buy_rank_buffer))
 
-        # 创建信号排序器
-        self.signal_ranker = SignalRanker(method=signal_ranking_method)
+        # 创建信号排序器: 优先使用实例，否则按旧字符串方式
+        if signal_ranker is not None:
+            self.signal_ranker = signal_ranker
+        else:
+            self.signal_ranker = SignalRanker(method=signal_ranking_method)
 
     def backtest_portfolio_strategy(
         self,

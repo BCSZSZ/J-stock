@@ -314,6 +314,50 @@ def load_exit_strategy(name: str, params: Dict[str, Any] = None):
     return create_strategy_instance(name, "exit", params)
 
 
+# ==================== 排序策略 ====================
+
+RANKING_STRATEGIES: Dict[str, str] = {
+    "default": "src.backtest.signal_ranker.DefaultSignalRanker",
+    "random": "src.backtest.signal_ranker.RandomSignalRanker",
+    "score_only": "src.backtest.signal_ranker.ScoreOnlyRanker",
+    "confidence_weighted": "src.backtest.signal_ranker.ConfidenceWeightedRanker",
+    "risk_adjusted": "src.backtest.signal_ranker.RiskAdjustedRanker",
+    "composite": "src.backtest.signal_ranker.CompositeRanker",
+    "momentum": "src.backtest.signal_ranker.MomentumRanker",
+    "volatility_penalty": "src.backtest.signal_ranker.VolatilityPenaltyRanker",
+    "trend_alignment": "src.backtest.signal_ranker.TrendAlignmentRanker",
+}
+
+
+def load_ranking_strategy(name: str):
+    """
+    加载排序策略实例。
+
+    Args:
+        name: 排序策略名称（RANKING_STRATEGIES 键）
+
+    Returns:
+        排序策略实例（满足 BaseSignalRanker 协议）
+
+    Raises:
+        ValueError: 名称不存在
+    """
+    if name not in RANKING_STRATEGIES:
+        available = ", ".join(RANKING_STRATEGIES.keys())
+        raise ValueError(
+            f"Unknown ranking strategy '{name}'. Available: {available}"
+        )
+    module_path, class_name = RANKING_STRATEGIES[name].rsplit(".", 1)
+    module = __import__(module_path, fromlist=[class_name])
+    cls = getattr(module, class_name)
+    return cls()
+
+
+def get_available_ranking_strategies() -> List[str]:
+    """获取所有可用排序策略名称"""
+    return list(RANKING_STRATEGIES.keys())
+
+
 if __name__ == "__main__":
     # 测试
     print_available_strategies()

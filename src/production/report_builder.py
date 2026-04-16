@@ -643,15 +643,24 @@ class ReportBuilder:
         ]
 
         if buy_signals:
-            sorted_buy = sorted(
-                buy_signals,
-                key=lambda s: (
-                    0 if (s.suggested_qty or 0) > 0 else 1,
-                    s.required_capital if s.required_capital else float("inf"),
-                    -s.score,
-                    -s.confidence,
-                ),
-            )
+            has_rank = any(getattr(s, "rank", None) is not None for s in buy_signals)
+            if has_rank:
+                sorted_buy = sorted(
+                    buy_signals,
+                    key=lambda s: (
+                        s.rank if s.rank is not None else 9999,
+                    ),
+                )
+            else:
+                sorted_buy = sorted(
+                    buy_signals,
+                    key=lambda s: (
+                        0 if (s.suggested_qty or 0) > 0 else 1,
+                        s.required_capital if s.required_capital else float("inf"),
+                        -s.score,
+                        -s.confidence,
+                    ),
+                )
             lines.append(
                 "| Rank | Group | Ticker | Name | Price | Strategy | Score | Confidence | Qty | Capital (¥) | Reason |"
             )

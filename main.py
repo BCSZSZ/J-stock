@@ -114,6 +114,16 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
             "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%"
         ),
     )
+    parser.add_argument(
+        "--ranking-strategies",
+        nargs="+",
+        default=None,
+        help=(
+            "信号排序策略（默认: default）。"
+            "可选: default, random, score_only, confidence_weighted, "
+            "risk_adjusted, composite, momentum, volatility_penalty, trend_alignment"
+        ),
+    )
 
 
 def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -186,6 +196,16 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         help=(
             "训练阶段策略排序模式: legacy=旧版跨市场平均排名, "
             "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%"
+        ),
+    )
+    parser.add_argument(
+        "--ranking-strategies",
+        nargs="+",
+        default=None,
+        help=(
+            "信号排序策略（默认: default）。"
+            "可选: default, random, score_only, confidence_weighted, "
+            "risk_adjusted, composite, momentum, volatility_penalty, trend_alignment"
         ),
     )
 

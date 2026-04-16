@@ -58,6 +58,10 @@ class Signal:
     suggested_qty: Optional[int] = None
     required_capital: Optional[float] = None
 
+    # Ranking (populated when signal_ranking_strategy is configured)
+    rank: Optional[int] = None
+    rank_score: Optional[float] = None
+
     # Metadata
     strategy_name: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())

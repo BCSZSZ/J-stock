@@ -808,6 +808,48 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
         print(f"      BUY: {buy_count}, SELL: {sell_count}")
 
+    # ------- Optional: Rank BUY signals -------
+    ranking_strategy_name = raw_config.get("production", {}).get(
+        "signal_ranking_strategy"
+    )
+    if ranking_strategy_name:
+        try:
+            from src.utils.strategy_loader import load_ranking_strategy
+
+            ranker = load_ranking_strategy(ranking_strategy_name)
+            buy_signals = [s for s in all_signals if s.signal_type == "BUY"]
+            if buy_signals:
+                from src.analysis.signals import (
+                    MarketData as _MD,
+                    SignalAction as _SA,
+                    TradingSignal as _TS,
+                )
+
+                # Convert production Signals → TradingSignal dict for ranker
+                ts_dict = {}
+                for s in buy_signals:
+                    ts_dict[s.ticker] = _TS(
+                        action=_SA.BUY,
+                        confidence=s.confidence,
+                        reasons=[s.reason],
+                        metadata={"score": s.score},
+                        strategy_name=s.strategy_name,
+                    )
+                ranked = ranker.rank_buy_signals(ts_dict, {})
+                rank_map = {
+                    ticker: (idx + 1, priority)
+                    for idx, (ticker, _, priority) in enumerate(ranked)
+                }
+                for s in all_signals:
+                    if s.signal_type == "BUY" and s.ticker in rank_map:
+                        s.rank, s.rank_score = rank_map[s.ticker]
+                print(
+                    f"\n[Ranking] Applied '{ranking_strategy_name}' to "
+                    f"{len(buy_signals)} BUY signals"
+                )
+        except Exception as e:
+            print(f"\n[Ranking] Warning: ranking failed ({e}), skipping")
+
     signal_file = prod_cfg.signal_file_pattern.replace("{date}", signal_date)
     Path(signal_file).parent.mkdir(parents=True, exist_ok=True)
 
