@@ -53,16 +53,9 @@ class StockComprehensiveEvaluation:
     def overall_signal(self) -> str:
         """Determine overall recommendation based on evaluations"""
         buy_count = sum(1 for e in self.evaluations.values() if e.signal_action == "BUY")
-        total_strategies = len(self.evaluations)
-        
-        if buy_count == total_strategies:
-            return "STRONG_BUY"
-        elif buy_count > total_strategies / 2:
+        if buy_count > 0:
             return "BUY"
-        elif buy_count > 0:
-            return "WEAK_BUY"
-        else:
-            return "HOLD"
+        return "HOLD"
 
 
 class ComprehensiveEvaluator:

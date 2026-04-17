@@ -497,27 +497,17 @@ class ReportBuilder:
             if sig_key > current_key:
                 best_buy_by_ticker[sig.ticker] = sig
 
-        # Sort by overall signal, executable priority, then affordability
+        # Sort by overall signal, then ranking strategy order for BUY signals
         sorted_evals = sorted(
             evaluations.values(),
             key=lambda e: (
-                {"STRONG_BUY": 0, "BUY": 1, "WEAK_BUY": 2, "HOLD": 3}.get(
-                    e.overall_signal, 99
-                ),
-                0
+                0 if e.overall_signal == "BUY" else 1,
+                best_buy_by_ticker[e.ticker].rank
                 if (
                     best_buy_by_ticker.get(e.ticker)
-                    and (best_buy_by_ticker[e.ticker].suggested_qty or 0) > 0
+                    and best_buy_by_ticker[e.ticker].rank is not None
                 )
-                else 1,
-                (
-                    best_buy_by_ticker.get(e.ticker).required_capital
-                    if (
-                        best_buy_by_ticker.get(e.ticker)
-                        and best_buy_by_ticker[e.ticker].required_capital
-                    )
-                    else float("inf")
-                ),
+                else 999999,
                 -e.current_price,
             ),
         )
@@ -568,13 +558,7 @@ class ReportBuilder:
             atr = f"{eval_obj.technical_indicators.get('ATR', 0):.2f}"
 
             # Overall signal with emoji
-            signal_emoji = {
-                "STRONG_BUY": "🟢🟢",
-                "BUY": "🟢",
-                "WEAK_BUY": "🟡",
-                "HOLD": "⚪",
-            }.get(eval_obj.overall_signal, "⚪")
-
+            signal_emoji = "🟢" if eval_obj.overall_signal == "BUY" else "⚪"
             overall = f"{signal_emoji} {eval_obj.overall_signal}"
 
             strategy_row = " | ".join(strategy_cells)
@@ -585,13 +569,13 @@ class ReportBuilder:
 
         # BUY signals summary (executable-first ranking)
         buy_evals = [
-            e for e in sorted_evals if e.overall_signal in ["STRONG_BUY", "BUY"]
+            e for e in sorted_evals if e.overall_signal == "BUY"
         ]
         if buy_evals:
             lines.append("")
             lines.append("### 🟢 BUY Signals Summary")
             lines.append("")
-            lines.append(f"**Total BUY/STRONG_BUY:** {len(buy_evals)}")
+            lines.append(f"**Total BUY:** {len(buy_evals)}")
             lines.append("")
             lines.append(
                 "| Rank | Ticker | Name | Strategy | Score | Confidence | Qty | Capital (¥) | Reason |"
@@ -609,8 +593,7 @@ class ReportBuilder:
             ranked_signals = sorted(
                 ranked_signals,
                 key=lambda s: (
-                    0 if (s.suggested_qty or 0) > 0 else 1,
-                    s.required_capital if s.required_capital else float("inf"),
+                    s.rank if s.rank is not None else 999999,
                     -s.score,
                     -s.confidence,
                 ),
