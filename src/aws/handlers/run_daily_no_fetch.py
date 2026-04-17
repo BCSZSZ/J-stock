@@ -1,15 +1,19 @@
 import json
+import logging
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 import boto3
 
+from src.aws.jpx_holidays import is_jpx_trading_day
 from src.aws.s3_data_sync import download_seed_for_job, is_s3_prefix
+
+logger = logging.getLogger(__name__)
 
 
 JST = timezone(timedelta(hours=9))
@@ -203,6 +207,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         raise ValueError("OPS_S3_PREFIX must be s3://...")
 
     run_date = event.get("run_date") or _jst_today_str()
+
+    if not event.get("force") and not is_jpx_trading_day(date.fromisoformat(run_date)):
+        logger.info("Skipping daily no-fetch: %s is not a JPX trading day", run_date)
+        return {"status": "skipped", "run_date": run_date, "reason": "jpx_holiday"}
+
     readiness = _read_readiness(ops_s3_prefix, run_date)
     if not readiness or not bool(readiness.get("ready", False)):
         reason = "missing_readiness" if readiness is None else "readiness_not_ready"

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 from src.aws.s3_data_sync import (
     download_seed_for_job,
@@ -16,8 +16,15 @@ def _load_api_key() -> str:
     return api_key
 
 
+def _extract_ticker_code(raw: Union[Dict[str, str], str, int]) -> str:
+    """Extract plain ticker code string from raw ticker (str, int, or dict with 'code' key)."""
+    if isinstance(raw, dict):
+        return str(raw.get("code", "")).strip()
+    return str(raw).strip()
+
+
 def _process_job(job: Dict[str, Any]) -> Dict[str, Any]:
-    tickers: List[str] = [str(t).strip() for t in job.get("tickers", []) if str(t).strip()]
+    tickers: List[str] = [c for t in job.get("tickers", []) if (c := _extract_ticker_code(t))]
     if not tickers:
         return {"status": "skip", "reason": "empty_tickers"}
 

@@ -1,13 +1,17 @@
 import json
+import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import ClientError
 
+from src.aws.jpx_holidays import is_jpx_trading_day
 from src.aws.ticker_universe import resolve_fetch_tickers
+
+logger = logging.getLogger(__name__)
 
 
 JST = timezone(timedelta(hours=9))
@@ -71,14 +75,20 @@ def _validate_data_freshness(data_s3_prefix: str, tickers: List[str], run_date: 
 
 def _write_readiness(ops_s3_prefix: str, run_date: str, payload: Dict[str, Any]) -> str:
     bucket, prefix = _parse_s3_prefix(ops_s3_prefix)
-    key = f"{prefix}/run_status/date={run_date}/readiness.json" if prefix else f"run_status/date={run_date}/readiness.json"
-    boto3.client("s3").put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
-        ContentType="application/json",
-    )
-    return f"s3://{bucket}/{key}"
+    base = f"{prefix}/run_status/date={run_date}" if prefix else f"run_status/date={run_date}"
+    s3 = boto3.client("s3")
+    body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+    # Write per-attempt file for debugging history (never overwritten).
+    attempt = str(payload.get("attempt", "unknown"))
+    attempt_key = f"{base}/readiness_attempt={attempt}.json"
+    s3.put_object(Bucket=bucket, Key=attempt_key, Body=body, ContentType="application/json")
+
+    # Write canonical readiness.json (latest attempt wins — consumed by DailyNoFetch).
+    canonical_key = f"{base}/readiness.json"
+    s3.put_object(Bucket=bucket, Key=canonical_key, Body=body, ContentType="application/json")
+
+    return f"s3://{bucket}/{canonical_key}"
 
 
 def _maybe_redispatch(event: Dict[str, Any], run_date: str) -> bool:
@@ -121,6 +131,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         raise ValueError("OPS_S3_PREFIX must be s3://...")
 
     run_date = str(event.get("run_date") or _jst_today_str())
+
+    if not event.get("force") and not is_jpx_trading_day(date.fromisoformat(run_date)):
+        logger.info("Skipping validation: %s is not a JPX trading day", run_date)
+        return {"status": "skipped", "run_date": run_date, "reason": "jpx_holiday"}
+
     universe = resolve_fetch_tickers(event)
     tickers = universe["tickers"]
 

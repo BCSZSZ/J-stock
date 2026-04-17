@@ -60,11 +60,11 @@ Parameters:
 
   Validation1830ScheduleExpression:
     Type: String
-    Default: cron(30 9 ? * MON-FRI *)
+    Default: cron(0 10 ? * MON-FRI *)
 
   Validation1900ScheduleExpression:
     Type: String
-    Default: cron(0 10 ? * MON-FRI *)
+    Default: cron(30 10 ? * MON-FRI *)
 
   NotifyEmail:
     Type: String
@@ -288,7 +288,7 @@ Resources:
   Validation1830Schedule:
     Type: AWS::Scheduler::Schedule
     Properties:
-      Description: Validate data readiness at 18:30 JST and re-dispatch if needed
+      Description: Validate data readiness at 19:00 JST and re-dispatch if needed
       FlexibleTimeWindow:
         Mode: "OFF"
       ScheduleExpression: !Ref Validation1830ScheduleExpression
@@ -296,12 +296,12 @@ Resources:
       Target:
         Arn: !GetAtt ValidateReadinessFunction.Arn
         RoleArn: !GetAtt SchedulerInvokeLambdaRole.Arn
-        Input: '{"attempt":"1830","allow_redispatch":true}'
+        Input: '{"attempt":"1900","allow_redispatch":true}'
 
   Validation1900Schedule:
     Type: AWS::Scheduler::Schedule
     Properties:
-      Description: Validate data readiness at 19:00 JST and lock final state
+      Description: Validate data readiness at 19:30 JST and lock final state
       FlexibleTimeWindow:
         Mode: "OFF"
       ScheduleExpression: !Ref Validation1900ScheduleExpression
@@ -309,7 +309,7 @@ Resources:
       Target:
         Arn: !GetAtt ValidateReadinessFunction.Arn
         RoleArn: !GetAtt SchedulerInvokeLambdaRole.Arn
-        Input: '{"attempt":"1900","allow_redispatch":false}'
+        Input: '{"attempt":"1930","allow_redispatch":false}'
 
   SchedulerInvokeLambdaRole:
     Type: AWS::IAM::Role
