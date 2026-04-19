@@ -474,6 +474,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             prices[pos.ticker] = float(latest_row.get("Close", 0.0))
         return prices
 
+    _group_buy_contexts: Dict[str, dict] = {}
+
     for group in groups:
         group_cfg = group_configs.get(group.id, {})
         entry_strategy_name = group_cfg.get(
@@ -718,14 +720,15 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             except Exception:
                 continue
 
-        # Step 2) Build BUY signals using projected post-sell cash/exposure
+        # Step 2) Build ALL BUY signals (no position-limit break).
+        #   Capital allocation is deferred to post-ranking step so that
+        #   the ranking strategy (e.g. momentum) decides buy priority,
+        #   consistent with the evaluation (portfolio_engine) flow.
         invested_value = sum(
             pos.quantity * current_prices.get(pos.ticker, pos.entry_price)
             for pos in group.positions
             if pos.quantity > 0
         )
-        planning_cash = float(group.cash) + projected_sell_proceeds
-        planning_invested_value = max(0.0, invested_value - projected_sell_proceeds)
 
         for ticker, eval_obj in comprehensive_evals.items():
             if ticker in current_tickers:
@@ -734,51 +737,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             if not strategy_eval or strategy_eval.signal_action != "BUY":
                 continue
 
-            # Check if adding new position would exceed max_positions_per_group
-            if (
-                projected_position_count + new_positions_opened
-                >= prod_cfg.max_positions_per_group
-            ):
-                break
-
-            if (
-                max_new_positions is not None
-                and new_positions_opened >= max_new_positions
-            ):
-                break
-
-            max_position_pct = float(prod_cfg.max_position_pct)
-            if overlay_decision and overlay_decision.position_scale is not None:
-                max_position_pct *= overlay_decision.position_scale
-
-            signal_buy_scale = extract_buy_size_multiplier(strategy_eval.metadata)
-            max_position_pct *= signal_buy_scale
-
-            available_cash = planning_cash
-            if overlay_decision and overlay_decision.target_exposure is not None:
-                max_invested = total_value * overlay_decision.target_exposure
-                available_exposure = max(0.0, max_invested - planning_invested_value)
-                available_cash = min(available_cash, available_exposure)
-
             estimated_buy_price = _estimate_buy_price(float(eval_obj.current_price))
-            suggested_qty, required_capital, lot_size = _calc_suggested_qty(
-                ticker=ticker,
-                current_price=estimated_buy_price,
-                available_cash=available_cash,
-                total_portfolio_value=total_value,
-                max_position_pct=max_position_pct,
-            )
-
-            buy_reason = strategy_eval.reason
-            if overlay_decision and overlay_decision.block_new_entries:
-                suggested_qty = 0
-                required_capital = 0.0
-                buy_reason = f"{buy_reason}; Overlay blocked new entries"
-            elif suggested_qty <= 0:
-                buy_reason = (
-                    f"{buy_reason}; SuggestedQty=0: projected cash/exposure insufficient "
-                    f"for lot size {lot_size}"
-                )
 
             signal = Signal(
                 group_id=group.id,
@@ -788,23 +747,30 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 action="BUY",
                 confidence=strategy_eval.confidence,
                 score=strategy_eval.score,
-                reason=buy_reason,
+                reason=strategy_eval.reason,
                 current_price=estimated_buy_price,
                 close_price=float(eval_obj.current_price),
                 planned_price=float(estimated_buy_price),
                 planning_price_factor=float(1.0 + buy_price_buffer_pct),
                 sell_price_factor=float(1.0 - sell_price_buffer_pct),
-                suggested_qty=suggested_qty,
-                required_capital=required_capital,
+                suggested_qty=0,
+                required_capital=0.0,
                 strategy_name=entry_strategy_name,
             )
             all_signals.append(signal)
             buy_count += 1
             total_buy_signals += 1
-            if suggested_qty > 0:
-                new_positions_opened += 1
-                planning_cash = max(0.0, planning_cash - required_capital)
-                planning_invested_value += required_capital
+
+        # Store per-group context for post-ranking capital allocation
+        _group_buy_contexts[group.id] = {
+            "group": group,
+            "overlay_decision": overlay_decision,
+            "projected_sell_proceeds": projected_sell_proceeds,
+            "projected_position_count": projected_position_count,
+            "invested_value": invested_value,
+            "total_value": total_value,
+            "max_new_positions": max_new_positions,
+        }
 
         print(f"      BUY: {buy_count}, SELL: {sell_count}")
 
@@ -835,7 +801,20 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         metadata={"score": s.score},
                         strategy_name=s.strategy_name,
                     )
-                ranked = ranker.rank_buy_signals(ts_dict, {})
+
+                # Build market data for BUY tickers (needed by MomentumRanker)
+                md_dict: Dict[str, _MD] = {}
+                if ranker.requires_market_data():
+                    for ticker in ts_dict:
+                        md = MarketDataBuilder.build_from_manager(
+                            data_manager=data_manager,
+                            ticker=ticker,
+                            current_date=pd.Timestamp(signal_date),
+                        )
+                        if md is not None:
+                            md_dict[ticker] = md
+
+                ranked = ranker.rank_buy_signals(ts_dict, md_dict)
                 rank_map = {
                     ticker: (idx + 1, priority)
                     for idx, (ticker, _, priority) in enumerate(ranked)
@@ -849,6 +828,80 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 )
         except Exception as e:
             print(f"\n[Ranking] Warning: ranking failed ({e}), skipping")
+
+    # ------- Post-ranking capital allocation (evaluation-consistent) -------
+    # Allocate qty/capital to BUY signals in rank order, respecting
+    # max_positions, overlay limits, and available cash — just like
+    # portfolio_engine does in the evaluation flow.
+    buy_signals_all = [s for s in all_signals if s.signal_type == "BUY"]
+    buy_signals_all.sort(
+        key=lambda s: (s.rank if s.rank is not None else 999999,)
+    )
+
+    for group_id, ctx in _group_buy_contexts.items():
+        group = ctx["group"]
+        overlay_decision = ctx["overlay_decision"]
+        total_value = ctx["total_value"]
+        projected_sell_proceeds = ctx["projected_sell_proceeds"]
+        invested_value = ctx["invested_value"]
+        max_new_positions = ctx["max_new_positions"]
+        projected_position_count = ctx["projected_position_count"]
+
+        planning_cash = float(group.cash) + projected_sell_proceeds
+        planning_invested_value = max(0.0, invested_value - projected_sell_proceeds)
+        new_positions_opened = 0
+
+        group_buys = [s for s in buy_signals_all if s.group_id == group_id]
+
+        for sig in group_buys:
+            # Position limit check (same as evaluation's can_open_new_position)
+            if (
+                projected_position_count + new_positions_opened
+                >= prod_cfg.max_positions_per_group
+            ):
+                sig.reason = f"{sig.reason}; Skipped: max positions ({prod_cfg.max_positions_per_group}) reached"
+                continue
+
+            if max_new_positions is not None and new_positions_opened >= max_new_positions:
+                sig.reason = f"{sig.reason}; Skipped: max new positions ({max_new_positions}) reached"
+                continue
+
+            if overlay_decision and overlay_decision.block_new_entries:
+                sig.reason = f"{sig.reason}; Overlay blocked new entries"
+                continue
+
+            max_position_pct = float(prod_cfg.max_position_pct)
+            if overlay_decision and overlay_decision.position_scale is not None:
+                max_position_pct *= overlay_decision.position_scale
+
+            signal_buy_scale = extract_buy_size_multiplier({})
+            max_position_pct *= signal_buy_scale
+
+            available_cash = planning_cash
+            if overlay_decision and overlay_decision.target_exposure is not None:
+                max_invested = total_value * overlay_decision.target_exposure
+                available_exposure = max(0.0, max_invested - planning_invested_value)
+                available_cash = min(available_cash, available_exposure)
+
+            suggested_qty, required_capital, lot_size = _calc_suggested_qty(
+                ticker=sig.ticker,
+                current_price=sig.current_price,
+                available_cash=available_cash,
+                total_portfolio_value=total_value,
+                max_position_pct=max_position_pct,
+            )
+
+            if suggested_qty > 0:
+                sig.suggested_qty = suggested_qty
+                sig.required_capital = required_capital
+                new_positions_opened += 1
+                planning_cash = max(0.0, planning_cash - required_capital)
+                planning_invested_value += required_capital
+            else:
+                sig.reason = (
+                    f"{sig.reason}; SuggestedQty=0: projected cash/exposure "
+                    f"insufficient for lot size {lot_size}"
+                )
 
     signal_file = prod_cfg.signal_file_pattern.replace("{date}", signal_date)
     Path(signal_file).parent.mkdir(parents=True, exist_ok=True)

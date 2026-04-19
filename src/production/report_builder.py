@@ -526,12 +526,12 @@ class ReportBuilder:
         strategy_header = " | ".join(strategy_names) if strategy_names else "Strategies"
         lines.append(
             "| Ticker | Name | Price | "
-            f"{strategy_header} | EMA20 | EMA50 | EMA200 | RSI | ATR | Overall |"
+            f"{strategy_header} | Momentum | EMA20 | EMA50 | EMA200 | RSI | ATR | Overall |"
         )
         lines.append(
             "|--------|------|-------|"
             + "|".join(["----------------------"] * max(len(strategy_names), 1))
-            + "|-------|-------|--------|-----|-----|---------|"
+            + "|----------|-------|-------|--------|-----|-----|---------|"
         )
 
         # Table rows
@@ -557,6 +557,13 @@ class ReportBuilder:
             rsi = f"{eval_obj.technical_indicators.get('RSI', 0):.0f}"
             atr = f"{eval_obj.technical_indicators.get('ATR', 0):.2f}"
 
+            # Momentum ranking score (only for BUY signals)
+            buy_sig = best_buy_by_ticker.get(ticker)
+            if buy_sig and buy_sig.rank_score is not None:
+                momentum_cell = f"{buy_sig.rank_score:+.1f}"
+            else:
+                momentum_cell = "—"
+
             # Overall signal with emoji
             signal_emoji = "🟢" if eval_obj.overall_signal == "BUY" else "⚪"
             overall = f"{signal_emoji} {eval_obj.overall_signal}"
@@ -564,7 +571,7 @@ class ReportBuilder:
             strategy_row = " | ".join(strategy_cells)
             lines.append(
                 f"| {ticker} | {self._get_ticker_name(ticker)[:15]} | {price} | "
-                f"{strategy_row} | {ema20} | {ema50} | {ema200} | {rsi} | {atr} | {overall} |"
+                f"{strategy_row} | {momentum_cell} | {ema20} | {ema50} | {ema200} | {rsi} | {atr} | {overall} |"
             )
 
         # BUY signals summary (executable-first ranking)
