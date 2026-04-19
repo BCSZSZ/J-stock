@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
 from web.api.dependencies import get_production_config, get_project_root
+from src.aws.jpx_holidays import next_trading_day as _next_trading_day
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
@@ -99,3 +101,12 @@ def get_ticker_names() -> dict[str, str]:
         return {}
     df = pd.read_csv(csv_path, dtype=str, usecols=["Code", "銘柄名"])
     return dict(zip(df["Code"], df["銘柄名"]))
+
+
+@router.get("/next-trading-day")
+def get_next_trading_day(after: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$")) -> dict[str, str]:
+    """Return the next JPX trading day strictly after the given date."""
+    d = date.fromisoformat(after)
+    from datetime import timedelta
+    result = _next_trading_day(d + timedelta(days=1))
+    return {"date": result.isoformat()}

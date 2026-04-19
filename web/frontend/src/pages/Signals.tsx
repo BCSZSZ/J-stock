@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import { useTickerNames } from "../hooks/useTickerNames";
 
 export default function Signals() {
   const dates = useQuery({ queryKey: ["signal-dates"], queryFn: api.signalDates });
+  const [searchParams] = useSearchParams();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [viewReport, setViewReport] = useState(false);
+  const [viewReport, setViewReport] = useState(searchParams.get("view") === "report");
+  const names = useTickerNames();
 
   const signals = useQuery({
     queryKey: ["signals", selectedDate],
@@ -60,6 +64,7 @@ export default function Signals() {
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-800">
                 <th className="py-2 px-3">Ticker</th>
+                <th className="py-2 px-3">Name</th>
                 <th className="py-2 px-3">Action</th>
                 <th className="py-2 px-3">Confidence</th>
                 <th className="py-2 px-3">Score</th>
@@ -74,8 +79,16 @@ export default function Signals() {
                   key={i}
                   className="border-b border-gray-800/50 hover:bg-gray-800/30"
                 >
-                  <td className="py-2 px-3 font-medium text-blue-400">
-                    {(s.ticker as string) ?? ""}
+                  <td className="py-2 px-3 font-medium">
+                    <Link
+                      to={`/stock/${s.ticker}`}
+                      className="text-blue-400 hover:underline"
+                    >
+                      {(s.ticker as string) ?? ""}
+                    </Link>
+                  </td>
+                  <td className="py-2 px-3 text-gray-400 text-xs">
+                    {names[String(s.ticker ?? "")] ?? ""}
                   </td>
                   <td className="py-2 px-3">
                     <span

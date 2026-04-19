@@ -98,3 +98,5 @@ Thumbs.db
 
 # AWS SAM local build artifacts
 .aws-sam/
+
+web/_temp_trades.csv

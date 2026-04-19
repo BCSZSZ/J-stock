@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 
 const NAV_ITEMS = [
-  { to: "/", label: "Dashboard", icon: "📊" },
+  { to: "/dashboard", label: "Dashboard", icon: "📊" },
   { to: "/production", label: "Production", icon: "🚀" },
   { to: "/evaluation", label: "Evaluation", icon: "📈" },
   { to: "/portfolio", label: "Portfolio", icon: "💼" },

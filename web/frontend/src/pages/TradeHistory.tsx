@@ -4,6 +4,9 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useTickerNames } from "../hooks/useTickerNames";
 
+type SortKey = "date" | "ticker" | "name" | "action" | "qty" | "price" | "pnl";
+type SortDir = "asc" | "desc";
+
 export default function TradeHistory() {
   const { data, isLoading } = useQuery({
     queryKey: ["trade-history"],
@@ -12,29 +15,17 @@ export default function TradeHistory() {
   const names = useTickerNames();
   const [filterTicker, setFilterTicker] = useState("");
   const [filterAction, setFilterAction] = useState<"" | "BUY" | "SELL">("");
+  const [sortKey, setSortKey] = useState<SortKey>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const allEvents: Array<Record<string, unknown>> =
     ((data as Record<string, unknown>)?.events as Array<Record<string, unknown>>) ?? [];
-
-  const events = useMemo(() => {
-    let filtered = allEvents;
-    if (filterTicker) {
-      filtered = filtered.filter((e) =>
-        String(e.ticker ?? "").includes(filterTicker),
-      );
-    }
-    if (filterAction) {
-      filtered = filtered.filter((e) => e.action === filterAction);
-    }
-    return filtered;
-  }, [allEvents, filterTicker, filterAction]);
 
   /** Extract entry_price from position_effects for SELL events, compute P&L */
   function getPnL(e: Record<string, unknown>): { entryPrice: number; pnl: number; pnlPct: number } | null {
     if (e.action !== "SELL") return null;
     const effects = e.position_effects as Array<Record<string, unknown>> | undefined;
     if (!effects || effects.length === 0) return null;
-    // Weighted average entry price across all consumed lots
     let totalCost = 0;
     let totalQty = 0;
     for (const eff of effects) {
@@ -50,6 +41,64 @@ export default function TradeHistory() {
     const pnlPct = ((sellPrice - entryPrice) / entryPrice) * 100;
     return { entryPrice, pnl, pnlPct };
   }
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "date" ? "desc" : "asc");
+    }
+  }
+
+  function sortIndicator(key: SortKey) {
+    if (sortKey !== key) return "";
+    return sortDir === "asc" ? " ▲" : " ▼";
+  }
+
+  const events = useMemo(() => {
+    let filtered = allEvents;
+    if (filterTicker) {
+      filtered = filtered.filter((e) =>
+        String(e.ticker ?? "").includes(filterTicker),
+      );
+    }
+    if (filterAction) {
+      filtered = filtered.filter((e) => e.action === filterAction);
+    }
+
+    const sorted = [...filtered].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "date":
+          cmp = String(a.date ?? "").localeCompare(String(b.date ?? ""));
+          break;
+        case "ticker":
+          cmp = String(a.ticker ?? "").localeCompare(String(b.ticker ?? ""));
+          break;
+        case "name":
+          cmp = (names[String(a.ticker ?? "")] ?? "").localeCompare(names[String(b.ticker ?? "")] ?? "");
+          break;
+        case "action":
+          cmp = String(a.action ?? "").localeCompare(String(b.action ?? ""));
+          break;
+        case "qty":
+          cmp = Number(a.qty ?? a.quantity ?? 0) - Number(b.qty ?? b.quantity ?? 0);
+          break;
+        case "price":
+          cmp = Number(a.price ?? 0) - Number(b.price ?? 0);
+          break;
+        case "pnl": {
+          const pa = getPnL(a)?.pnl ?? -Infinity;
+          const pb = getPnL(b)?.pnl ?? -Infinity;
+          cmp = pa - pb;
+          break;
+        }
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [allEvents, filterTicker, filterAction, sortKey, sortDir, names]);
 
   if (isLoading) return <div className="text-gray-500">Loading...</div>;
 
@@ -83,14 +132,14 @@ export default function TradeHistory() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-gray-500 border-b border-gray-800">
-              <th className="py-2 px-3">Date</th>
-              <th className="py-2 px-3">Ticker</th>
-              <th className="py-2 px-3">Name</th>
-              <th className="py-2 px-3">Action</th>
-              <th className="py-2 px-3">Qty</th>
-              <th className="py-2 px-3">Price</th>
+              <th className="py-2 px-3 cursor-pointer select-none hover:text-gray-300" onClick={() => toggleSort("date")}>Date{sortIndicator("date")}</th>
+              <th className="py-2 px-3 cursor-pointer select-none hover:text-gray-300" onClick={() => toggleSort("ticker")}>Ticker{sortIndicator("ticker")}</th>
+              <th className="py-2 px-3 cursor-pointer select-none hover:text-gray-300" onClick={() => toggleSort("name")}>Name{sortIndicator("name")}</th>
+              <th className="py-2 px-3 cursor-pointer select-none hover:text-gray-300" onClick={() => toggleSort("action")}>Action{sortIndicator("action")}</th>
+              <th className="py-2 px-3 cursor-pointer select-none hover:text-gray-300" onClick={() => toggleSort("qty")}>Qty{sortIndicator("qty")}</th>
+              <th className="py-2 px-3 cursor-pointer select-none hover:text-gray-300" onClick={() => toggleSort("price")}>Price{sortIndicator("price")}</th>
               <th className="py-2 px-3">Entry Price</th>
-              <th className="py-2 px-3">P&L</th>
+              <th className="py-2 px-3 cursor-pointer select-none hover:text-gray-300" onClick={() => toggleSort("pnl")}>P&L{sortIndicator("pnl")}</th>
               <th className="py-2 px-3">Reason</th>
             </tr>
           </thead>

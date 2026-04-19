@@ -1,7 +1,10 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import LogOutput from "../components/LogOutput";
 import { useStreamExec } from "../hooks/useStreamExec";
+import { api } from "../api/client";
+import { useTickerNames } from "../hooks/useTickerNames";
 
 interface TradeRow {
   ticker: string;
@@ -26,6 +29,53 @@ export default function Production() {
   const inputTrades = useStreamExec();
   const { confirm, dialog } = useConfirmDialog();
   const [trades, setTrades] = useState<TradeRow[]>([emptyTrade()]);
+  const names = useTickerNames();
+
+  // Signal import
+  const signalDates = useQuery({ queryKey: ["signal-dates"], queryFn: api.signalDates });
+  const [importDate, setImportDate] = useState<string | null>(null);
+  const effectiveImportDate = importDate ?? signalDates.data?.[0] ?? null;
+  if (!importDate && signalDates.data?.[0]) {
+    setImportDate(signalDates.data[0]);
+  }
+
+  /** Get the next JPX trading day after a given date (via backend API). */
+  async function fetchNextTradingDay(dateStr: string): Promise<string> {
+    try {
+      const res = await api.nextTradingDay(dateStr);
+      return res.date;
+    } catch {
+      // Fallback: skip weekends only
+      const d = new Date(dateStr + "T00:00:00");
+      do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
+      return d.toISOString().slice(0, 10);
+    }
+  }
+
+  async function handleImportFromSignals() {
+    if (!effectiveImportDate) return;
+    const [signals, tradeDate] = await Promise.all([
+      api.signals(effectiveImportDate),
+      fetchNextTradingDay(effectiveImportDate),
+    ]);
+    const newRows: TradeRow[] = signals
+      .filter((s) => s.action === "BUY" || s.action === "SELL")
+      .map((s) => {
+        const action = String(s.action) as "BUY" | "SELL";
+        const qty = action === "SELL"
+          ? String(s.planned_sell_qty ?? s.position_qty ?? "")
+          : String(s.suggested_qty ?? "");
+        return {
+          ticker: String(s.ticker ?? ""),
+          action,
+          quantity: qty,
+          price: "",
+          date: tradeDate,
+        };
+      });
+    if (newRows.length === 0) return;
+    setTrades(newRows);
+  }
 
   async function handleDaily(noFetch: boolean) {
     const ok = await confirm(
@@ -133,10 +183,30 @@ export default function Production() {
           Record executed BUY/SELL trades (equivalent to production --input
           --manual)
         </p>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Import from signals:</span>
+          <select
+            value={effectiveImportDate ?? ""}
+            onChange={(e) => setImportDate(e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs"
+          >
+            {(signalDates.data ?? []).map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleImportFromSignals}
+            disabled={!effectiveImportDate}
+            className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 disabled:opacity-50 rounded text-xs"
+          >
+            Import
+          </button>
+        </div>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-gray-500 text-left border-b border-gray-800">
               <th className="py-1 px-2">Ticker</th>
+              <th className="py-1 px-2">Name</th>
               <th className="py-1 px-2">Action</th>
               <th className="py-1 px-2">Qty</th>
               <th className="py-1 px-2">Price</th>
@@ -158,6 +228,9 @@ export default function Production() {
                     className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1"
                     placeholder="e.g. 7182"
                   />
+                </td>
+                <td className="py-1 px-2 text-gray-400 text-xs">
+                  {names[t.ticker] ?? ""}
                 </td>
                 <td className="py-1 px-2">
                   <select
@@ -251,6 +324,7 @@ export default function Production() {
               if (!ok) return;
               inputTrades.execute("/production/input-trades", {
                 confirm: true,
+                aws_profile: "personal",
                 trades: valid.map((t) => ({
                   ticker: t.ticker,
                   action: t.action,

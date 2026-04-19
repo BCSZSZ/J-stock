@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Production from "./pages/Production";
@@ -14,7 +14,8 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<Navigate to="/signals?view=report" replace />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/production" element={<Production />} />
         <Route path="/evaluation" element={<Evaluation />} />
         <Route path="/portfolio" element={<Portfolio />} />

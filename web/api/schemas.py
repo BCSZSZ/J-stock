@@ -86,3 +86,4 @@ class SetCashRequest(BaseModel):
 class InputTradeRequest(BaseModel):
     trades: list[TradeEvent]
     confirm: bool = False
+    aws_profile: str | None = None

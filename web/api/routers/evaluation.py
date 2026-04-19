@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import threading
 from pathlib import Path
+from queue import Queue, Empty
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -53,18 +56,34 @@ async def run_evaluation(req: EvaluationRunRequest) -> StreamingResponse:
         args.extend(["--entry-filter-mode", req.entry_filter_mode])
 
     async def event_stream():  # type: ignore[return]
-        proc = await asyncio.create_subprocess_exec(
-            "uv", "run", "python", "main.py", *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(root),
-        )
-        assert proc.stdout is not None
-        async for line in proc.stdout:
-            text = line.decode("utf-8", errors="replace").rstrip("\n")
-            yield f"data: {json.dumps({'line': text})}\n\n"
-        code = await proc.wait()
-        yield f"data: {json.dumps({'done': True, 'exit_code': code})}\n\n"
+        q: Queue[str | None] = Queue()
+
+        def _reader() -> None:
+            proc = subprocess.Popen(
+                ["uv", "run", "python", "main.py", *args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=str(root),
+            )
+            assert proc.stdout is not None
+            for raw_line in proc.stdout:
+                text = raw_line.decode("utf-8", errors="replace").rstrip("\n")
+                q.put(f"data: {json.dumps({'line': text})}\n\n")
+            code = proc.wait()
+            q.put(f"data: {json.dumps({'done': True, 'exit_code': code})}\n\n")
+            q.put(None)  # sentinel
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+
+        while True:
+            try:
+                chunk = await asyncio.get_event_loop().run_in_executor(None, lambda: q.get(timeout=0.1))
+            except Empty:
+                continue
+            if chunk is None:
+                break
+            yield chunk
 
     return StreamingResponse(
         event_stream(),

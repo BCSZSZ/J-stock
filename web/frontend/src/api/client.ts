@@ -63,6 +63,8 @@ export const api = {
   monitorList: () => request<string[]>("/data/monitor-list"),
   tickers: () => request<string[]>("/data/tickers"),
   tickerNames: () => request<Record<string, string>>("/data/ticker-names"),
+  nextTradingDay: (after: string) =>
+    request<{ date: string }>(`/data/next-trading-day?after=${after}`),
 
   // Production
   productionStatus: () =>

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import sys
+import threading
 from pathlib import Path
+from queue import Queue, Empty
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -22,23 +25,42 @@ router = APIRouter(prefix="/api/production", tags=["production"])
 
 
 async def _run_cli_streaming(args: list[str]) -> StreamingResponse:
-    """Run a CLI command and stream stdout/stderr as SSE."""
+    """Run a CLI command and stream stdout/stderr as SSE.
+
+    Uses subprocess.Popen in a thread to avoid Windows asyncio subprocess limitations.
+    """
     root = get_project_root()
-    uv = "uv"
 
     async def event_stream():  # type: ignore[return]
-        proc = await asyncio.create_subprocess_exec(
-            uv, "run", "python", "main.py", *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(root),
-        )
-        assert proc.stdout is not None
-        async for line in proc.stdout:
-            text = line.decode("utf-8", errors="replace").rstrip("\n")
-            yield f"data: {json.dumps({'line': text})}\n\n"
-        code = await proc.wait()
-        yield f"data: {json.dumps({'done': True, 'exit_code': code})}\n\n"
+        q: Queue[str | None] = Queue()
+
+        def _reader() -> None:
+            proc = subprocess.Popen(
+                ["uv", "run", "python", "main.py", *args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=str(root),
+            )
+            assert proc.stdout is not None
+            for raw_line in proc.stdout:
+                text = raw_line.decode("utf-8", errors="replace").rstrip("\n")
+                q.put(f"data: {json.dumps({'line': text})}\n\n")
+            code = proc.wait()
+            q.put(f"data: {json.dumps({'done': True, 'exit_code': code})}\n\n")
+            q.put(None)  # sentinel
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+
+        while True:
+            # Yield control back to event loop while waiting for output
+            try:
+                chunk = await asyncio.get_event_loop().run_in_executor(None, lambda: q.get(timeout=0.1))
+            except Empty:
+                continue
+            if chunk is None:
+                break
+            yield chunk
 
     return StreamingResponse(
         event_stream(),
@@ -93,17 +115,18 @@ async def set_cash(req: SetCashRequest) -> dict[str, str]:
     if not req.confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
     root = get_project_root()
-    proc = await asyncio.create_subprocess_exec(
-        "uv", "run", "python", "main.py",
-        "production", "--set-cash", str(req.amount),
-        "--group-id", req.group_id,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+    proc = subprocess.run(
+        [
+            "uv", "run", "python", "main.py",
+            "production", "--set-cash", str(req.amount),
+            "--group-id", req.group_id,
+        ],
+        capture_output=True,
         cwd=str(root),
     )
-    stdout, _ = await proc.communicate()
-    output = stdout.decode("utf-8", errors="replace")
+    output = proc.stdout.decode("utf-8", errors="replace")
     if proc.returncode != 0:
+        output += proc.stderr.decode("utf-8", errors="replace")
         raise HTTPException(status_code=500, detail=output)
     return {"status": "ok", "output": output}
 
@@ -126,6 +149,8 @@ async def input_trades(req: InputTradeRequest) -> StreamingResponse:
         "--manual-file", str(csv_path),
         "--yes",
     ]
+    if req.aws_profile:
+        args.extend(["--aws-profile", req.aws_profile])
     return await _run_cli_streaming(args)
 
 

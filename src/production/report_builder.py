@@ -1536,7 +1536,7 @@ class ReportBuilder:
         sell_notional_by_key = defaultdict(float)
 
         if self.trade_history_manager:
-            for trade in self.trade_history_manager.trades:
+            for trade in self.trade_history_manager.get_active_trades():
                 if trade.date != report_date:
                     continue
                 key = (trade.group_id, trade.ticker)
@@ -1603,7 +1603,7 @@ class ReportBuilder:
         if not self.trade_history_manager:
             return {"ticker_rows": [], "realized_pnl": 0.0, "realized_return_pct": 0.0}
 
-        trades = list(self.trade_history_manager.trades)
+        trades = list(self.trade_history_manager.get_active_trades())
         if report_date:
             trades = [
                 t
