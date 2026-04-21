@@ -1233,6 +1233,10 @@ for _r in _MVXW_N5_RT_TUNING_R_VALUES:
     for _t in _MVXW_N5_RT_TUNING_T_VALUES:
         _register_window_decay_variant(5, _r, _t, 21, 20.0)
 
+# Champion D sweep for the production-exact MVXW variant.
+for _d in range(5, 22):
+    _register_window_decay_variant(5, 3.35, 1.45, _d, 20.0)
+
 # D21/B20 full sweep for MVXW (mirrors MVX D21/B20 grid above).
 _MVXW_D21_B20_SWEEP_N_VALUES = [2, 3, 4, 5, 6, 7, 8, 9]
 for _n in _MVXW_D21_B20_SWEEP_N_VALUES:
