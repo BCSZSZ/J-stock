@@ -165,6 +165,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         pass
     overlay_runtime_config = dict(raw_config)
     overlay_cfg = dict(overlay_runtime_config.get("overlays", {}))
+    # PROJECT POLICY: overlay defaults to OFF (see instruction.md "全局策略：Overlay 默认 OFF").
+    # config.overlays.enabled is a normalized bool; missing/non-bool => False.
     overlay_enabled_in_config = bool(overlay_cfg.get("enabled", False))
     overlay_override = getattr(args, "production_overlay", None)
     overlay_enabled_effective = (
@@ -775,8 +777,12 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         print(f"      BUY: {buy_count}, SELL: {sell_count}")
 
     # ------- Optional: Rank BUY signals -------
+    # Default to "momentum" so production matches the evaluation flow's
+    # capacity-allocation behavior (PortfolioBacktestEngine applies a ranker
+    # when capital/positions are constrained). Set to empty string in config
+    # to opt out.
     ranking_strategy_name = raw_config.get("production", {}).get(
-        "signal_ranking_strategy"
+        "signal_ranking_strategy", "momentum"
     )
     if ranking_strategy_name:
         try:

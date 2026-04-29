@@ -1237,6 +1237,28 @@ for _r in _MVXW_N5_RT_TUNING_R_VALUES:
 for _d in range(5, 22):
     _register_window_decay_variant(5, 3.35, 1.45, _d, 20.0)
 
+# R full sweep at production-exact (N=5, T=1.45, D=10, B=20.0) for the
+# low-R hypothesis test (4022 ラサ工業 case: peak ~+0.27R, R=3.35 too large
+# to trigger TP1). 58 points: R ∈ {0.50, 0.55, ..., 3.35}.
+_MVXW_D10_R_SWEEP_VALUES = [round(0.50 + 0.05 * _i, 2) for _i in range(58)]
+for _r in _MVXW_D10_R_SWEEP_VALUES:
+    _register_window_decay_variant(5, _r, 1.45, 10, 20.0)
+
+# Fine R sweep R ∈ {0.50, 0.51, ..., 0.90} step 0.01 (41 points) at
+# (N=5, T=1.45, D=10, B=20.0). The 0.05-step sweep above identified R=0.55 as
+# the low-R cluster winner; this 0.01-step refinement narrows the optimum.
+_MVXW_D10_R_FINE_SWEEP_VALUES = [round(0.50 + 0.01 * _i, 2) for _i in range(41)]
+for _r in _MVXW_D10_R_FINE_SWEEP_VALUES:
+    _register_window_decay_variant(5, _r, 1.45, 10, 20.0)
+
+# T micro sweep at R*=0.54 (A1 fine-grain 0.01-step overlay-OFF winner) for trailing-stop optimization.
+# Coarse 0.05 step run picked R=0.55 (2224%); fine 0.01 step picked R=0.54 (2370%).
+# Earlier R*=0.50 sweep was invalidated by the overlay-on bug; redone with overlay OFF.
+_MVXW_D10_T_SWEEP_R_STAR = 0.54
+_MVXW_D10_T_SWEEP_VALUES = [1.20, 1.30, 1.40, 1.45, 1.50, 1.60, 1.70]
+for _t in _MVXW_D10_T_SWEEP_VALUES:
+    _register_window_decay_variant(5, _MVXW_D10_T_SWEEP_R_STAR, _t, 10, 20.0)
+
 # D21/B20 full sweep for MVXW (mirrors MVX D21/B20 grid above).
 _MVXW_D21_B20_SWEEP_N_VALUES = [2, 3, 4, 5, 6, 7, 8, 9]
 for _n in _MVXW_D21_B20_SWEEP_N_VALUES:

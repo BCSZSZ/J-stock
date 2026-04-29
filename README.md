@@ -289,6 +289,23 @@ print(metadata)
 - `tools/analyze_sell_timing.py`
   - 用途：按交易明细统计卖出结构（胜负、持仓、退出不对称）
 
+- `tools/exit_breakdown.py`
+  - 用途：针对指定 `(entry_strategy, exit_strategy)` 组合，从 `strategy_evaluation_*_trades_*.csv` 聚合每种 `exit_urgency` 的次数、占比、胜率、平均/中位收益率、累计 JPY、平均持有天。
+  - 标准 CLI：
+
+    ```powershell
+    .venv/Scripts/python.exe tools/exit_breakdown.py `
+      --trades-csv "<path-to-strategy_evaluation_*_trades_*.csv>" `
+      --exit-strategy MVXW_N5_R0p55_T1p3_D10_B20p0 `
+      [--entry-strategy MACDPreCross2BarEntry] `
+      [--period 2024] `
+      [--scope events|full_only] `
+      [--csv-out output\breakdown.csv]
+    ```
+
+  - `--scope events`（默认）：每个退出事件单独计数（含 TP1 半仓兑现）。
+  - `--scope full_only`：仅统计 `exit_is_full_exit=True`，按完整生命周期计数。
+
 - `tools/score_strategy_ranking.py`
   - 用途：将多年份 raw 回测结果做归一化排名（默认风险60% / 赚钱40%）
   - 默认模型：`risk60_profit40_v2`

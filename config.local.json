@@ -46,6 +46,7 @@
     "default_profile_names": ["p7x018"]
   },
   "overlays": {
+    "_policy": "DEFAULT OFF. See instruction.md «全局策略：Overlay 默认 OFF». Set 'enabled' to true only for explicit overlay backtests.",
     "enabled": false,
     "active": ["SectorBreadthOverlay"],
     "SectorBreadthOverlay": {

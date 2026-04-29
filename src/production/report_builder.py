@@ -883,6 +883,7 @@ class ReportBuilder:
             executable_buys = sorted(
                 [s for s in group_buys if (s.suggested_qty or 0) > 0],
                 key=lambda s: (
+                    s.rank if s.rank is not None else 999999,
                     -(s.score or 0.0),
                     -(s.confidence or 0.0),
                     s.required_capital if s.required_capital else float("inf"),

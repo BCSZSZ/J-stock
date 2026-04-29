@@ -20,7 +20,8 @@ These defaults are defined in `config.json` under `evaluation`:
 - `default_position_file`
 - `default_exit_strategies`
 
-Overlay default switch is defined in `config.json` under `overlays.enabled`.
+Overlay default switch is defined in `config.json` under `overlays.enabled` (boolean).
+**Project policy: overlay defaults to OFF for evaluation and production.** Set `overlays.enabled=true` or pass `--enable-overlay` only for explicit overlay comparison runs. See `instruction.md` "全局策略：Overlay 默认 OFF".
 
 ## Notes
 

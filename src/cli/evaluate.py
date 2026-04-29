@@ -253,7 +253,16 @@ def _resolve_universe_variants(universe_files):
 
 
 def _resolve_effective_overlay_enabled(config, args, override: bool = None) -> bool:
-    """Resolve final overlay switch from CLI/config/override in one place."""
+    """Resolve final overlay switch from CLI/config/override in one place.
+
+    PROJECT POLICY: overlay defaults to OFF for both evaluate and pos-evaluation.
+    Resolution order:
+      1. explicit ``override`` (callable-level) if not None
+      2. CLI flag ``--enable-overlay`` (args.enable_overlay) if it set True
+      3. ``config.overlays.enabled`` boolean (after normalize_config)
+      4. Fallback: False (OFF)
+    See instruction.md "全局策略：Overlay 默认 OFF" for rationale.
+    """
     if override is not None:
         return bool(override)
 

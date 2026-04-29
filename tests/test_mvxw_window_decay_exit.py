@@ -45,6 +45,8 @@ SEED_SWEEP_VARIANT_NAMES: Final[list[str]] = [
 RT_TUNING_R_VALUES: Final[list[float]] = [3.2, 3.25, 3.3, 3.35, 3.4, 3.45, 3.5]
 RT_TUNING_T_VALUES: Final[list[float]] = [1.45, 1.5, 1.55, 1.6, 1.65, 1.7, 1.75]
 CHAMPION_D_SWEEP_VALUES: Final[list[int]] = list(range(5, 22))
+D10_R_SWEEP_VALUES: Final[list[float]] = [round(0.50 + 0.05 * i, 2) for i in range(58)]
+D10_T_SWEEP_VALUES: Final[list[float]] = [1.20, 1.30, 1.40, 1.45, 1.50, 1.60, 1.70]
 
 MVXW_VARIANT_NAMES: Final[list[str]] = list(
     dict.fromkeys(
@@ -57,6 +59,14 @@ MVXW_VARIANT_NAMES: Final[list[str]] = list(
         + [
             f"MVXW_N5_R3p35_T1p45_D{holding_days}_B20p0"
             for holding_days in CHAMPION_D_SWEEP_VALUES
+        ]
+        + [
+            f"MVXW_N5_R{_float_token(r_value)}_T1p45_D10_B20p0"
+            for r_value in D10_R_SWEEP_VALUES
+        ]
+        + [
+            f"MVXW_N5_R0p54_T{_float_token(t_value)}_D10_B20p0"
+            for t_value in D10_T_SWEEP_VALUES
         ]
     )
 )

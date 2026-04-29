@@ -103,7 +103,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         "--enable-overlay",
         action="store_true",
         default=None,
-        help="按需启用overlay参与evaluation（默认关闭）",
+        help="按需启用overlay参与evaluation（默认关闭，仅用于overlay对比研究；详见instruction.md）",
     )
     parser.add_argument(
         "--ranking-mode",
@@ -187,7 +187,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         "--enable-overlay",
         action="store_true",
         default=None,
-        help="按需启用overlay参与evaluation（默认关闭）",
+        help="按需启用overlay参与evaluation（默认关闭，仅用于overlay对比研究；详见instruction.md）",
     )
     parser.add_argument(
         "--ranking-mode",
@@ -351,7 +351,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--enable-overlay",
         dest="production_overlay",
         action="store_true",
-        help="启用 overlay 参与 production 信号计算（默认按配置，通常为关闭）",
+        help="启用 overlay 参与 production 信号计算（项目策略：默认关闭，详见 instruction.md）",
     )
     production_overlay_mode.add_argument(
         "--disable-overlay",

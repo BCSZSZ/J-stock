@@ -99,10 +99,11 @@
 }
 ```
 
-开启 Overlay 时:
+开启 Overlay 时（**注意：项目级默认 OFF，仅在显式 overlay 对比研究时打开；详见 `instruction.md` "全局策略：Overlay 默认 OFF"**）:
 
-- 将 `overlays.enabled` 改为 `true`
+- 将 `overlays.enabled` 改为 `true`（boolean）
 - 默认将按 `active` 中的 `SectorBreadthOverlay` 生效
+- 历史教训：2022–2024 风险偏离区间 `SectorBreadthOverlay` 会通过 `risk_off_max_new_positions=0` 拦截 ~99% 入场，使 4 年累计收益从 1949% 跌到 5.96%。生产基线必须保持 OFF。
 
 ## 7. 后续扩展示例
 

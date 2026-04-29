@@ -449,7 +449,13 @@
       "display_name": "Hist2Bar + MVX (target20)",
       "entry_strategy": "MACDPreCrossHist2BarEntry",
       "exit_strategy": "MVX_N3_R3p5_T1p4_D21_B20p0",
-      "tags": ["champion", "hist2bar", "mvx", "target20", "grid2"],
+      "tags": [
+        "champion",
+        "hist2bar",
+        "mvx",
+        "target20",
+        "grid2"
+      ],
       "selection": {
         "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist2bar_20260412\\hist2bar_grid2",
         "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist2bar_20260412\\hist2bar_grid2\\strategy_evaluation_target20_rank_20260412_110109.csv",
@@ -475,15 +481,15 @@
         "avg_yearly_alpha_pct": 10.125972,
         "worst_year_return_pct": -5.141107,
         "annual_return_std_pct": 24.579848,
-        "continuous_return_pct": 151.057360,
-        "continuous_alpha_pct": 49.367590,
+        "continuous_return_pct": 151.05736,
+        "continuous_alpha_pct": 49.36759,
         "continuous_sharpe_ratio": 0.943711,
         "continuous_mdd_pct": 22.997378
       },
       "annual_period_metrics": {
         "2021": {
           "return_pct": -5.141107,
-          "alpha_pct": -6.339850,
+          "alpha_pct": -6.33985,
           "max_drawdown_pct": 15.553442
         },
         "2022": {
@@ -511,8 +517,8 @@
         "period": "2021-2025_annual_compound",
         "start_date": "2021-01-01",
         "end_date": "2025-12-31",
-        "return_pct": 151.057360,
-        "alpha_pct": 49.367590,
+        "return_pct": 151.05736,
+        "alpha_pct": 49.36759,
         "sharpe_ratio": 0.943711,
         "max_drawdown_pct": 22.997378,
         "num_trades": 1111
@@ -523,7 +529,13 @@
       "display_name": "Hist2Bar + MVXW (target20)",
       "entry_strategy": "MACDPreCrossHist2BarEntry",
       "exit_strategy": "MVXW_N5_R3p25_T1p3_D21_B20p0",
-      "tags": ["champion", "hist2bar", "mvxw", "target20", "grid2"],
+      "tags": [
+        "champion",
+        "hist2bar",
+        "mvxw",
+        "target20",
+        "grid2"
+      ],
       "selection": {
         "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist2bar_20260412\\hist2bar_grid2",
         "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist2bar_20260412\\hist2bar_grid2\\strategy_evaluation_target20_rank_20260412_110152.csv",
@@ -597,7 +609,13 @@
       "display_name": "Hist3Bar + MVX (target20)",
       "entry_strategy": "MACDPreCrossHist3BarEntry",
       "exit_strategy": "MVX_N3_R3p5_T1p6_D21_B20p0",
-      "tags": ["champion", "hist3bar", "mvx", "target20", "grid2"],
+      "tags": [
+        "champion",
+        "hist3bar",
+        "mvx",
+        "target20",
+        "grid2"
+      ],
       "selection": {
         "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist3bar_20260412\\hist3bar_grid2",
         "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_hist3bar_20260412\\hist3bar_grid2\\strategy_evaluation_target20_rank_20260412_110221.csv",
@@ -626,7 +644,7 @@
         "continuous_return_pct": 241.171169,
         "continuous_alpha_pct": 115.467398,
         "continuous_sharpe_ratio": 1.357402,
-        "continuous_mdd_pct": 19.605960
+        "continuous_mdd_pct": 19.60596
       },
       "annual_period_metrics": {
         "2021": {
@@ -636,18 +654,18 @@
         },
         "2022": {
           "return_pct": 0.819237,
-          "alpha_pct": 7.641650,
+          "alpha_pct": 7.64165,
           "max_drawdown_pct": 16.956724
         },
         "2023": {
           "return_pct": 26.286996,
-          "alpha_pct": -0.383240,
+          "alpha_pct": -0.38324,
           "max_drawdown_pct": 7.879185
         },
         "2024": {
           "return_pct": 24.954751,
           "alpha_pct": 7.881786,
-          "max_drawdown_pct": 19.605960
+          "max_drawdown_pct": 19.60596
         },
         "2025": {
           "return_pct": 94.221875,
@@ -662,7 +680,7 @@
         "return_pct": 241.171169,
         "alpha_pct": 115.467398,
         "sharpe_ratio": 1.357402,
-        "max_drawdown_pct": 19.605960,
+        "max_drawdown_pct": 19.60596,
         "num_trades": 974
       }
     },
@@ -671,7 +689,13 @@
       "display_name": "Hist3Bar + MVXW (target20)",
       "entry_strategy": "MACDPreCrossHist3BarEntry",
       "exit_strategy": "MVXW_N5_R3p6_T1p3_D21_B20p0",
-      "tags": ["champion", "hist3bar", "mvxw", "target20", "grid2"],
+      "tags": [
+        "champion",
+        "hist3bar",
+        "mvxw",
+        "target20",
+        "grid2"
+      ],
       "selection": {
         "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist3bar_20260412\\hist3bar_grid2",
         "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_hist3bar_20260412\\hist3bar_grid2\\strategy_evaluation_target20_rank_20260412_110239.csv",
@@ -699,7 +723,7 @@
         "annual_return_std_pct": 34.320767,
         "continuous_return_pct": 218.145575,
         "continuous_alpha_pct": 91.148923,
-        "continuous_sharpe_ratio": 1.273330,
+        "continuous_sharpe_ratio": 1.27333,
         "continuous_mdd_pct": 26.227497
       },
       "annual_period_metrics": {
@@ -709,14 +733,14 @@
           "max_drawdown_pct": 10.087328
         },
         "2022": {
-          "return_pct": 13.353100,
+          "return_pct": 13.3531,
           "alpha_pct": 20.175513,
           "max_drawdown_pct": 11.920656
         },
         "2023": {
           "return_pct": 14.838242,
           "alpha_pct": -11.831994,
-          "max_drawdown_pct": 12.742210
+          "max_drawdown_pct": 12.74221
         },
         "2024": {
           "return_pct": 11.921253,
@@ -726,7 +750,7 @@
         "2025": {
           "return_pct": 98.275499,
           "alpha_pct": 74.599881,
-          "max_drawdown_pct": 8.908550
+          "max_drawdown_pct": 8.90855
         }
       },
       "continuous_period_metrics": {
@@ -735,7 +759,7 @@
         "end_date": "2025-12-31",
         "return_pct": 218.145575,
         "alpha_pct": 91.148923,
-        "sharpe_ratio": 1.273330,
+        "sharpe_ratio": 1.27333,
         "max_drawdown_pct": 26.227497,
         "num_trades": 1054
       }
@@ -745,7 +769,14 @@
       "display_name": "3Bar + MVXW (target20)",
       "entry_strategy": "MACDPreCross3BarEntry",
       "exit_strategy": "MVXW_N5_R3p6_T1p9_D21_B20p0",
-      "tags": ["champion", "3bar", "mvxw", "target20", "grid2", "price_rising"],
+      "tags": [
+        "champion",
+        "3bar",
+        "mvxw",
+        "target20",
+        "grid2",
+        "price_rising"
+      ],
       "selection": {
         "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvxw_3bar_20260412\\3bar_grid2",
         "ranking_position": 1,
@@ -772,7 +803,7 @@
         "continuous_return_pct": 292.779143,
         "continuous_alpha_pct": 141.877625,
         "continuous_sharpe_ratio": 1.539566,
-        "continuous_mdd_pct": 21.323460
+        "continuous_mdd_pct": 21.32346
       },
       "annual_period_metrics": {
         "2021": {
@@ -782,7 +813,7 @@
         },
         "2022": {
           "return_pct": 19.356956,
-          "alpha_pct": 26.179370,
+          "alpha_pct": 26.17937,
           "max_drawdown_pct": 11.585905
         },
         "2023": {
@@ -793,7 +824,7 @@
         "2024": {
           "return_pct": 18.490877,
           "alpha_pct": 1.417911,
-          "max_drawdown_pct": 21.323460
+          "max_drawdown_pct": 21.32346
         },
         "2025": {
           "return_pct": 97.942624,
@@ -808,7 +839,7 @@
         "return_pct": 292.779143,
         "alpha_pct": 141.877625,
         "sharpe_ratio": 1.539566,
-        "max_drawdown_pct": 21.323460,
+        "max_drawdown_pct": 21.32346,
         "num_trades": 886
       }
     },
@@ -817,7 +848,15 @@
       "display_name": "3Bar + MVX (target20)",
       "entry_strategy": "MACDPreCross3BarEntry",
       "exit_strategy": "MVX_N4_R3p75_T1p7_D21_B20p0",
-      "tags": ["champion", "3bar", "mvx", "target20", "grid2", "price_rising", "perfect_hit20"],
+      "tags": [
+        "champion",
+        "3bar",
+        "mvx",
+        "target20",
+        "grid2",
+        "price_rising",
+        "perfect_hit20"
+      ],
       "selection": {
         "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\mvx_3bar_20260412\\3bar_grid2",
         "ranking_position": 1,
@@ -926,9 +965,9 @@
         "avg_yearly_return_pct": 53.972521,
         "avg_yearly_alpha_pct": 41.613491,
         "worst_year_return_pct": 4.436722,
-        "annual_return_std_pct": 54.857710,
+        "annual_return_std_pct": 54.85771,
         "continuous_return_pct": 499.073901,
-        "continuous_alpha_pct": 425.918110,
+        "continuous_alpha_pct": 425.91811,
         "continuous_sharpe_ratio": 1.877425,
         "continuous_mdd_pct": 21.444097
       },
@@ -954,7 +993,7 @@
           "max_drawdown_pct": 20.976363
         },
         "2025": {
-          "return_pct": 147.536500,
+          "return_pct": 147.5365,
           "alpha_pct": 123.860882,
           "max_drawdown_pct": 8.044026
         }
@@ -964,10 +1003,93 @@
         "start_date": "2021-01-01",
         "end_date": "2025-12-31",
         "return_pct": 499.073901,
-        "alpha_pct": 425.918110,
+        "alpha_pct": 425.91811,
         "sharpe_ratio": 1.877425,
         "max_drawdown_pct": 21.444097,
         "num_trades": 1247
+      }
+    },
+    "fine_r_champion": {
+      "reference_id": "fine_r_champion",
+      "display_name": "Fine-R Sweep Champion (R=0.54, T=1.30, D=10)",
+      "entry_strategy": "MACDPreCross2BarEntry",
+      "exit_strategy": "MVXW_N5_R0p54_T1p3_D10_B20p0",
+      "tags": [
+        "champion",
+        "global_best",
+        "mvxw",
+        "twobar",
+        "fine_r_sweep",
+        "overlay_off",
+        "production_default_20260429"
+      ],
+      "selection": {
+        "results_dir": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation",
+        "ranking_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\strategy_evaluation_continuous_stability_rank_20260429_101522.csv",
+        "segmented_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\strategy_evaluation_raw_20260429_101356.csv",
+        "continuous_raw_file": "G:\\My Drive\\AI-Stock-Sync\\strategy_evaluation\\strategy_evaluation_continuous_raw_20260429_101521.csv",
+        "ranking_position": 1,
+        "selectors": {
+          "entry_filter": "off",
+          "position_profile": null,
+          "overlay_mode": "off",
+          "universe_name": "default"
+        },
+        "selection_notes": [
+          "Identified via 2-phase MVXW R/T optimization on 2022-2025 continuous backtest with overlay OFF: Phase 3 fine R sweep (step 0.01 over R in [0.50, 0.90]) located R*=0.54; A2 T re-sweep at R=0.54 produced T*=1.30 yielding 2590.54% over 4 years.",
+          "Hall-of-fame metrics here come from a follow-up canonical 5-year (2021-2025) annual CLI evaluation under the same locked basis used by all other entries (entry_filter=off, ranking=momentum target20, overlay OFF).",
+          "Promoted to production default on 2026-04-29 (replaces MVXW_N5_R3p35_T1p45_D10_B20p0 in default_strategies / production.strategy_groups[0] / evaluation.default_exit_strategies on both G drive and local config)."
+        ]
+      },
+      "comparison_summary": {
+        "hit20_years": 4,
+        "positive_years": 5,
+        "positive_alpha_years": 5,
+        "avg_yearly_return_pct": 102.976064,
+        "avg_yearly_alpha_pct": 90.617034,
+        "worst_year_return_pct": 17.33088,
+        "annual_return_std_pct": 78.563969,
+        "continuous_return_pct": 2879.537623,
+        "continuous_alpha_pct": 2806.381832,
+        "continuous_sharpe_ratio": 3.521179,
+        "continuous_mdd_pct": 12.467759
+      },
+      "annual_period_metrics": {
+        "2021": {
+          "return_pct": 17.33088,
+          "alpha_pct": 16.132137,
+          "max_drawdown_pct": 8.50979
+        },
+        "2022": {
+          "return_pct": 35.733061,
+          "alpha_pct": 42.555475,
+          "max_drawdown_pct": 11.723223
+        },
+        "2023": {
+          "return_pct": 103.18088,
+          "alpha_pct": 76.510645,
+          "max_drawdown_pct": 5.454172
+        },
+        "2024": {
+          "return_pct": 155.061373,
+          "alpha_pct": 137.988408,
+          "max_drawdown_pct": 11.744527
+        },
+        "2025": {
+          "return_pct": 203.574124,
+          "alpha_pct": 179.898506,
+          "max_drawdown_pct": 7.94314
+        }
+      },
+      "continuous_period_metrics": {
+        "period": "2021-2025_continuous",
+        "start_date": "2021-01-01",
+        "end_date": "2025-12-31",
+        "return_pct": 2879.537623,
+        "alpha_pct": 2806.381832,
+        "sharpe_ratio": 3.521179,
+        "max_drawdown_pct": 12.467759,
+        "num_trades": 2777
       }
     }
   }

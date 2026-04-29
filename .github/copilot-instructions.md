@@ -4,6 +4,16 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
+## 0. Project-level Hard Rule: Overlay Default OFF
+
+**All evaluations and production runs in this repo default to `overlay=OFF`. Never silently enable overlay.**
+
+- Do **not** add `--enable-overlay` to `evaluate` / `pos-evaluation` commands unless the user explicitly asks for an overlay comparison.
+- When proposing or running benchmarks, assume overlay=OFF. The 4-year continuous-return baseline of ~1949% on `MVXW_N5_R3p35_T1p45_D10_B20p0` is established with overlay OFF; turning overlay ON collapses trade count by ~99% in 2022–2024 and is **not** the production target.
+- Configs (`config.json`, `config.local.json`, `config.aws.json`, `config.aws-sim.json`, `G:\My Drive\AI-Stock-Sync\config.json`) MUST keep `overlays.enabled = false` (boolean). Do not change this without explicit user approval.
+- For overlay studies, use `--overlay-modes off on` (pos-evaluation) or run two separate `evaluate` runs (without and with `--enable-overlay`) and report both.
+- See `instruction.md` "全局策略：Overlay 默认 OFF" for the full rationale and code paths.
+
 ## 1. Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
