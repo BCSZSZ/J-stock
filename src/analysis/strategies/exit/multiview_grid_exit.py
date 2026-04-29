@@ -1259,6 +1259,18 @@ _MVXW_D10_T_SWEEP_VALUES = [1.20, 1.30, 1.40, 1.45, 1.50, 1.60, 1.70]
 for _t in _MVXW_D10_T_SWEEP_VALUES:
     _register_window_decay_variant(5, _MVXW_D10_T_SWEEP_R_STAR, _t, 10, 20.0)
 
+# Wide T sweep at R*=0.54 (N=5, D=10, B=20.0) — step 0.05 over T ∈ [0.50, 2.00].
+# 31 points to map the full T landscape around the A2 winner T*=1.30.
+_MVXW_D10_T_WIDE_SWEEP_VALUES = [round(0.50 + 0.05 * _i, 2) for _i in range(31)]
+for _t in _MVXW_D10_T_WIDE_SWEEP_VALUES:
+    _register_window_decay_variant(5, _MVXW_D10_T_SWEEP_R_STAR, _t, 10, 20.0)
+
+# Wide N sweep at R*=0.54, T*=1.30, D=10, B=20.0 — N ∈ {1, 2, ..., 10}.
+_MVXW_D10_N_WIDE_SWEEP_T_STAR = 1.30
+_MVXW_D10_N_WIDE_SWEEP_VALUES = list(range(1, 11))
+for _n in _MVXW_D10_N_WIDE_SWEEP_VALUES:
+    _register_window_decay_variant(_n, _MVXW_D10_T_SWEEP_R_STAR, _MVXW_D10_N_WIDE_SWEEP_T_STAR, 10, 20.0)
+
 # D21/B20 full sweep for MVXW (mirrors MVX D21/B20 grid above).
 _MVXW_D21_B20_SWEEP_N_VALUES = [2, 3, 4, 5, 6, 7, 8, 9]
 for _n in _MVXW_D21_B20_SWEEP_N_VALUES:

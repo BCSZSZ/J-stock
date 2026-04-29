@@ -950,6 +950,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         history_file=prod_cfg.history_file,
         cash_history_file=prod_cfg.cash_history_file,
         initial_capital_override=initial_capital_override,
+        strategy_groups=prod_cfg.strategy_groups,
+        default_entry_strategy=prod_cfg.default_entry_strategy,
+        default_exit_strategy=prod_cfg.default_exit_strategy,
     )
     report_md = builder.generate_daily_report(
         signals=all_signals,

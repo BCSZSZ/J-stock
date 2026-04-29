@@ -53,6 +53,9 @@ class ReportBuilder:
         history_file: Optional[str] = None,
         cash_history_file: Optional[str] = None,
         initial_capital_override: Optional[float] = None,
+        strategy_groups: Optional[List[Dict]] = None,
+        default_entry_strategy: Optional[str] = None,
+        default_exit_strategy: Optional[str] = None,
     ):
         """
         Initialize report builder.
@@ -60,6 +63,12 @@ class ReportBuilder:
         Args:
             state_manager: Current portfolio state
             data_manager: For fetching market data (TOPIX benchmark)
+            strategy_groups: Optional list of group configs (id/name/entry_strategy/exit_strategy)
+                used for the report header strategy overview section.
+            default_entry_strategy: Fallback entry strategy name when a group
+                does not specify one.
+            default_exit_strategy: Fallback exit strategy name when a group
+                does not specify one.
         """
         self.state_manager = state_manager
         self.data_manager = data_manager
@@ -68,6 +77,9 @@ class ReportBuilder:
             if initial_capital_override is not None
             else None
         )
+        self.strategy_groups: List[Dict] = list(strategy_groups or [])
+        self.default_entry_strategy = default_entry_strategy
+        self.default_exit_strategy = default_exit_strategy
         self.trade_history_manager: Optional[TradeHistoryManager] = None
         self.cash_history_manager: Optional[CashHistoryManager] = None
         if history_file:
@@ -142,6 +154,7 @@ class ReportBuilder:
         # Build sections
         sections = []
         sections.append(self._build_header(report_date))
+        sections.append(self._build_strategy_overview())
         sections.append(self._build_market_summary(report_date))
         if overlay_summary:
             sections.append(self._build_overlay_summary_section(overlay_summary))
@@ -181,6 +194,7 @@ class ReportBuilder:
         """
         sections = []
         sections.append(self._build_header(report_date))
+        sections.append(self._build_strategy_overview())
         sections.append(self._build_market_summary(report_date))
         if overlay_summary:
             sections.append(self._build_overlay_summary_section(overlay_summary))
@@ -1058,6 +1072,40 @@ class ReportBuilder:
 **Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 ---"""
+
+    def _build_strategy_overview(self) -> str:
+        """Build strategy-overview section listing entry/exit strategies in use.
+
+        Pure rendering: it does not affect any signal/evaluation logic.
+        """
+        groups = self.strategy_groups or []
+        if not groups:
+            entry = self.default_entry_strategy or "N/A"
+            exit_ = self.default_exit_strategy or "N/A"
+            return (
+                "## 🧭 Strategy Overview\n\n"
+                f"- **Entry Strategy:** `{entry}`\n"
+                f"- **Exit Strategy:** `{exit_}`"
+            )
+
+        lines = ["## 🧭 Strategy Overview", ""]
+        if len(groups) == 1:
+            g = groups[0]
+            entry = g.get("entry_strategy") or self.default_entry_strategy or "N/A"
+            exit_ = g.get("exit_strategy") or self.default_exit_strategy or "N/A"
+            name = g.get("name") or g.get("id") or "default"
+            lines.append(f"- **Group:** {name}")
+            lines.append(f"- **Entry Strategy:** `{entry}`")
+            lines.append(f"- **Exit Strategy:** `{exit_}`")
+        else:
+            lines.append("| Group | Entry Strategy | Exit Strategy |")
+            lines.append("|---|---|---|")
+            for g in groups:
+                entry = g.get("entry_strategy") or self.default_entry_strategy or "N/A"
+                exit_ = g.get("exit_strategy") or self.default_exit_strategy or "N/A"
+                name = g.get("name") or g.get("id") or "-"
+                lines.append(f"| {name} | `{entry}` | `{exit_}` |")
+        return "\n".join(lines)
 
     def _build_market_summary(self, report_date: str) -> str:
         """
