@@ -62,17 +62,23 @@ export default function Production() {
       .filter((s) => s.action === "BUY" || s.action === "SELL")
       .map((s) => {
         const action = String(s.action) as "BUY" | "SELL";
-        const qty = action === "SELL"
-          ? String(s.planned_sell_qty ?? s.position_qty ?? "")
-          : String(s.suggested_qty ?? "");
+        const qtyNum = action === "SELL"
+          ? Number(s.planned_sell_qty ?? s.position_qty ?? 0)
+          : Number(s.suggested_qty ?? 0);
         return {
           ticker: String(s.ticker ?? ""),
           action,
-          quantity: qty,
+          quantity: qtyNum > 0 ? String(qtyNum) : "",
           price: "",
           date: tradeDate,
-        };
-      });
+          _qtyNum: qtyNum,
+        } as TradeRow & { _qtyNum: number };
+      })
+      // Only import actually-executable trades (qty > 0). Skip rows like
+      // "max positions reached" BUYs or HOLD-recommended SELLs which the
+      // backend report records with qty=0.
+      .filter((r) => (r as TradeRow & { _qtyNum: number })._qtyNum > 0)
+      .map(({ _qtyNum, ...rest }: any) => rest as TradeRow);
     if (newRows.length === 0) return;
     setTrades(newRows);
   }
