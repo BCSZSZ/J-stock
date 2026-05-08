@@ -314,6 +314,15 @@ def load_exit_strategy(name: str, params: Dict[str, Any] = None):
     return create_strategy_instance(name, "exit", params)
 
 
+def load_ranking_strategy(name: str = "default", params: Dict[str, Any] = None):
+    """加载买入信号排序器实例。"""
+    from src.backtest.signal_ranker import SignalRanker
+
+    params = params or {}
+    method = name or "default"
+    return SignalRanker(method=method, **params)
+
+
 if __name__ == "__main__":
     # 测试
     print_available_strategies()

@@ -377,6 +377,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="补齐历史缺口：按约5年窗口重抓OHLC并合并去重（非仅增量）",
     )
+    fetch_parser.add_argument(
+        "--all-listed",
+        action="store_true",
+        help="与 --all 一起使用：抓取 CSV 上市列表中的所有股票",
+    )
+    fetch_parser.add_argument(
+        "--csv-file",
+        default="data/jpx_final_list.csv",
+        help="上市股票 CSV 文件路径（默认: data/jpx_final_list.csv）",
+    )
+    fetch_parser.add_argument(
+        "--initial-lookback-days",
+        type=int,
+        default=1825,
+        help="冷启动/补缺口抓取的初始历史天数（默认: 1825）",
+    )
     fetch_parser.set_defaults(func=cmd_fetch)
 
     signal_parser = subparsers.add_parser("signal", help="生成交易信号")

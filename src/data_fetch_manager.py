@@ -84,6 +84,8 @@ def run_fetch(
     recompute_features: bool = False,
     fix_gaps: bool = False,
     fetch_aux_data: bool = True,
+    initial_lookback_days: int = 1825,
+    data_root: str = "data",
 ):
     """Run the ETL pipeline for a monitor list file."""
     # Load environment variables
@@ -122,7 +124,7 @@ def run_fetch(
             )
 
     # Step 2: Initialize pipeline
-    pipeline = StockETLPipeline(api_key)
+    pipeline = StockETLPipeline(api_key, data_root=data_root)
 
     # Step 3: Run batch processing with full ETL or recompute-only
     summary = pipeline.run_batch(
@@ -130,6 +132,7 @@ def run_fetch(
         fetch_aux_data=(fetch_aux_data and not recompute_features),
         recompute_features=recompute_features,
         fix_gaps=fix_gaps,
+        initial_lookback_days=max(int(initial_lookback_days), 1),
     )
 
     # Step 4: Print summary

@@ -1,0 +1,9 @@
+{
+  "portfolios": [
+    {
+      "name": "p1x100",
+      "max_positions": 1,
+      "max_position_pct": 1.0
+    }
+  ]
+}
