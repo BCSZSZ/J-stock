@@ -58,6 +58,20 @@ class Signal:
     suggested_qty: Optional[int] = None
     required_capital: Optional[float] = None
 
+    # Capacity audit
+    capacity_regime_mode: Optional[str] = None
+    capacity_regime_version: Optional[str] = None
+    capacity_tier_name: Optional[str] = None
+    capacity_effective_equity_jpy: Optional[float] = None
+    capacity_effective_max_positions: Optional[int] = None
+    capacity_effective_max_position_pct: Optional[float] = None
+    capacity_participation_cap_pct: Optional[float] = None
+    capacity_min_turnover_20_jpy: Optional[float] = None
+    capacity_order_cap_jpy: Optional[float] = None
+    capacity_turnover_jpy: Optional[float] = None
+    capacity_participation_pct: Optional[float] = None
+    capacity_blocking_reason: Optional[str] = None
+
     # Ranking (populated when signal_ranking_strategy is configured)
     rank: Optional[int] = None
     rank_score: Optional[float] = None

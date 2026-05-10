@@ -7,6 +7,7 @@ Performance Optimization:
 """
 
 import json
+import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,8 +17,9 @@ from collections import defaultdict
 
 import pandas as pd
 
+from src.config.capacity import parse_capacity_regime
 from src.config.service import load_config
-from src.config.runtime import get_config_file_path
+from src.config.runtime import CONFIG_ENV_VAR, GDRIVE_DEFAULT_CONFIG_FILE, get_config_file_path
 from src.overlays import OverlayManager
 
 
@@ -40,6 +42,22 @@ class AnnualStrategyResult:
     win_rate_pct: float
     avg_gain_pct: float
     avg_loss_pct: float
+    capacity_regime_mode: str = "off"
+    capacity_regime_version: str = ""
+    capacity_final_tier: str = ""
+    capacity_peak_tier: str = ""
+    capacity_effective_equity_jpy: float = 0.0
+    capacity_peak_equity_jpy: float = 0.0
+    capacity_effective_max_positions: int = 0
+    capacity_effective_max_position_pct: float = 0.0
+    capacity_participation_cap_pct: float = 0.0
+    capacity_min_turnover_20_jpy: float = 0.0
+    capacity_blocked_buys: int = 0
+    capacity_liquidity_blocked_buys: int = 0
+    capacity_trimmed_buys: int = 0
+    capacity_avg_participation_pct: float = 0.0
+    capacity_p95_participation_pct: float = 0.0
+    capacity_cash_drag_jpy: float = 0.0
     exit_confirmation_days: int = 1
     ranking_strategy: str = "default"
 
@@ -74,6 +92,12 @@ TRADE_EXPORT_COLUMNS = [
     "exit_sell_percentage",
     "exit_is_full_exit",
     "exit_is_partial_exit",
+    "capacity_regime_version",
+    "capacity_tier_name",
+    "capacity_effective_equity_jpy",
+    "capacity_order_cap_jpy",
+    "capacity_turnover_jpy",
+    "capacity_participation_pct",
     "exit_metadata_json",
 ]
 
@@ -264,6 +288,8 @@ class StrategyEvaluator:
         self._topix_cache: Dict[Tuple[str, str], Optional[float]] = {}  # TOPIX 缓存
         self._portfolio_limits_cache: Optional[Tuple[int, float]] = None
         self._starting_capital_cache: Optional[int] = None
+        self._capacity_mode_cache: Optional[str] = None
+        self._capacity_regime_cache = None
 
     def _get_starting_capital(self) -> int:
         """
@@ -299,6 +325,35 @@ class StrategyEvaluator:
 
         self._starting_capital_cache = 8_000_000
         return self._starting_capital_cache
+
+    def _get_capacity_regime_mode(self) -> str:
+        if self._capacity_mode_cache is not None:
+            return self._capacity_mode_cache
+
+        try:
+            config = load_config()
+            evaluation_cfg = config.get("evaluation", {})
+            self._capacity_mode_cache = str(
+                evaluation_cfg.get("capacity_regime_mode", "off")
+            )
+            return self._capacity_mode_cache
+        except Exception:
+            self._capacity_mode_cache = "off"
+            return self._capacity_mode_cache
+
+    def _get_capacity_regime(self):
+        if self._capacity_regime_cache is not None:
+            return self._capacity_regime_cache
+
+        try:
+            config = load_config()
+            self._capacity_regime_cache = parse_capacity_regime(
+                config.get("capacity_regime")
+            )
+            return self._capacity_regime_cache
+        except Exception:
+            self._capacity_regime_cache = None
+            return self._capacity_regime_cache
 
     def _normalize_entry_filter_variants(
         self, variants: Optional[List[Tuple[str, Dict]]]
@@ -742,14 +797,23 @@ class StrategyEvaluator:
         tickers = self._load_monitor_list()
         self._timing_counters["task_monitor_list_load"] += time.perf_counter() - phase_started
 
-        # 运行回测（调用现有功能，不做任何修改）
-        max_positions, max_position_pct = self._get_portfolio_limits()
+        # 运行回测
+        capacity_mode = self._get_capacity_regime_mode()
+        capacity_regime = self._get_capacity_regime()
+        if capacity_mode == "enforce" and capacity_regime is not None:
+            initial_tier = capacity_regime.tiers[0]
+            max_positions = initial_tier.max_positions
+            max_position_pct = initial_tier.max_position_pct
+        else:
+            max_positions, max_position_pct = self._get_portfolio_limits()
         phase_started = time.perf_counter()
         engine = PortfolioBacktestEngine(
             data_root=self.data_root,
             starting_capital=self._get_starting_capital(),
             max_positions=max_positions,
             max_position_pct=max_position_pct,
+            capacity_regime=capacity_regime,
+            capacity_regime_mode=capacity_mode,
             exit_confirmation_days=self.exit_confirmation_days,
             overlay_manager=self.overlay_manager,
             preloaded_cache=preloaded_cache,  # Pass cache to engine
@@ -804,6 +868,22 @@ class StrategyEvaluator:
             win_rate_pct=result.win_rate_pct,
             avg_gain_pct=result.avg_gain_pct,
             avg_loss_pct=result.avg_loss_pct,
+            capacity_regime_mode=result.capacity_regime_mode,
+            capacity_regime_version=result.capacity_regime_version,
+            capacity_final_tier=result.capacity_final_tier,
+            capacity_peak_tier=result.capacity_peak_tier,
+            capacity_effective_equity_jpy=result.capacity_effective_equity_jpy,
+            capacity_peak_equity_jpy=result.capacity_peak_equity_jpy,
+            capacity_effective_max_positions=result.capacity_effective_max_positions,
+            capacity_effective_max_position_pct=result.capacity_effective_max_position_pct,
+            capacity_participation_cap_pct=result.capacity_participation_cap_pct,
+            capacity_min_turnover_20_jpy=result.capacity_min_turnover_20_jpy,
+            capacity_blocked_buys=result.capacity_blocked_buys,
+            capacity_liquidity_blocked_buys=result.capacity_liquidity_blocked_buys,
+            capacity_trimmed_buys=result.capacity_trimmed_buys,
+            capacity_avg_participation_pct=result.capacity_avg_participation_pct,
+            capacity_p95_participation_pct=result.capacity_p95_participation_pct,
+            capacity_cash_drag_jpy=result.capacity_cash_drag_jpy,
             exit_confirmation_days=self.exit_confirmation_days,
             ranking_strategy=ranking_strategy,
         )
@@ -990,9 +1070,126 @@ class StrategyEvaluator:
                     "exit_sell_percentage": exit_sell_percentage,
                     "exit_is_full_exit": exit_is_full_exit,
                     "exit_is_partial_exit": not exit_is_full_exit,
+                    "capacity_regime_version": entry_metadata.get(
+                        "capacity_regime_version"
+                    ),
+                    "capacity_tier_name": entry_metadata.get("capacity_tier_name"),
+                    "capacity_effective_equity_jpy": entry_metadata.get(
+                        "capacity_effective_equity_jpy"
+                    ),
+                    "capacity_order_cap_jpy": entry_metadata.get(
+                        "capacity_order_cap_jpy"
+                    ),
+                    "capacity_turnover_jpy": entry_metadata.get(
+                        "capacity_turnover_jpy"
+                    ),
+                    "capacity_participation_pct": entry_metadata.get(
+                        "capacity_participation_pct"
+                    ),
                     "exit_metadata_json": self._safe_json_dumps(exit_metadata),
                 }
             )
+
+    @staticmethod
+    def _resolve_config_source_label(config_path: Path) -> str:
+        if os.getenv(CONFIG_ENV_VAR):
+            return "env"
+        if config_path == GDRIVE_DEFAULT_CONFIG_FILE:
+            return "gdrive"
+        return "local"
+
+    def _write_capacity_snapshot(self, handle, df: pd.DataFrame) -> None:
+        config_path = get_config_file_path()
+        config_source = self._resolve_config_source_label(config_path)
+        capacity_mode = (
+            str(df["capacity_regime_mode"].iloc[0])
+            if "capacity_regime_mode" in df.columns and not df.empty
+            else "off"
+        )
+        regime_version = (
+            str(df["capacity_regime_version"].iloc[0])
+            if "capacity_regime_version" in df.columns and not df.empty
+            else ""
+        )
+        final_tiers = []
+        if "capacity_final_tier" in df.columns:
+            final_tiers = sorted(
+                {
+                    str(value)
+                    for value in df["capacity_final_tier"].dropna()
+                    if str(value)
+                }
+            )
+        peak_tiers = []
+        if "capacity_peak_tier" in df.columns:
+            peak_tiers = sorted(
+                {
+                    str(value)
+                    for value in df["capacity_peak_tier"].dropna()
+                    if str(value)
+                }
+            )
+
+        handle.write("## 1. Capacity Snapshot\n\n")
+        handle.write(f"- Config Path: {config_path}\n")
+        handle.write(f"- Config Source: {config_source}\n")
+        handle.write(f"- Capacity Mode: {capacity_mode}\n")
+        handle.write(f"- Capacity Version: {regime_version or 'N/A'}\n")
+        handle.write(f"- Run Count: {len(df)}\n")
+        if "capacity_effective_equity_jpy" in df.columns:
+            handle.write(
+                f"- Final Effective Equity Range: ¥{df['capacity_effective_equity_jpy'].min():,.0f} ~ ¥{df['capacity_effective_equity_jpy'].max():,.0f}\n"
+            )
+        if "capacity_peak_equity_jpy" in df.columns:
+            handle.write(
+                f"- Peak Effective Equity: ¥{df['capacity_peak_equity_jpy'].max():,.0f}\n"
+            )
+        if "capacity_effective_max_positions" in df.columns:
+            handle.write(
+                f"- Effective Max Positions: {int(df['capacity_effective_max_positions'].max())}\n"
+            )
+        if "capacity_effective_max_position_pct" in df.columns:
+            handle.write(
+                f"- Effective Max Position Pct: {df['capacity_effective_max_position_pct'].max() * 100:.2f}%\n"
+            )
+        if "capacity_participation_cap_pct" in df.columns:
+            handle.write(
+                f"- Participation Cap: {df['capacity_participation_cap_pct'].max() * 100:.2f}%\n"
+            )
+        if "capacity_min_turnover_20_jpy" in df.columns:
+            handle.write(
+                f"- Liquidity Floor: ¥{df['capacity_min_turnover_20_jpy'].max():,.0f}\n"
+            )
+        if "capacity_blocked_buys" in df.columns:
+            handle.write(
+                f"- Capacity Blocked Buys: {int(df['capacity_blocked_buys'].sum())}\n"
+            )
+        if "capacity_liquidity_blocked_buys" in df.columns:
+            handle.write(
+                f"- Liquidity Blocked Buys: {int(df['capacity_liquidity_blocked_buys'].sum())}\n"
+            )
+        if "capacity_trimmed_buys" in df.columns:
+            handle.write(
+                f"- Trimmed Buys: {int(df['capacity_trimmed_buys'].sum())}\n"
+            )
+        if "capacity_avg_participation_pct" in df.columns:
+            handle.write(
+                f"- Avg Participation: {df['capacity_avg_participation_pct'].mean():.2f}%\n"
+            )
+        if "capacity_p95_participation_pct" in df.columns:
+            handle.write(
+                f"- P95 Participation: {df['capacity_p95_participation_pct'].max():.2f}%\n"
+            )
+        if "capacity_cash_drag_jpy" in df.columns:
+            handle.write(
+                f"- Capacity Cash Drag: ¥{df['capacity_cash_drag_jpy'].sum():,.0f}\n"
+            )
+        handle.write(
+            f"- Final Tiers Seen: {', '.join(final_tiers) if final_tiers else 'N/A'}\n"
+        )
+        handle.write(
+            f"- Peak Tiers Seen: {', '.join(peak_tiers) if peak_tiers else 'N/A'}\n\n"
+        )
 
     def _create_trade_results_dataframe(self) -> pd.DataFrame:
         if not self.trade_results:
@@ -1947,8 +2144,10 @@ class StrategyEvaluator:
             f.write("# 策略综合评价报告\n\n")
             f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
+            self._write_capacity_snapshot(f, df)
+
             # 1. 总体概览
-            f.write("## 1. 总体概览\n\n")
+            f.write("## 2. 总体概览\n\n")
             f.write(f"- 评估时段数: {df['period'].nunique()}\n")
             f.write(
                 f"- 策略组合数: {len(df.groupby(['entry_strategy', 'exit_strategy', 'entry_filter']))}\n"
@@ -1959,7 +2158,7 @@ class StrategyEvaluator:
             f.write(f"- 入场过滤器: {', '.join(df['entry_filter'].unique())}\n\n")
 
             # 2. 时段TOPIX表现
-            f.write("## 2. 时段TOPIX表现\n\n")
+            f.write("## 3. 时段TOPIX表现\n\n")
             period_summary = (
                 df.groupby("period")
                 .agg(
@@ -1990,7 +2189,7 @@ class StrategyEvaluator:
             f.write("\n")
 
             # 3. 按市场环境分类的最优策略
-            f.write("## 3. 按市场环境分类的最优策略\n\n")
+            f.write("## 4. 按市场环境分类的最优策略\n\n")
             df["market_regime"] = df["topix_return_pct"].apply(MarketRegime.classify)
 
             for regime in sorted(df["market_regime"].unique()):
@@ -2047,7 +2246,7 @@ class StrategyEvaluator:
                 f.write("\n")
 
             # 3.5 策略单位列表
-            f.write("## 3.5 策略单位性能汇总\n\n")
+            f.write("## 4.5 策略单位性能汇总\n\n")
             f.write(
                 "所有策略组合在各时段、各市场环境下的表现对比（按时段和入场策略分组）：\n\n"
             )

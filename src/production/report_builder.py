@@ -118,6 +118,7 @@ class ReportBuilder:
         report_date: Optional[str] = None,
         comprehensive_evaluations: Dict = None,  # New: Complete evaluation table
         overlay_summary: Optional[List[Dict]] = None,
+        capacity_summary: Optional[Dict] = None,
     ) -> str:
         """
         Generate complete Markdown trading report.
@@ -145,6 +146,7 @@ class ReportBuilder:
                 execution_results,
                 report_date,
                 overlay_summary,
+                capacity_summary,
             )
 
         # Legacy path: signals-only report
@@ -154,6 +156,8 @@ class ReportBuilder:
         # Build sections
         sections = []
         sections.append(self._build_header(report_date))
+        if capacity_summary:
+            sections.append(self._build_capacity_snapshot_section(capacity_summary))
         sections.append(self._build_strategy_overview())
         sections.append(self._build_market_summary(report_date))
         if overlay_summary:
@@ -180,6 +184,7 @@ class ReportBuilder:
         execution_results: Optional[List[ExecutionResult]],
         report_date: str,
         overlay_summary: Optional[List[Dict]],
+        capacity_summary: Optional[Dict],
     ) -> str:
         """
         Generate new comprehensive report with complete evaluation table.
@@ -194,6 +199,8 @@ class ReportBuilder:
         """
         sections = []
         sections.append(self._build_header(report_date))
+        if capacity_summary:
+            sections.append(self._build_capacity_snapshot_section(capacity_summary))
         sections.append(self._build_strategy_overview())
         sections.append(self._build_market_summary(report_date))
         if overlay_summary:
@@ -1072,6 +1079,48 @@ class ReportBuilder:
 **Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 ---"""
+
+    def _build_capacity_snapshot_section(self, capacity_summary: Dict) -> str:
+        lines = ["## 📏 Capacity Snapshot", ""]
+        lines.append(
+            f"- **Config Path:** {capacity_summary.get('config_path', 'N/A')}"
+        )
+        lines.append(
+            f"- **Config Source:** {capacity_summary.get('config_source', 'N/A')}"
+        )
+        lines.append(
+            f"- **Capacity Mode:** {capacity_summary.get('capacity_regime_mode', 'N/A')}"
+        )
+        lines.append(
+            f"- **Capacity Version:** {capacity_summary.get('capacity_regime_version', 'N/A')}"
+        )
+        lines.append("")
+
+        groups = capacity_summary.get("groups") or []
+        if not groups:
+            lines.append("*No capacity snapshot data available for any group.*")
+            return "\n".join(lines)
+
+        lines.append(
+            "| Group | Effective Equity | Tier | Max Positions | Max Position % | Participation Cap | Liquidity Floor | Blocked Buys | Liquidity Blocked | Trimmed |"
+        )
+        lines.append(
+            "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|"
+        )
+        for item in groups:
+            group_name = item.get("group_name") or item.get("group_id") or "N/A"
+            lines.append(
+                f"| {group_name} | ¥{float(item.get('effective_equity_jpy', 0.0)):,.0f} | {item.get('tier_name', 'N/A')} | "
+                f"{int(item.get('max_positions', 0) or 0)} | "
+                f"{float(item.get('max_position_pct', 0.0) or 0.0) * 100:.2f}% | "
+                f"{float(item.get('participation_cap_pct', 0.0) or 0.0) * 100:.2f}% | "
+                f"¥{float(item.get('min_turnover_20_jpy', 0.0) or 0.0):,.0f} | "
+                f"{int(item.get('blocked_buys', 0) or 0)} | "
+                f"{int(item.get('liquidity_blocked_buys', 0) or 0)} | "
+                f"{int(item.get('trimmed_buys', 0) or 0)} |"
+            )
+
+        return "\n".join(lines)
 
     def _build_strategy_overview(self) -> str:
         """Build strategy-overview section listing entry/exit strategies in use.

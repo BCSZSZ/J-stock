@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.config.capacity import CapacityRegimeConfig, parse_capacity_regime, parse_production_capacity_mode
 from src.config.runtime import is_local_path, sample_path_from_pattern
 from src.config.service import load_config
 
@@ -32,6 +33,8 @@ class ProductionConfig:
     max_positions_per_group: int
     max_position_pct: float
     buy_threshold: float
+    capacity_regime_mode: str
+    capacity_regime: CapacityRegimeConfig
 
     # Default strategies
     default_entry_strategy: str
@@ -163,6 +166,10 @@ class ConfigManager:
         default_strat = self.raw_config.get("default_strategies", {})
         prod_cfg = self.raw_config.get("production", {})
         runtime_cfg = self.raw_config.get("runtime", {})
+        capacity_regime = parse_capacity_regime(self.raw_config.get("capacity_regime"))
+        capacity_regime_mode = parse_production_capacity_mode(
+            prod_cfg.get("capacity_regime_mode")
+        )
 
         # 获取用户配置或默认值
         state_file_raw = prod_cfg.get("state_file", self.DEFAULTS["state_file"])
@@ -218,6 +225,8 @@ class ConfigManager:
                 "max_position_pct", portfolio_cfg.get("max_position_pct", 0.30)
             ),
             buy_threshold=prod_cfg.get("buy_threshold", self.DEFAULTS["buy_threshold"]),
+            capacity_regime_mode=capacity_regime_mode,
+            capacity_regime=capacity_regime,
             # Default strategies
             default_entry_strategy=default_strat.get("entry", "SimpleScorerStrategy"),
             default_exit_strategy=default_strat.get("exit", "ATRExitStrategy"),
@@ -278,6 +287,8 @@ class ConfigManager:
         print(f"  Max Positions:  {prod_cfg.max_positions_per_group}")
         print(f"  Max Position%:  {prod_cfg.max_position_pct * 100:.0f}%")
         print(f"  Buy Threshold:  {prod_cfg.buy_threshold}")
+        print(f"  Capacity Mode:  {prod_cfg.capacity_regime_mode}")
+        print(f"  Capacity Ver.:  {prod_cfg.capacity_regime.version}")
         print("\nDefault Strategies:")
         print(f"  Entry:          {prod_cfg.default_entry_strategy}")
         print(f"  Exit:           {prod_cfg.default_exit_strategy}")

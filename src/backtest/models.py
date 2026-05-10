@@ -78,6 +78,24 @@ class BacktestResult:
     tracking_error: Optional[float] = None  # Active risk (annualized %)
     information_ratio: Optional[float] = None  # Alpha quality (alpha / tracking_error)
 
+    # Capacity Metrics
+    capacity_regime_mode: str = "off"
+    capacity_regime_version: str = ""
+    capacity_final_tier: str = ""
+    capacity_peak_tier: str = ""
+    capacity_effective_equity_jpy: float = 0.0
+    capacity_peak_equity_jpy: float = 0.0
+    capacity_effective_max_positions: int = 0
+    capacity_effective_max_position_pct: float = 0.0
+    capacity_participation_cap_pct: float = 0.0
+    capacity_min_turnover_20_jpy: float = 0.0
+    capacity_blocked_buys: int = 0
+    capacity_liquidity_blocked_buys: int = 0
+    capacity_trimmed_buys: int = 0
+    capacity_avg_participation_pct: float = 0.0
+    capacity_p95_participation_pct: float = 0.0
+    capacity_cash_drag_jpy: float = 0.0
+
     # Trade Details
     trades: List[Trade] = field(default_factory=list)
 

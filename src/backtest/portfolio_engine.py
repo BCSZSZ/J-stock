@@ -15,6 +15,8 @@ from ..analysis.signals import MarketData, SignalAction, TradingSignal
 from ..analysis.filters import EntrySecondaryFilter
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
+from ..capacity import capacity_mode_enabled, compute_order_capacity, resolve_capacity_tier
+from ..config.capacity import CapacityRegimeConfig
 from ..data.benchmark_manager import BenchmarkManager
 from ..data.stock_data_manager import StockDataManager
 from ..overlays import OverlayContext, OverlayManager
@@ -45,6 +47,8 @@ class PortfolioBacktestEngine:
         max_positions: int = 5,
         max_position_pct: float = 0.30,
         min_position_pct: float = 0.05,
+        capacity_regime: Optional[CapacityRegimeConfig] = None,
+        capacity_regime_mode: str = "off",
         exit_confirmation_days: int = 1,
         signal_ranking_method: str = "simple_score",
         data_root: str = "./data",
@@ -73,6 +77,8 @@ class PortfolioBacktestEngine:
         self.max_positions = max_positions
         self.max_position_pct = max_position_pct
         self.min_position_pct = min_position_pct
+        self.capacity_regime = capacity_regime
+        self.capacity_regime_mode = str(capacity_regime_mode)
         self.exit_confirmation_days = max(1, int(exit_confirmation_days))
         self.data_root = data_root
         self.overlay_manager = overlay_manager
@@ -166,6 +172,14 @@ class PortfolioBacktestEngine:
         # 回测状态
         trades: List[Trade] = []
         daily_equity = {}
+        equity_history_values: List[float] = []
+        capacity_participations: List[float] = []
+        capacity_blocked_buys = 0
+        capacity_liquidity_blocked_buys = 0
+        capacity_trimmed_buys = 0
+        capacity_cash_drag_jpy = 0.0
+        final_capacity_snapshot = None
+        peak_capacity_snapshot = None
 
         # 待执行订单（信号今天生成，明天执行）
         pending_buy_signals: Dict[str, TradingSignal] = {}
@@ -321,6 +335,25 @@ class PortfolioBacktestEngine:
             # ================================================================
             # STEP 2: 执行待执行的买入订单
             # ================================================================
+            observed_total_value = portfolio.get_total_value(current_prices)
+            day_capacity_snapshot = None
+            if capacity_mode_enabled(self.capacity_regime_mode, self.capacity_regime):
+                day_capacity_snapshot = resolve_capacity_tier(
+                    self.capacity_regime,
+                    equity_history_values,
+                    observed_total_value,
+                )
+                portfolio.max_positions = day_capacity_snapshot.max_positions
+                portfolio.max_position_pct = day_capacity_snapshot.max_position_pct
+                final_capacity_snapshot = day_capacity_snapshot
+                if (
+                    peak_capacity_snapshot is None
+                    or day_capacity_snapshot.tier_index > peak_capacity_snapshot.tier_index
+                    or day_capacity_snapshot.effective_equity_jpy
+                    > peak_capacity_snapshot.effective_equity_jpy
+                ):
+                    peak_capacity_snapshot = day_capacity_snapshot
+
             if pending_buy_signals:
                 if overlay_decision and overlay_decision.block_new_entries:
                     pending_buy_signals.clear()
@@ -343,7 +376,15 @@ class PortfolioBacktestEngine:
                     ranked_signals = self.signal_ranker.rank_buy_signals(
                         pending_buy_signals,
                         market_data_dict,
-                        top_k=max(1, self.max_positions + self.buy_rank_buffer),
+                        top_k=max(
+                            1,
+                            (
+                                day_capacity_snapshot.max_positions
+                                if day_capacity_snapshot is not None
+                                else self.max_positions
+                            )
+                            + self.buy_rank_buffer,
+                        ),
                     )
 
                     # 依次尝试买入
@@ -371,14 +412,7 @@ class PortfolioBacktestEngine:
                         if entry_price is None:
                             continue
 
-                        # 计算可用资金
-                        max_cash = portfolio.calculate_max_position_size(current_prices)
-                        if (
-                            overlay_decision
-                            and overlay_decision.position_scale is not None
-                        ):
-                            max_cash *= overlay_decision.position_scale
-
+                        available_exposure = None
                         if (
                             overlay_decision
                             and overlay_decision.target_exposure is not None
@@ -389,13 +423,77 @@ class PortfolioBacktestEngine:
                                 total_value * overlay_decision.target_exposure
                             )
                             available_exposure = max(0.0, max_invested - invested)
-                            max_cash = min(max_cash, available_exposure)
 
-                        # Optional signal-level sizing (default 1.0 keeps legacy behavior).
                         signal_buy_scale = extract_buy_size_multiplier(
                             buy_signal.metadata
                         )
-                        max_cash *= signal_buy_scale
+                        if (
+                            overlay_decision
+                            and overlay_decision.position_scale is not None
+                        ):
+                            signal_buy_scale *= overlay_decision.position_scale
+
+                        entry_metadata = dict(buy_signal.metadata or {})
+
+                        if day_capacity_snapshot is not None:
+                            market_data_for_capacity = get_market_data_for_today(ticker)
+                            turnover_jpy = self._extract_turnover_value(
+                                market_data_for_capacity
+                            )
+                            capacity_decision = compute_order_capacity(
+                                tier=day_capacity_snapshot,
+                                turnover_jpy=turnover_jpy,
+                                available_cash_jpy=portfolio.cash,
+                                available_exposure_jpy=available_exposure,
+                                signal_scale=signal_buy_scale,
+                            )
+                            if capacity_decision.blocking_reason is not None:
+                                capacity_blocked_buys += 1
+                                if capacity_decision.blocking_reason in {
+                                    "missing_turnover",
+                                    "liquidity_floor",
+                                }:
+                                    capacity_liquidity_blocked_buys += 1
+                                capacity_cash_drag_jpy += max(
+                                    0.0,
+                                    capacity_decision.equity_cap_jpy
+                                    - capacity_decision.order_cap_jpy,
+                                )
+                                continue
+
+                            max_cash = capacity_decision.order_cap_jpy
+                            if capacity_decision.is_trimmed:
+                                capacity_trimmed_buys += 1
+                            capacity_cash_drag_jpy += max(
+                                0.0,
+                                capacity_decision.equity_cap_jpy
+                                - capacity_decision.order_cap_jpy,
+                            )
+                            if capacity_decision.participation_pct is not None:
+                                capacity_participations.append(
+                                    capacity_decision.participation_pct * 100.0
+                                )
+
+                            entry_metadata.update(
+                                {
+                                    "capacity_regime_version": day_capacity_snapshot.regime_version,
+                                    "capacity_tier_name": day_capacity_snapshot.tier_name,
+                                    "capacity_tier_index": day_capacity_snapshot.tier_index,
+                                    "capacity_effective_equity_jpy": day_capacity_snapshot.effective_equity_jpy,
+                                    "capacity_max_positions": day_capacity_snapshot.max_positions,
+                                    "capacity_max_position_pct": day_capacity_snapshot.max_position_pct,
+                                    "capacity_participation_cap_pct": day_capacity_snapshot.participation_cap_pct,
+                                    "capacity_min_turnover_20_jpy": day_capacity_snapshot.min_turnover_20_jpy,
+                                    "capacity_order_cap_jpy": capacity_decision.order_cap_jpy,
+                                    "capacity_turnover_jpy": capacity_decision.turnover_jpy,
+                                    "capacity_participation_pct": capacity_decision.participation_pct,
+                                }
+                            )
+                        else:
+                            max_cash = portfolio.calculate_max_position_size(current_prices)
+                            if available_exposure is not None:
+                                max_cash = min(max_cash, available_exposure)
+                            max_cash *= signal_buy_scale
 
                         # 计算可购买股数（考虑lot size）
                         shares = LotSizeManager.calculate_buyable_shares(
@@ -403,6 +501,7 @@ class PortfolioBacktestEngine:
                         )
 
                         if shares > 0:
+                            buy_signal.metadata = entry_metadata
                             # 创建持仓
                             position = Position(
                                 ticker=ticker,
@@ -545,6 +644,7 @@ class PortfolioBacktestEngine:
             # ================================================================
             total_value = portfolio.get_total_value(current_prices)
             daily_equity[current_date] = total_value
+            equity_history_values.append(total_value)
 
             if show_daily_status and (i % 20 == 0 or i == len(trading_days) - 1):
                 print(f"\n  [Portfolio] 组合状态 ({current_date.date()}):")
@@ -564,7 +664,31 @@ class PortfolioBacktestEngine:
             end_date=end_date,
             current_prices=current_prices,
             compute_benchmark=compute_benchmark,
+            final_capacity_snapshot=final_capacity_snapshot,
+            peak_capacity_snapshot=peak_capacity_snapshot,
+            capacity_blocked_buys=capacity_blocked_buys,
+            capacity_liquidity_blocked_buys=capacity_liquidity_blocked_buys,
+            capacity_trimmed_buys=capacity_trimmed_buys,
+            capacity_participations=capacity_participations,
+            capacity_cash_drag_jpy=capacity_cash_drag_jpy,
         )
+
+    def _extract_turnover_value(self, market_data: Optional[MarketData]) -> Optional[float]:
+        if market_data is None or self.capacity_regime is None:
+            return None
+
+        latest_features = market_data.latest_features
+        if latest_features.empty:
+            return None
+
+        turnover_field = self.capacity_regime.turnover_field
+        if turnover_field not in latest_features.index:
+            return None
+
+        value = latest_features.get(turnover_field)
+        if pd.isna(value):
+            return None
+        return float(value)
 
     def _calculate_sell_quantity(
         self, ticker: str, total_qty: int, sell_pct: float
@@ -821,6 +945,13 @@ class PortfolioBacktestEngine:
         end_date: str,
         current_prices: Dict[str, float],
         compute_benchmark: bool = True,
+        final_capacity_snapshot=None,
+        peak_capacity_snapshot=None,
+        capacity_blocked_buys: int = 0,
+        capacity_liquidity_blocked_buys: int = 0,
+        capacity_trimmed_buys: int = 0,
+        capacity_participations: Optional[List[float]] = None,
+        capacity_cash_drag_jpy: float = 0.0,
     ) -> BacktestResult:
         """构建组合回测结果"""
 
@@ -881,6 +1012,15 @@ class PortfolioBacktestEngine:
                 logger.warning(f"Failed to calculate benchmark: {e}")
 
         ticker_display = f"Portfolio[{', '.join(tickers)}]"
+        participation_values = capacity_participations or []
+        avg_participation_pct = (
+            float(np.mean(participation_values)) if participation_values else 0.0
+        )
+        p95_participation_pct = (
+            float(np.percentile(participation_values, 95))
+            if participation_values
+            else 0.0
+        )
 
         return BacktestResult(
             ticker=ticker_display,
@@ -906,6 +1046,50 @@ class PortfolioBacktestEngine:
             benchmark_return_pct=benchmark_return_pct,
             alpha=alpha,
             beat_benchmark=beat_benchmark,
+            capacity_regime_mode=self.capacity_regime_mode,
+            capacity_regime_version=(
+                final_capacity_snapshot.regime_version if final_capacity_snapshot else ""
+            ),
+            capacity_final_tier=(
+                final_capacity_snapshot.tier_name if final_capacity_snapshot else ""
+            ),
+            capacity_peak_tier=(
+                peak_capacity_snapshot.tier_name if peak_capacity_snapshot else ""
+            ),
+            capacity_effective_equity_jpy=(
+                final_capacity_snapshot.effective_equity_jpy
+                if final_capacity_snapshot
+                else 0.0
+            ),
+            capacity_peak_equity_jpy=(
+                peak_capacity_snapshot.effective_equity_jpy
+                if peak_capacity_snapshot
+                else 0.0
+            ),
+            capacity_effective_max_positions=(
+                final_capacity_snapshot.max_positions if final_capacity_snapshot else 0
+            ),
+            capacity_effective_max_position_pct=(
+                final_capacity_snapshot.max_position_pct
+                if final_capacity_snapshot
+                else 0.0
+            ),
+            capacity_participation_cap_pct=(
+                final_capacity_snapshot.participation_cap_pct
+                if final_capacity_snapshot
+                else 0.0
+            ),
+            capacity_min_turnover_20_jpy=(
+                final_capacity_snapshot.min_turnover_20_jpy
+                if final_capacity_snapshot
+                else 0.0
+            ),
+            capacity_blocked_buys=capacity_blocked_buys,
+            capacity_liquidity_blocked_buys=capacity_liquidity_blocked_buys,
+            capacity_trimmed_buys=capacity_trimmed_buys,
+            capacity_avg_participation_pct=avg_participation_pct,
+            capacity_p95_participation_pct=p95_participation_pct,
+            capacity_cash_drag_jpy=capacity_cash_drag_jpy,
             trades=trades,
         )
 
@@ -933,6 +1117,7 @@ class PortfolioBacktestEngine:
             avg_loss_pct=0.0,
             avg_holding_days=0.0,
             profit_factor=0.0,
+            capacity_regime_mode=self.capacity_regime_mode,
             trades=[],
         )
 

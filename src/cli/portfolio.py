@@ -135,7 +135,6 @@ def cmd_portfolio(args):
                 starting_capital=capital,
                 max_positions=config["portfolio"]["max_positions"],
                 max_position_pct=config["portfolio"]["max_position_pct"],
-                min_position_pct=config["portfolio"]["min_position_pct"],
                 overlay_manager=overlay_manager,
             )
 

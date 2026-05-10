@@ -18,7 +18,6 @@
     "starting_capital_jpy": 8000000,
     "max_positions": 7,
     "max_position_pct": 0.18,
-    "min_position_pct": 0.05,
     "output_dir": "portfolio_backtest_results"
   },
   "lot_sizes": {
@@ -30,11 +29,59 @@
     "entry": "MACDPreCross2BarEntry",
     "exit": "MVXW_N5_R3p35_T1p45_D21_B20p0"
   },
+  "capacity_regime": {
+    "version": "2026-05-v1",
+    "equity_window_days": 20,
+    "turnover_field": "Turnover_Median_20",
+    "tiers": [
+      {
+        "name": "tier0",
+        "max_equity_jpy": 15000000,
+        "max_positions": 7,
+        "max_position_pct": 0.18,
+        "participation_cap_pct": 0.02,
+        "min_turnover_20_jpy": 500000000
+      },
+      {
+        "name": "tier1",
+        "max_equity_jpy": 40000000,
+        "max_positions": 10,
+        "max_position_pct": 0.12,
+        "participation_cap_pct": 0.015,
+        "min_turnover_20_jpy": 800000000
+      },
+      {
+        "name": "tier2",
+        "max_equity_jpy": 100000000,
+        "max_positions": 14,
+        "max_position_pct": 0.08,
+        "participation_cap_pct": 0.01,
+        "min_turnover_20_jpy": 1200000000
+      },
+      {
+        "name": "tier3",
+        "max_equity_jpy": 250000000,
+        "max_positions": 18,
+        "max_position_pct": 0.055,
+        "participation_cap_pct": 0.0075,
+        "min_turnover_20_jpy": 2500000000
+      },
+      {
+        "name": "tier4",
+        "max_equity_jpy": null,
+        "max_positions": 20,
+        "max_position_pct": 0.05,
+        "participation_cap_pct": 0.005,
+        "min_turnover_20_jpy": 5000000000
+      }
+    ]
+  },
   "evaluation": {
     "output_dir": "G:/My Drive/AI-Stock-Sync/strategy_evaluation",
     "default_entry_strategies": ["MACDCrossoverStrategy"],
     "default_exit_strategies": ["MVX_N9_R3p6_T1p7_D18_B20p0"],
     "exit_confirmation_days": 1,
+    "capacity_regime_mode": "off",
     "filters": {
       "mode": "single",
       "default": {
@@ -80,6 +127,7 @@
     "sector_pool_file": "G:/My Drive/AI-Stock-Sync/universe/sector_pool",
     "max_positions_per_group": 7,
     "max_position_pct": 0.18,
+    "capacity_regime_mode": "off",
     "buy_threshold": 65,
     "strategy_groups": [
       {

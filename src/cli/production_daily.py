@@ -7,8 +7,14 @@ from typing import Dict, List
 import pandas as pd
 from dotenv import load_dotenv
 
+from src.capacity import compute_order_capacity, resolve_capacity_tier
 from src.cli.production_utils import load_monitor_tickers
-from src.config.runtime import is_local_path
+from src.config.runtime import (
+    CONFIG_ENV_VAR,
+    GDRIVE_DEFAULT_CONFIG_FILE,
+    get_config_file_path,
+    is_local_path,
+)
 from src.config.service import load_config
 from src.data.fetch_universe_builder import build_fetch_universe_file
 from src.data.sector_metrics_updater import update_sector_metrics
@@ -221,6 +227,132 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         cash_history_file=prod_cfg.cash_history_file,
         as_of_date=signal_date,
     )
+    capacity_mode = str(getattr(prod_cfg, "capacity_regime_mode", "off") or "off")
+    capacity_regime = getattr(prod_cfg, "capacity_regime", None)
+    state_as_of_cache: Dict[str, object] = {signal_date: effective_state}
+    price_cache: Dict[tuple[str, str], float | None] = {}
+
+    def _resolve_config_source() -> str:
+        if os.getenv(CONFIG_ENV_VAR):
+            return "env"
+        if get_config_file_path() == GDRIVE_DEFAULT_CONFIG_FILE:
+            return "gdrive"
+        return "local"
+
+    def _get_recent_trading_dates(end_date: str, window_size: int) -> List[str]:
+        target_ts = pd.Timestamp(end_date)
+        for ticker in monitor_tickers:
+            try:
+                market_data = MarketDataBuilder.build_from_manager(
+                    data_manager=data_manager,
+                    ticker=ticker,
+                    current_date=target_ts,
+                )
+            except Exception:
+                continue
+            if market_data is None or market_data.df_features.empty:
+                continue
+            date_index = market_data.df_features.index
+            eligible = date_index[date_index <= target_ts]
+            if len(eligible) == 0:
+                continue
+            return [ts.strftime("%Y-%m-%d") for ts in eligible[-window_size:]]
+        return [end_date]
+
+    def _get_state_as_of_date(as_of_date: str):
+        if as_of_date not in state_as_of_cache:
+            state_as_of_cache[as_of_date] = build_state_as_of(
+                base_state=state,
+                history_file=prod_cfg.history_file,
+                cash_history_file=prod_cfg.cash_history_file,
+                as_of_date=as_of_date,
+            )
+        return state_as_of_cache[as_of_date]
+
+    def _get_close_price_for_date(ticker: str, as_of_date: str) -> float | None:
+        cache_key = (ticker, as_of_date)
+        if cache_key in price_cache:
+            return price_cache[cache_key]
+        try:
+            market_data = MarketDataBuilder.build_from_manager(
+                data_manager=data_manager,
+                ticker=ticker,
+                current_date=pd.Timestamp(as_of_date),
+            )
+        except Exception:
+            price_cache[cache_key] = None
+            return None
+        if market_data is None or market_data.df_features.empty:
+            price_cache[cache_key] = None
+            return None
+        latest_row = market_data.df_features.iloc[-1]
+        close_value = latest_row.get("Close")
+        if close_value is None or pd.isna(close_value):
+            price_cache[cache_key] = None
+            return None
+        price_cache[cache_key] = float(close_value)
+        return price_cache[cache_key]
+
+    def _get_group_prices_as_of(group_state, as_of_date: str) -> Dict[str, float]:
+        prices: Dict[str, float] = {}
+        for position in group_state.positions:
+            if position.quantity <= 0:
+                continue
+            close_price = _get_close_price_for_date(position.ticker, as_of_date)
+            if close_price is not None:
+                prices[position.ticker] = close_price
+        return prices
+
+    def _build_group_equity_history(group_id: str, as_of_date: str) -> List[float]:
+        if capacity_regime is None:
+            return []
+        trading_dates = _get_recent_trading_dates(
+            as_of_date,
+            max(1, int(capacity_regime.equity_window_days)),
+        )
+        equity_values: List[float] = []
+        for history_date in trading_dates:
+            snapshot_state = _get_state_as_of_date(history_date)
+            snapshot_group = snapshot_state.get_group(group_id)
+            if snapshot_group is None:
+                continue
+            history_prices = _get_group_prices_as_of(snapshot_group, history_date)
+            equity_values.append(float(snapshot_group.total_value(history_prices)))
+        return equity_values
+
+    def _extract_turnover_value(ticker: str, as_of_date: str) -> float | None:
+        if capacity_regime is None:
+            return None
+        try:
+            market_data = MarketDataBuilder.build_from_manager(
+                data_manager=data_manager,
+                ticker=ticker,
+                current_date=pd.Timestamp(as_of_date),
+            )
+        except Exception:
+            return None
+        if market_data is None or market_data.df_features.empty:
+            return None
+        latest_row = market_data.df_features.iloc[-1]
+        value = latest_row.get(capacity_regime.turnover_field)
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+
+    def _apply_capacity_fields(signal, snapshot, decision) -> None:
+        signal.capacity_regime_mode = capacity_mode
+        signal.capacity_regime_version = snapshot.regime_version
+        signal.capacity_tier_name = snapshot.tier_name
+        signal.capacity_effective_equity_jpy = snapshot.effective_equity_jpy
+        signal.capacity_effective_max_positions = snapshot.max_positions
+        signal.capacity_effective_max_position_pct = snapshot.max_position_pct
+        signal.capacity_participation_cap_pct = snapshot.participation_cap_pct
+        signal.capacity_min_turnover_20_jpy = snapshot.min_turnover_20_jpy
+        if decision is not None:
+            signal.capacity_order_cap_jpy = decision.order_cap_jpy
+            signal.capacity_turnover_jpy = decision.turnover_jpy
+            signal.capacity_participation_pct = decision.participation_pct
+            signal.capacity_blocking_reason = decision.blocking_reason
 
     all_signals = []
     groups = effective_state.get_all_groups()
@@ -502,6 +634,18 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             for pos in group.positions
             if pos.quantity > 0
         )
+        capacity_snapshot = None
+        if capacity_mode != "off" and capacity_regime is not None:
+            equity_history = _build_group_equity_history(group.id, signal_date)
+            observed_total_value = (
+                equity_history[-1] if equity_history else float(total_value)
+            )
+            prior_equity = equity_history[:-1] if len(equity_history) > 1 else []
+            capacity_snapshot = resolve_capacity_tier(
+                capacity_regime,
+                prior_equity,
+                float(observed_total_value),
+            )
 
         overlay_decision = None
         if overlay_manager.overlays:
@@ -772,6 +916,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             "invested_value": invested_value,
             "total_value": total_value,
             "max_new_positions": max_new_positions,
+            "capacity_snapshot": capacity_snapshot,
+            "capacity_blocked_buys": 0,
+            "capacity_liquidity_blocked_buys": 0,
+            "capacity_trimmed_buys": 0,
         }
 
         print(f"      BUY: {buy_count}, SELL: {sell_count}")
@@ -852,6 +1000,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         invested_value = ctx["invested_value"]
         max_new_positions = ctx["max_new_positions"]
         projected_position_count = ctx["projected_position_count"]
+        capacity_snapshot = ctx.get("capacity_snapshot")
 
         planning_cash = float(group.cash) + projected_sell_proceeds
         planning_invested_value = max(0.0, invested_value - projected_sell_proceeds)
@@ -860,12 +1009,24 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         group_buys = [s for s in buy_signals_all if s.group_id == group_id]
 
         for sig in group_buys:
+            if capacity_snapshot is not None:
+                _apply_capacity_fields(sig, capacity_snapshot, None)
+
+            execution_max_positions = int(prod_cfg.max_positions_per_group)
+            if capacity_snapshot is not None and capacity_mode == "enforce":
+                execution_max_positions = capacity_snapshot.max_positions
+
             # Position limit check (same as evaluation's can_open_new_position)
             if (
                 projected_position_count + new_positions_opened
-                >= prod_cfg.max_positions_per_group
+                >= execution_max_positions
             ):
-                sig.reason = f"{sig.reason}; Skipped: max positions ({prod_cfg.max_positions_per_group}) reached"
+                sig.reason = (
+                    f"{sig.reason}; Skipped: max positions ({execution_max_positions}) reached"
+                )
+                if capacity_snapshot is not None and capacity_mode == "enforce":
+                    sig.capacity_blocking_reason = "max_positions"
+                    ctx["capacity_blocked_buys"] += 1
                 continue
 
             if max_new_positions is not None and new_positions_opened >= max_new_positions:
@@ -876,26 +1037,60 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 sig.reason = f"{sig.reason}; Overlay blocked new entries"
                 continue
 
-            max_position_pct = float(prod_cfg.max_position_pct)
-            if overlay_decision and overlay_decision.position_scale is not None:
-                max_position_pct *= overlay_decision.position_scale
-
             signal_buy_scale = extract_buy_size_multiplier({})
-            max_position_pct *= signal_buy_scale
+            if overlay_decision and overlay_decision.position_scale is not None:
+                signal_buy_scale *= overlay_decision.position_scale
 
             available_cash = planning_cash
+            available_exposure = None
             if overlay_decision and overlay_decision.target_exposure is not None:
                 max_invested = total_value * overlay_decision.target_exposure
                 available_exposure = max(0.0, max_invested - planning_invested_value)
                 available_cash = min(available_cash, available_exposure)
 
-            suggested_qty, required_capital, lot_size = _calc_suggested_qty(
-                ticker=sig.ticker,
-                current_price=sig.current_price,
-                available_cash=available_cash,
-                total_portfolio_value=total_value,
-                max_position_pct=max_position_pct,
-            )
+            capacity_decision = None
+            if capacity_snapshot is not None:
+                capacity_decision = compute_order_capacity(
+                    tier=capacity_snapshot,
+                    turnover_jpy=_extract_turnover_value(sig.ticker, signal_date),
+                    available_cash_jpy=planning_cash,
+                    available_exposure_jpy=available_exposure,
+                    signal_scale=signal_buy_scale,
+                )
+                _apply_capacity_fields(sig, capacity_snapshot, capacity_decision)
+                if capacity_decision.blocking_reason is not None:
+                    ctx["capacity_blocked_buys"] += 1
+                    if capacity_decision.blocking_reason in {
+                        "missing_turnover",
+                        "liquidity_floor",
+                    }:
+                        ctx["capacity_liquidity_blocked_buys"] += 1
+                    if capacity_mode == "enforce":
+                        sig.reason = (
+                            f"{sig.reason}; Capacity blocked: {capacity_decision.blocking_reason}"
+                        )
+                        continue
+                elif capacity_decision.is_trimmed:
+                    ctx["capacity_trimmed_buys"] += 1
+
+            if capacity_snapshot is not None and capacity_mode == "enforce" and capacity_decision is not None:
+                lot_size = int(lot_sizes.get(sig.ticker, default_lot_size) or default_lot_size)
+                lot_value = float(sig.current_price) * lot_size
+                lots = int(capacity_decision.order_cap_jpy // lot_value) if lot_value > 0 else 0
+                suggested_qty = lots * lot_size
+                required_capital = suggested_qty * float(sig.current_price)
+            else:
+                max_position_pct = float(prod_cfg.max_position_pct)
+                if overlay_decision and overlay_decision.position_scale is not None:
+                    max_position_pct *= overlay_decision.position_scale
+                max_position_pct *= extract_buy_size_multiplier({})
+                suggested_qty, required_capital, lot_size = _calc_suggested_qty(
+                    ticker=sig.ticker,
+                    current_price=sig.current_price,
+                    available_cash=available_cash,
+                    total_portfolio_value=total_value,
+                    max_position_pct=max_position_pct,
+                )
 
             if suggested_qty > 0:
                 sig.suggested_qty = suggested_qty
@@ -904,10 +1099,45 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 planning_cash = max(0.0, planning_cash - required_capital)
                 planning_invested_value += required_capital
             else:
+                if capacity_snapshot is not None and capacity_mode == "enforce":
+                    sig.capacity_blocking_reason = sig.capacity_blocking_reason or "lot_size"
+                    ctx["capacity_blocked_buys"] += 1
                 sig.reason = (
                     f"{sig.reason}; SuggestedQty=0: projected cash/exposure "
                     f"insufficient for lot size {lot_size}"
                 )
+
+    capacity_summary = None
+    if capacity_mode != "off" and capacity_regime is not None:
+        capacity_summary = {
+            "config_path": str(get_config_file_path()),
+            "config_source": _resolve_config_source(),
+            "capacity_regime_mode": capacity_mode,
+            "capacity_regime_version": capacity_regime.version,
+            "groups": [],
+        }
+        for group in groups:
+            ctx = _group_buy_contexts.get(group.id, {})
+            snapshot = ctx.get("capacity_snapshot")
+            if snapshot is None:
+                continue
+            capacity_summary["groups"].append(
+                {
+                    "group_id": group.id,
+                    "group_name": group.name,
+                    "effective_equity_jpy": snapshot.effective_equity_jpy,
+                    "tier_name": snapshot.tier_name,
+                    "max_positions": snapshot.max_positions,
+                    "max_position_pct": snapshot.max_position_pct,
+                    "participation_cap_pct": snapshot.participation_cap_pct,
+                    "min_turnover_20_jpy": snapshot.min_turnover_20_jpy,
+                    "blocked_buys": int(ctx.get("capacity_blocked_buys", 0)),
+                    "liquidity_blocked_buys": int(
+                        ctx.get("capacity_liquidity_blocked_buys", 0)
+                    ),
+                    "trimmed_buys": int(ctx.get("capacity_trimmed_buys", 0)),
+                }
+            )
 
     signal_file = prod_cfg.signal_file_pattern.replace("{date}", signal_date)
     Path(signal_file).parent.mkdir(parents=True, exist_ok=True)
@@ -959,6 +1189,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         report_date=signal_date,
         comprehensive_evaluations=comprehensive_evals,
         overlay_summary=overlay_summaries,
+        capacity_summary=capacity_summary,
     )
     report_md += "\n\n" + _build_buy_diagnostics_markdown(
         groups=groups,
