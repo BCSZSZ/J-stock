@@ -9,7 +9,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ..data.stock_data_manager import StockDataManager
 from .signal_generator import Signal
@@ -27,6 +27,16 @@ class MarketSummary:
     topix_close: Optional[float] = None
     topix_change_pct: Optional[float] = None
     market_condition: str = "N/A"  # "Bullish", "Bearish", "Neutral"
+
+
+@dataclass(frozen=True)
+class MobileTradeInstruction:
+    """Compact trade instruction for phone-friendly report copying."""
+
+    ticker: str
+    ticker_name: str
+    side_label: str
+    quantity: int
 
 
 class ReportBuilder:
@@ -111,6 +121,149 @@ class ReportBuilder:
         """Return company name for ticker from jpx_final_list.csv, fallback to ticker code."""
         return self._ticker_name_map.get(ticker, ticker)
 
+    def _resolve_mobile_trade_ticker_name(self, signal: Signal) -> str:
+        """Prefer signal-provided name when available, otherwise use the lookup table."""
+        ticker_name = getattr(signal, "ticker_name", "")
+        if ticker_name and ticker_name != signal.ticker:
+            return ticker_name
+        return self._get_ticker_name(signal.ticker)
+
+    def _resolve_mobile_trade_quantity(self, signal: Signal) -> int:
+        """Return executable quantity for the mobile trade board."""
+        if signal.signal_type == "BUY":
+            return int(signal.suggested_qty or 0)
+
+        if signal.signal_type != "SELL":
+            return 0
+
+        planned_sell_qty = getattr(signal, "planned_sell_qty", None)
+        if planned_sell_qty is not None:
+            return int(planned_sell_qty)
+
+        position_qty = int(signal.position_qty or 0)
+        if position_qty <= 0:
+            return 0
+
+        ratio_map = {
+            "SELL_25%": 0.25,
+            "SELL_50%": 0.50,
+            "SELL_75%": 0.75,
+        }
+        if signal.action in ratio_map:
+            return max(1, int(position_qty * ratio_map[signal.action]))
+        return position_qty
+
+    def _build_mobile_trade_instruction(
+        self, signal: Signal
+    ) -> Optional[MobileTradeInstruction]:
+        """Convert a signal into one compact phone-oriented trade instruction."""
+        quantity = self._resolve_mobile_trade_quantity(signal)
+        if quantity <= 0:
+            return None
+
+        if signal.signal_type == "BUY":
+            side_label = "买入"
+        elif signal.signal_type == "SELL":
+            side_label = "卖出"
+        else:
+            return None
+
+        return MobileTradeInstruction(
+            ticker=signal.ticker,
+            ticker_name=self._resolve_mobile_trade_ticker_name(signal),
+            side_label=side_label,
+            quantity=quantity,
+        )
+
+    def _sort_mobile_trade_signals(self, signals: List[Signal]) -> List[Signal]:
+        """Sort signals for phone execution: sells first, then buys."""
+        executable_sell_signals = [
+            signal
+            for signal in signals
+            if signal.signal_type == "SELL"
+            and self._resolve_mobile_trade_quantity(signal) > 0
+        ]
+        executable_buy_signals = [
+            signal
+            for signal in signals
+            if signal.signal_type == "BUY"
+            and self._resolve_mobile_trade_quantity(signal) > 0
+        ]
+
+        sorted_sell_signals = self._sort_sell_signals(executable_sell_signals)
+        if any(getattr(signal, "rank", None) is not None for signal in executable_buy_signals):
+            sorted_buy_signals = sorted(
+                executable_buy_signals,
+                key=lambda signal: (
+                    signal.rank if signal.rank is not None else 9999,
+                    -(signal.score or 0.0),
+                    -(signal.confidence or 0.0),
+                    signal.ticker,
+                ),
+            )
+        else:
+            sorted_buy_signals = sorted(
+                executable_buy_signals,
+                key=lambda signal: (
+                    -(signal.score or 0.0),
+                    -(signal.confidence or 0.0),
+                    signal.ticker,
+                ),
+            )
+
+        return sorted_sell_signals + sorted_buy_signals
+
+    def _collect_mobile_trade_instructions(
+        self, signals: List[Signal]
+    ) -> List[MobileTradeInstruction]:
+        """Aggregate compact instructions by ticker and side for mobile execution."""
+        aggregated_qty_by_key: Dict[Tuple[str, str, str], int] = {}
+        ordered_keys: List[Tuple[str, str, str]] = []
+
+        for signal in self._sort_mobile_trade_signals(signals):
+            instruction = self._build_mobile_trade_instruction(signal)
+            if instruction is None:
+                continue
+
+            key = (
+                instruction.ticker,
+                instruction.ticker_name,
+                instruction.side_label,
+            )
+            if key not in aggregated_qty_by_key:
+                aggregated_qty_by_key[key] = 0
+                ordered_keys.append(key)
+            aggregated_qty_by_key[key] += instruction.quantity
+
+        return [
+            MobileTradeInstruction(
+                ticker=ticker,
+                ticker_name=ticker_name,
+                side_label=side_label,
+                quantity=aggregated_qty_by_key[(ticker, ticker_name, side_label)],
+            )
+            for ticker, ticker_name, side_label in ordered_keys
+        ]
+
+    def _build_mobile_trade_section(
+        self, signals: List[Signal], report_date: str
+    ) -> str:
+        """Build a minimal phone-friendly trade section inside the report."""
+        instructions = self._collect_mobile_trade_instructions(signals)
+        lines = ["## 📱 手机交易版", "", "```text"]
+
+        if not instructions:
+            lines.append(f"{report_date} - 无买卖指令")
+        else:
+            for instruction in instructions:
+                lines.append(
+                    f"{report_date} - {instruction.ticker} - {instruction.ticker_name} - "
+                    f"{instruction.side_label} - {instruction.quantity}股"
+                )
+
+        lines.append("```")
+        return "\n".join(lines)
+
     def generate_daily_report(
         self,
         signals: List[Signal] = None,
@@ -156,6 +309,7 @@ class ReportBuilder:
         # Build sections
         sections = []
         sections.append(self._build_header(report_date))
+        sections.append(self._build_mobile_trade_section(signals, report_date))
         if capacity_summary:
             sections.append(self._build_capacity_snapshot_section(capacity_summary))
         sections.append(self._build_strategy_overview())
@@ -199,6 +353,7 @@ class ReportBuilder:
         """
         sections = []
         sections.append(self._build_header(report_date))
+        sections.append(self._build_mobile_trade_section(signals, report_date))
         if capacity_summary:
             sections.append(self._build_capacity_snapshot_section(capacity_summary))
         sections.append(self._build_strategy_overview())

@@ -98,6 +98,21 @@ def setup_test_environment():
     class MockDataManager:
         def __init__(self):
             self.data_dir = test_dir
+            self.data_root = test_dir
+
+        def load_stock_features(self, ticker: str):
+            latest_closes = {
+                "8035": 32500.0,
+                "7974": 5400.0,
+                "4063": 7100.0,
+            }
+            close_price = latest_closes.get(ticker, 1000.0)
+            return pd.DataFrame(
+                {
+                    "Date": pd.to_datetime(["2026-01-21"]),
+                    "Close": [close_price],
+                }
+            )
     
     data_manager = MockDataManager()
     
@@ -255,6 +270,7 @@ def test_report_structure():
     # Verify all sections present
     required_sections = [
         "# Daily Trading Report",
+        "## 📱 手机交易版",
         "## 📊 Market Summary",
         "## 🟢 BUY Signals",
         "## 🔴 SELL Signals",
@@ -273,6 +289,38 @@ def test_report_structure():
     shutil.rmtree(test_dir, ignore_errors=True)
     
     print("✅ TEST 1 PASSED")
+
+
+def test_mobile_trade_section():
+    """TEST 1B: Verify mobile trade section is compact and executable."""
+    print("\n" + "="*60)
+    print("TEST 1B: Mobile Trade Section")
+    print("="*60)
+
+    state, data_manager, test_dir = setup_test_environment()
+    builder = ReportBuilder(state, data_manager)
+
+    signals = create_test_signals()
+    report = builder.generate_daily_report(signals, report_date="2026-01-21")
+
+    mobile_section = report.split("## 📱 手机交易版")[1].split("##")[0]
+
+    assert "```text" in mobile_section
+    assert "2026-01-21 - 8035 - 東京エレクトロン - 卖出 - 100股" in mobile_section
+    assert "2026-01-21 - 7974 - 任天堂 - 卖出 - 250股" in mobile_section
+    assert "2026-01-21 - 6501 - 三菱電機 - 买入 - 100股" in mobile_section
+    assert "2026-01-21 - 8306 - 三菱UFJ - 买入 - 150股" in mobile_section
+    assert "2026-01-21 - 7203 - トヨタ - 买入 - 200股" in mobile_section
+    assert "4063" not in mobile_section
+
+    print("✅ Mobile trade section includes executable BUY/SELL lines only")
+    print("✅ SELL_50% is converted into a concrete share count")
+    print("✅ HOLD signals are excluded from the phone block")
+
+    import shutil
+    shutil.rmtree(test_dir, ignore_errors=True)
+
+    print("✅ TEST 1B PASSED")
 
 
 def test_buy_signals_sorting():
