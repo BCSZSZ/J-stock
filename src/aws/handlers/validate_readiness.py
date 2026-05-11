@@ -33,14 +33,29 @@ def _jst_today_str() -> str:
     return datetime.now(timezone.utc).astimezone(JST).strftime("%Y-%m-%d")
 
 
-def _head_ok_for_date(s3, bucket: str, key: str, run_date: str) -> bool:
+def _head_status_for_date(s3, bucket: str, key: str, run_date: str) -> Dict[str, object]:
     try:
         resp = s3.head_object(Bucket=bucket, Key=key)
-    except ClientError:
-        return False
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "ClientError")
+        return {
+            "exists": False,
+            "ready": False,
+            "last_modified_jst": None,
+            "error_code": error_code,
+        }
 
-    last_modified = resp["LastModified"].astimezone(JST).strftime("%Y-%m-%d")
-    return last_modified == run_date
+    last_modified_jst = resp["LastModified"].astimezone(JST).strftime("%Y-%m-%d")
+    return {
+        "exists": True,
+        "ready": last_modified_jst == run_date,
+        "last_modified_jst": last_modified_jst,
+        "error_code": None,
+    }
+
+
+def _head_ok_for_date(s3, bucket: str, key: str, run_date: str) -> bool:
+    return bool(_head_status_for_date(s3, bucket, key, run_date)["ready"])
 
 
 def _validate_data_freshness(data_s3_prefix: str, tickers: List[str], run_date: str) -> Dict[str, Any]:
@@ -60,7 +75,8 @@ def _validate_data_freshness(data_s3_prefix: str, tickers: List[str], run_date: 
             missing_features.append(t)
 
     bench_key = f"{prefix}/benchmarks/topix_daily.parquet" if prefix else "benchmarks/topix_daily.parquet"
-    benchmark_ok = _head_ok_for_date(s3, bucket, bench_key, run_date)
+    benchmark_status = _head_status_for_date(s3, bucket, bench_key, run_date)
+    benchmark_ok = bool(benchmark_status["ready"])
 
     ready = (not missing_prices) and (not missing_features) and benchmark_ok
     return {
@@ -70,6 +86,10 @@ def _validate_data_freshness(data_s3_prefix: str, tickers: List[str], run_date: 
         "missing_prices_sample": missing_prices[:30],
         "missing_features_sample": missing_features[:30],
         "benchmark_ok": benchmark_ok,
+        "benchmark_key": bench_key,
+        "benchmark_exists": bool(benchmark_status["exists"]),
+        "benchmark_last_modified_jst": benchmark_status["last_modified_jst"],
+        "benchmark_error_code": benchmark_status["error_code"],
     }
 
 

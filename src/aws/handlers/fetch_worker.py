@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from typing import Any, Dict, List, Union
 
@@ -7,7 +8,12 @@ from src.aws.s3_data_sync import (
     is_s3_prefix,
     upload_outputs_for_job,
 )
+from src.client.jquants_client import JQuantsV2Client
+from src.data.benchmark_manager import update_benchmarks
 from src.data.pipeline import StockETLPipeline
+
+
+logger = logging.getLogger(__name__)
 
 
 def _load_api_key() -> str:
@@ -23,13 +29,45 @@ def _extract_ticker_code(raw: Union[Dict[str, str], str, int]) -> str:
     return str(raw).strip()
 
 
+def _refresh_benchmark_if_needed(
+    *, api_key: str, data_root: str, recompute_features: bool
+) -> Dict[str, object]:
+    if recompute_features:
+        return {
+            "attempted": False,
+            "success": True,
+            "topix_records": 0,
+            "error": None,
+        }
+
+    result = update_benchmarks(JQuantsV2Client(api_key), data_root=data_root)
+    if result["success"]:
+        logger.info(
+            "Benchmark refresh completed before batch ETL: topix_records=%s",
+            result["topix_records"],
+        )
+    else:
+        logger.warning(
+            "Benchmark refresh issue before batch ETL: %s",
+            result.get("error", "unknown"),
+        )
+
+    return {
+        "attempted": True,
+        "success": bool(result["success"]),
+        "topix_records": int(result["topix_records"]),
+        "error": result.get("error"),
+    }
+
+
 def _process_job(job: Dict[str, Any]) -> Dict[str, Any]:
     tickers: List[str] = [c for t in job.get("tickers", []) if (c := _extract_ticker_code(t))]
     if not tickers:
         return {"status": "skip", "reason": "empty_tickers"}
 
+    recompute_features = bool(job.get("recompute_features", False))
     api_key = _load_api_key()
-    if not api_key and not bool(job.get("recompute_features", False)):
+    if not api_key and not recompute_features:
         raise ValueError("JQUANTS_API_KEY missing and recompute_features is false")
 
     data_root = os.getenv("DATA_ROOT", "/tmp/data")
@@ -49,14 +87,20 @@ def _process_job(job: Dict[str, Any]) -> Dict[str, Any]:
             layers=sync_layers,
         )
 
+    benchmark_refresh = _refresh_benchmark_if_needed(
+        api_key=api_key,
+        data_root=data_root,
+        recompute_features=recompute_features,
+    )
+
     pipeline = StockETLPipeline(api_key=api_key, data_root=data_root)
 
     summary = pipeline.run_batch(
         tickers=tickers,
         fetch_aux_data=(
-            update_aux_data and not bool(job.get("recompute_features", False))
+            update_aux_data and not recompute_features
         ),
-        recompute_features=bool(job.get("recompute_features", False)),
+        recompute_features=recompute_features,
         fix_gaps=bool(job.get("fix_gaps", False)),
     )
 
@@ -78,6 +122,10 @@ def _process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         "downloaded_files": downloaded_files,
         "uploaded_files": uploaded_files,
         "update_aux_data": update_aux_data,
+        "benchmark_refresh_attempted": benchmark_refresh["attempted"],
+        "benchmark_refresh_success": benchmark_refresh["success"],
+        "benchmark_topix_records": benchmark_refresh["topix_records"],
+        "benchmark_refresh_error": benchmark_refresh["error"],
     }
 
 

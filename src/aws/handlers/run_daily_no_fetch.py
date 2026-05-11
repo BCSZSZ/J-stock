@@ -99,7 +99,81 @@ def _resolve_monitor_tickers(monitor_file: Path) -> List[str]:
     return [x for x in out if x]
 
 
-def _build_runtime_config(base_config_path: Path, runtime_root: Path, monitor_local_path: Path) -> Path:
+def _resolve_base_config_path(repo_root: Path) -> Path:
+    aws_config = repo_root / "config.aws.json"
+    if aws_config.exists():
+        return aws_config
+    return repo_root / "config.local.json"
+
+
+def _resolve_production_capacity_mode(event: Dict[str, Any]) -> str | None:
+    candidate = str(
+        event.get("production_capacity_regime_mode")
+        or os.getenv("PRODUCTION_CAPACITY_REGIME_MODE", "")
+    ).strip().lower()
+    if not candidate:
+        return None
+    if candidate not in {"off", "shadow", "enforce"}:
+        raise ValueError(
+            "PRODUCTION_CAPACITY_REGIME_MODE must be one of: off, shadow, enforce"
+        )
+    return candidate
+
+
+def _resolve_monitor_s3_candidates(
+    event: Dict[str, Any],
+    monitor_s3_uri: str,
+    ops_s3_prefix: str,
+) -> List[str]:
+    candidates: List[str] = []
+    explicit = str(
+        event.get("production_monitor_list_s3_uri")
+        or os.getenv("PRODUCTION_MONITOR_LIST_S3_URI", "")
+    ).strip()
+    if explicit.startswith("s3://"):
+        candidates.append(explicit)
+
+    if ops_s3_prefix.startswith("s3://"):
+        candidates.append(
+            f"{ops_s3_prefix.rstrip('/')}/config/production_monitor_list.json"
+        )
+
+    if monitor_s3_uri.startswith("s3://"):
+        candidates.append(monitor_s3_uri)
+
+    unique: List[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        unique.append(candidate)
+    return unique
+
+
+def _download_first_monitor_list(
+    candidates: List[str], target: Path
+) -> tuple[Dict[str, Any], str]:
+    last_error: Exception | None = None
+    for s3_uri in candidates:
+        try:
+            payload = _download_text_json(s3_uri, target)
+            return payload, s3_uri
+        except Exception as exc:
+            logger.warning("Monitor list download failed from %s: %s", s3_uri, exc)
+            last_error = exc
+
+    if last_error is not None:
+        raise RuntimeError("Failed to download any monitor list candidate") from last_error
+    raise ValueError("No monitor list S3 URI candidates were available")
+
+
+def _build_runtime_config(
+    base_config_path: Path,
+    runtime_root: Path,
+    monitor_local_path: Path,
+    production_capacity_mode: str | None,
+) -> Path:
     base = json.loads(base_config_path.read_text(encoding="utf-8"))
 
     data_dir = runtime_root / "data"
@@ -127,6 +201,8 @@ def _build_runtime_config(base_config_path: Path, runtime_root: Path, monitor_lo
     base["production"]["sector_pool_file"] = str(data_dir / "universe" / "sector_pool")
     base["production"]["signal_file_pattern"] = str(output_root / "signals" / "{date}.json")
     base["production"]["report_file_pattern"] = str(output_root / "reports" / "{date}.md")
+    if production_capacity_mode is not None:
+        base["production"]["capacity_regime_mode"] = production_capacity_mode
 
     runtime_root.mkdir(parents=True, exist_ok=True)
     cfg_path = runtime_root / "config.runtime.aws-no-fetch.json"
@@ -161,13 +237,25 @@ def _read_readiness(ops_s3_prefix: str, run_date: str) -> Dict[str, Any] | None:
 def _format_readiness_summary(readiness: Dict[str, Any] | None) -> str:
     if not readiness:
         return "readiness: missing"
-    return (
+    summary = (
         f"readiness.ready={bool(readiness.get('ready', False))}, "
         f"missing_prices_count={int(readiness.get('missing_prices_count', 0))}, "
         f"missing_features_count={int(readiness.get('missing_features_count', 0))}, "
         f"benchmark_ok={bool(readiness.get('benchmark_ok', False))}, "
         f"redispatched={bool(readiness.get('redispatched', False))}"
     )
+
+    benchmark_exists = readiness.get("benchmark_exists")
+    benchmark_last_modified_jst = readiness.get("benchmark_last_modified_jst")
+    benchmark_error_code = readiness.get("benchmark_error_code")
+    if benchmark_exists is not None:
+        summary += f", benchmark_exists={bool(benchmark_exists)}"
+    if benchmark_last_modified_jst:
+        summary += f", benchmark_last_modified_jst={benchmark_last_modified_jst}"
+    if benchmark_error_code:
+        summary += f", benchmark_error_code={benchmark_error_code}"
+
+    return summary
 
 
 def _build_notification_body(
@@ -231,9 +319,17 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[3]
     runtime_root = Path("/tmp/jsa_runtime")
     monitor_local = runtime_root / "state" / "production_monitor_list.json"
-
-    _download_text_json(monitor_s3_uri, monitor_local)
+    monitor_candidates = _resolve_monitor_s3_candidates(event, monitor_s3_uri, ops_s3_prefix)
+    _, monitor_source_s3_uri = _download_first_monitor_list(monitor_candidates, monitor_local)
     tickers = _resolve_monitor_tickers(monitor_local)
+    production_capacity_mode = _resolve_production_capacity_mode(event)
+
+    logger.info(
+        "Daily no-fetch runtime resolved monitor list: source=%s tickers=%s capacity_mode_override=%s",
+        monitor_source_s3_uri,
+        len(tickers),
+        production_capacity_mode or "<config>",
+    )
 
     # Pull latest data/state into local runtime folder.
     download_seed_for_job(data_s3_prefix, str(runtime_root / "data"), tickers)
@@ -241,7 +337,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     _download_if_exists(f"{ops_s3_prefix.rstrip('/')}/state/trade_history.json", runtime_root / "output" / "state" / "trade_history.json")
     _download_if_exists(f"{ops_s3_prefix.rstrip('/')}/state/cash_history.json", runtime_root / "output" / "state" / "cash_history.json")
 
-    cfg_path = _build_runtime_config(repo_root / "config.local.json", runtime_root, monitor_local)
+    cfg_path = _build_runtime_config(
+        _resolve_base_config_path(repo_root),
+        runtime_root,
+        monitor_local,
+        production_capacity_mode,
+    )
 
     env = os.environ.copy()
     env["JSA_CONFIG_FILE"] = str(cfg_path)
@@ -284,6 +385,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         "status": "ok" if ok else "error",
         "run_date": run_date,
         "return_code": run.returncode,
+        "monitor_list_source_s3_uri": monitor_source_s3_uri,
+        "monitor_ticker_count": len(tickers),
+        "production_capacity_regime_mode": production_capacity_mode,
         "stdout_tail": run.stdout[-1000:],
         "stderr_tail": run.stderr[-1000:],
     }

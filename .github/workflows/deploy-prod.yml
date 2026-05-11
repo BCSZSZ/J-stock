@@ -24,6 +24,7 @@ jobs:
             infra
             src
             main.py
+            config.aws.json
             config.local.json
             config.json
             config.json.example
@@ -89,23 +90,27 @@ jobs:
         shell: bash
         env:
           MONITOR_LIST_S3_URI_INPUT: ${{ vars.MONITOR_LIST_S3_URI }}
+          PRODUCTION_MONITOR_LIST_S3_URI_INPUT: ${{ vars.PRODUCTION_MONITOR_LIST_S3_URI }}
           DATA_S3_PREFIX_INPUT: ${{ vars.DATA_S3_PREFIX }}
           OPS_S3_PREFIX_INPUT: ${{ vars.OPS_S3_PREFIX }}
           TICKERS_PER_JOB_INPUT: ${{ vars.TICKERS_PER_JOB }}
           UPDATE_AUX_DATA_INPUT: ${{ vars.UPDATE_AUX_DATA }}
           WORKER_MEMORY_MB_INPUT: ${{ vars.WORKER_MEMORY_MB }}
           NOTIFY_EMAIL_INPUT: ${{ vars.NOTIFY_EMAIL }}
+          PRODUCTION_CAPACITY_REGIME_MODE_INPUT: ${{ vars.PRODUCTION_CAPACITY_REGIME_MODE }}
           JQUANTS_API_KEY_INPUT: ${{ secrets.JQUANTS_API_KEY }}
         run: |
           set -euo pipefail
           cp infra/sam/samconfig.toml .aws-samconfig.resolved.toml
           sed -i "s|__MONITOR_LIST_S3_URI__|${MONITOR_LIST_S3_URI_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__PRODUCTION_MONITOR_LIST_S3_URI__|${PRODUCTION_MONITOR_LIST_S3_URI_INPUT}|g" .aws-samconfig.resolved.toml
           sed -i "s|__DATA_S3_PREFIX__|${DATA_S3_PREFIX_INPUT}|g" .aws-samconfig.resolved.toml
           sed -i "s|__OPS_S3_PREFIX__|${OPS_S3_PREFIX_INPUT}|g" .aws-samconfig.resolved.toml
           sed -i "s|__TICKERS_PER_JOB__|${TICKERS_PER_JOB_INPUT}|g" .aws-samconfig.resolved.toml
           sed -i "s|__UPDATE_AUX_DATA__|${UPDATE_AUX_DATA_INPUT}|g" .aws-samconfig.resolved.toml
           sed -i "s|__WORKER_MEMORY_MB__|${WORKER_MEMORY_MB_INPUT}|g" .aws-samconfig.resolved.toml
           sed -i "s|__NOTIFY_EMAIL__|${NOTIFY_EMAIL_INPUT}|g" .aws-samconfig.resolved.toml
+          sed -i "s|__PRODUCTION_CAPACITY_REGIME_MODE__|${PRODUCTION_CAPACITY_REGIME_MODE_INPUT}|g" .aws-samconfig.resolved.toml
           sed -i "s|__JQUANTS_API_KEY__|${JQUANTS_API_KEY_INPUT}|g" .aws-samconfig.resolved.toml
 
           sam deploy \

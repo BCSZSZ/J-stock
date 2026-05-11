@@ -125,7 +125,7 @@
     "sector_pool_file": "s3://jsa-prod-ops/universe/sector_pool",
     "max_positions_per_group": 7,
     "max_position_pct": 0.18,
-    "capacity_regime_mode": "off",
+    "capacity_regime_mode": "enforce",
     "buy_threshold": 65,
     "strategy_groups": [
       {

@@ -16,6 +16,10 @@ Parameters:
     Type: String
     Default: ""
 
+  ProductionMonitorListS3Uri:
+    Type: String
+    Default: ""
+
   TickersPerJob:
     Type: Number
     Default: 100
@@ -69,6 +73,11 @@ Parameters:
   NotifyEmail:
     Type: String
     Default: ""
+
+  ProductionCapacityRegimeMode:
+    Type: String
+    Default: ""
+    AllowedValues: ["", off, shadow, enforce]
 
   ReportSigningAccessKeyId:
     Type: String
@@ -191,10 +200,12 @@ Resources:
       Environment:
         Variables:
           MONITOR_LIST_S3_URI: !Ref MonitorListS3Uri
+          PRODUCTION_MONITOR_LIST_S3_URI: !Ref ProductionMonitorListS3Uri
           DATA_S3_PREFIX: !Ref DataS3Prefix
           OPS_S3_PREFIX: !Ref OpsS3Prefix
           JQUANTS_API_KEY: !Ref JQuantsApiKey
           NOTIFY_SNS_TOPIC_ARN: !Ref DailyNotifyTopic
+          PRODUCTION_CAPACITY_REGIME_MODE: !Ref ProductionCapacityRegimeMode
           REPORT_SIGNING_ACCESS_KEY_ID: !Ref ReportSigningAccessKeyId
           REPORT_SIGNING_SECRET_ACCESS_KEY: !Ref ReportSigningSecretAccessKey
       Policies:

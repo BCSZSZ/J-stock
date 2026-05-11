@@ -212,9 +212,9 @@ Current dispatcher scope:
 Design confirmation:
 
 - This schedule is valid and practical without Step Functions.
-- Re-dispatch at 18:30 gives one controlled retry window.
-- Hard stop at 19:00 prevents endless retries and keeps operations predictable.
-- 20:00 gated execution cleanly separates "data readiness" and "trading logic".
+- Re-dispatch at 19:00 gives one controlled retry window.
+- Hard stop at 19:30 prevents endless retries and keeps operations predictable.
+- 21:00 gated execution cleanly separates "data readiness" and "trading logic".
 
 Sizing note for current workload (~290 daily tickers):
 
@@ -230,22 +230,23 @@ Daily timeline (JST):
 - Split monitor list into jobs (`tickers_per_job=100`)
 - Enqueue all fetch jobs to SQS
 
-2. 18:30 trigger validation function
+2. 19:00 trigger validation function
 
 - Validate whether all tickers have latest data for today
 - If false: trigger dispatcher again (second fan-out)
 
-3. 19:00 trigger validation function again
+3. 19:30 trigger validation function again
 
 - Validate latest data completeness for today
 - If false: do NOT trigger dispatcher again
 - Send failure notification email and persist `ready=false` for the day
 
-4. 20:00 gate + run signal/report
+4. 21:00 gate + run signal/report
 
 - Read the propagated readiness flag
 - If `ready=true`: run signal generation + report build + output persistence + success notification
 - If `ready=false`: skip signal/report and only send/keep failure state
+- Fetch workers refresh `benchmarks/topix_daily.parquet` before ticker ETL so readiness and downstream reports use the same benchmark contract.
 
 Recommended implementation detail for "pass false forward":
 
@@ -256,6 +257,6 @@ Recommended implementation detail for "pass false forward":
 UTC schedule mapping for EventBridge Scheduler:
 
 - 18:00 JST -> 09:00 UTC
-- 18:30 JST -> 09:30 UTC
 - 19:00 JST -> 10:00 UTC
-- 20:00 JST -> 11:00 UTC
+- 19:30 JST -> 10:30 UTC
+- 21:00 JST -> 12:00 UTC
