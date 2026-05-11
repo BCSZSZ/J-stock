@@ -2,6 +2,15 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import {
+  compareSignalsForDisplay,
+  getDisplayAction,
+  getExecutableBuy,
+  getExecutableSell,
+  getExecutionLabel,
+  getMomentumRank,
+  getMomentumValue,
+} from "../signalSemantics";
 import { useTickerNames } from "../hooks/useTickerNames";
 
 export default function Signals() {
@@ -28,6 +37,8 @@ export default function Signals() {
   if (!selectedDate && dates.data?.[0]) {
     setSelectedDate(dates.data[0]);
   }
+
+  const sortedSignals = [...(signals.data ?? [])].sort(compareSignalsForDisplay);
 
   return (
     <div className="space-y-6">
@@ -66,18 +77,31 @@ export default function Signals() {
                 <th className="py-2 px-3">Ticker</th>
                 <th className="py-2 px-3">Name</th>
                 <th className="py-2 px-3">Action</th>
-                <th className="py-2 px-3">Confidence</th>
-                <th className="py-2 px-3">Score</th>
+                <th className="py-2 px-3">Execution</th>
+                <th className="py-2 px-3">Momentum</th>
                 <th className="py-2 px-3">Price</th>
                 <th className="py-2 px-3">Strategy</th>
                 <th className="py-2 px-3">Reason</th>
               </tr>
             </thead>
             <tbody>
-              {signals.data.map((s, i) => (
+              {sortedSignals.map((s, i) => {
+                const executableBuy = getExecutableBuy(s);
+                const executableSell = getExecutableSell(s);
+                const momentumRank = getMomentumRank(s);
+                const momentumValue = getMomentumValue(s);
+
+                let rowClassName = "border-b border-gray-800/50 hover:bg-gray-800/30";
+                if (executableSell) {
+                  rowClassName = "border-b border-red-900/60 bg-red-950/20 hover:bg-red-950/30";
+                } else if (executableBuy) {
+                  rowClassName = "border-b border-emerald-900/60 bg-emerald-950/20 hover:bg-emerald-950/30";
+                }
+
+                return (
                 <tr
                   key={i}
-                  className="border-b border-gray-800/50 hover:bg-gray-800/30"
+                  className={rowClassName}
                 >
                   <td className="py-2 px-3 font-medium">
                     <Link
@@ -93,20 +117,34 @@ export default function Signals() {
                   <td className="py-2 px-3">
                     <span
                       className={
-                        s.action === "BUY"
+                        s.signal_type === "BUY"
                           ? "text-green-400 font-medium"
-                          : s.action === "SELL"
+                          : s.signal_type === "SELL"
                             ? "text-red-400 font-medium"
                             : "text-gray-500"
                       }
                     >
-                      {(s.action as string) ?? (s.signal_type as string) ?? ""}
+                      {getDisplayAction(s)}
                     </span>
                   </td>
                   <td className="py-2 px-3">
-                    {Number(s.confidence ?? 0).toFixed(2)}
+                    <span
+                      className={
+                        executableSell
+                          ? "rounded bg-red-500/15 px-2 py-1 text-xs font-medium text-red-300"
+                          : executableBuy
+                            ? "rounded bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-300"
+                            : "text-gray-500 text-xs"
+                      }
+                    >
+                      {getExecutionLabel(s)}
+                    </span>
                   </td>
-                  <td className="py-2 px-3">{Number(s.score ?? 0).toFixed(1)}</td>
+                  <td className="py-2 px-3 text-xs">
+                    {momentumValue !== null
+                      ? `#${momentumRank ?? "-"} / ${momentumValue >= 0 ? "+" : ""}${momentumValue.toFixed(2)}`
+                      : "—"}
+                  </td>
                   <td className="py-2 px-3">
                     {s.current_price
                       ? `¥${Number(s.current_price).toLocaleString()}`
@@ -119,7 +157,8 @@ export default function Signals() {
                     {(s.reason as string) ?? ""}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

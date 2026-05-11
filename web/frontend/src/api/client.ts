@@ -1,3 +1,5 @@
+import type { SignalRecord } from "../signalSemantics";
+
 const BASE = "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -22,6 +24,12 @@ export const api = {
         name: string;
         initial_capital: number;
         cash: number;
+        net_cash_flow: number;
+        total_capital: number;
+        holdings_value: number;
+        current_value: number;
+        total_pnl: number;
+        total_pnl_pct: number;
         positions: Array<{
           ticker: string;
           quantity: number;
@@ -30,16 +38,29 @@ export const api = {
           entry_score: number;
           peak_price: number;
           lot_id: string;
+          current_price: number | null;
+          current_value: number | null;
         }>;
       }>;
       last_updated: string;
     }>("/state/portfolio"),
 
+  portfolioHistory: () =>
+    request<{
+      points: Array<{
+        date: string;
+        total_capital: number;
+        current_value: number;
+        total_pnl: number;
+        total_pnl_pct: number;
+      }>;
+    }>("/state/portfolio-history"),
+
   tradeHistory: () => request<Record<string, unknown>>("/state/trade-history"),
   cashHistory: () => request<Record<string, unknown>>("/state/cash-history"),
   signalDates: () => request<string[]>("/state/signals"),
   signals: (date: string) =>
-    request<Array<Record<string, unknown>>>(`/state/signals/${date}`),
+    request<SignalRecord[]>(`/state/signals/${date}`),
   reportDates: () => request<string[]>("/state/reports"),
   report: (date: string) =>
     request<{ date: string; content: string }>(`/state/reports/${date}`),

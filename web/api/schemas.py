@@ -18,6 +18,8 @@ class PositionOut(BaseModel):
     entry_score: float
     peak_price: float
     lot_id: str
+    current_price: float | None = None
+    current_value: float | None = None
 
 
 class StrategyGroupOut(BaseModel):
@@ -25,12 +27,30 @@ class StrategyGroupOut(BaseModel):
     name: str
     initial_capital: float
     cash: float
+    net_cash_flow: float = 0.0
+    total_capital: float = 0.0
+    holdings_value: float = 0.0
+    current_value: float = 0.0
+    total_pnl: float = 0.0
+    total_pnl_pct: float = 0.0
     positions: list[PositionOut]
 
 
 class PortfolioResponse(BaseModel):
     groups: list[StrategyGroupOut]
     last_updated: str
+
+
+class PortfolioHistoryPoint(BaseModel):
+    date: str
+    total_capital: float
+    current_value: float
+    total_pnl: float
+    total_pnl_pct: float
+
+
+class PortfolioHistoryResponse(BaseModel):
+    points: list[PortfolioHistoryPoint]
 
 
 class TradeEvent(BaseModel):

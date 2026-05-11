@@ -6,6 +6,11 @@ import { useTickerNames } from "../hooks/useTickerNames";
 
 type SortKey = "date" | "ticker" | "name" | "action" | "qty" | "price" | "pnl";
 type SortDir = "asc" | "desc";
+type TradeHistoryEvent = Record<string, unknown>;
+
+function isActiveTradeEvent(event: TradeHistoryEvent): boolean {
+  return String(event.status ?? "ACTIVE") === "ACTIVE";
+}
 
 export default function TradeHistory() {
   const { data, isLoading } = useQuery({
@@ -18,13 +23,17 @@ export default function TradeHistory() {
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  const allEvents: Array<Record<string, unknown>> =
-    ((data as Record<string, unknown>)?.events as Array<Record<string, unknown>>) ?? [];
+  const allEvents: TradeHistoryEvent[] =
+    ((data as Record<string, unknown>)?.events as TradeHistoryEvent[]) ?? [];
+  const effectiveEvents = useMemo(
+    () => allEvents.filter(isActiveTradeEvent),
+    [allEvents],
+  );
 
   /** Extract entry_price from position_effects for SELL events, compute P&L */
-  function getPnL(e: Record<string, unknown>): { entryPrice: number; pnl: number; pnlPct: number } | null {
+  function getPnL(e: TradeHistoryEvent): { entryPrice: number; pnl: number; pnlPct: number } | null {
     if (e.action !== "SELL") return null;
-    const effects = e.position_effects as Array<Record<string, unknown>> | undefined;
+    const effects = e.position_effects as TradeHistoryEvent[] | undefined;
     if (!effects || effects.length === 0) return null;
     let totalCost = 0;
     let totalQty = 0;
@@ -57,7 +66,7 @@ export default function TradeHistory() {
   }
 
   const events = useMemo(() => {
-    let filtered = allEvents;
+    let filtered = effectiveEvents;
     if (filterTicker) {
       filtered = filtered.filter((e) =>
         String(e.ticker ?? "").includes(filterTicker),
@@ -98,7 +107,7 @@ export default function TradeHistory() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return sorted;
-  }, [allEvents, filterTicker, filterAction, sortKey, sortDir, names]);
+  }, [effectiveEvents, filterTicker, filterAction, sortKey, sortDir, names]);
 
   if (isLoading) return <div className="text-gray-500">Loading...</div>;
 
@@ -124,7 +133,7 @@ export default function TradeHistory() {
           <option value="SELL">SELL</option>
         </select>
         <span className="text-xs text-gray-500">
-          {events.length} / {allEvents.length} events
+          {events.length} / {effectiveEvents.length} events
         </span>
       </div>
 

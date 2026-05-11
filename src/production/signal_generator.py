@@ -76,6 +76,13 @@ class Signal:
     rank: Optional[int] = None
     rank_score: Optional[float] = None
 
+    # Explicit UI/API semantics
+    momentum_rank: Optional[int] = None
+    momentum_value: Optional[float] = None
+    is_executable: bool = False
+    is_executable_buy: bool = False
+    is_executable_sell: bool = False
+
     # Metadata
     strategy_name: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())

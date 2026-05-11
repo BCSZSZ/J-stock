@@ -39,6 +39,19 @@ class MobileTradeInstruction:
     quantity: int
 
 
+@dataclass(frozen=True)
+class AbnormalSignalTicker:
+    """Ticker excluded from signal generation due to stale or missing data."""
+
+    ticker: str
+    ticker_name: str
+    latest_data_date: str
+    expected_date: str
+    lag_days: Optional[int]
+    exclusion_reason: str
+    held_by_groups: Tuple[str, ...] = ()
+
+
 class ReportBuilder:
     """
     Builds comprehensive Markdown trading reports.
@@ -272,6 +285,7 @@ class ReportBuilder:
         comprehensive_evaluations: Dict = None,  # New: Complete evaluation table
         overlay_summary: Optional[List[Dict]] = None,
         capacity_summary: Optional[Dict] = None,
+        abnormal_tickers: Optional[List[AbnormalSignalTicker]] = None,
     ) -> str:
         """
         Generate complete Markdown trading report.
@@ -300,6 +314,7 @@ class ReportBuilder:
                 report_date,
                 overlay_summary,
                 capacity_summary,
+                abnormal_tickers,
             )
 
         # Legacy path: signals-only report
@@ -319,6 +334,8 @@ class ReportBuilder:
             sections.append(
                 self._build_overlay_effect_audit_section(signals, overlay_summary)
             )
+        if abnormal_tickers:
+            sections.append(self._build_abnormal_signal_section(abnormal_tickers))
         sections.append(self._build_buy_signals_section(buy_signals))
         sections.append(self._build_sell_signals_section(sell_signals))
         sections.append(self._build_portfolio_status_section(report_date))
@@ -339,6 +356,7 @@ class ReportBuilder:
         report_date: str,
         overlay_summary: Optional[List[Dict]],
         capacity_summary: Optional[Dict],
+        abnormal_tickers: Optional[List[AbnormalSignalTicker]],
     ) -> str:
         """
         Generate new comprehensive report with complete evaluation table.
@@ -363,6 +381,8 @@ class ReportBuilder:
             sections.append(
                 self._build_overlay_effect_audit_section(signals, overlay_summary)
             )
+        if abnormal_tickers:
+            sections.append(self._build_abnormal_signal_section(abnormal_tickers))
 
         # NEW: Complete evaluation table (all 61 stocks × strategies)
         sections.append(
@@ -385,6 +405,35 @@ class ReportBuilder:
         sections.append(self._build_footer())
 
         return "\n\n".join(sections)
+
+    def _build_abnormal_signal_section(
+        self, abnormal_tickers: List[AbnormalSignalTicker]
+    ) -> str:
+        lines = [
+            "## ⚠️ Abnormal Signal Exclusions",
+            "",
+            "These tickers were excluded from today's signal generation because they did not have feature data for the selected signal date.",
+            "",
+            f"**Excluded Tickers:** {len(abnormal_tickers)}",
+            "",
+            "| Ticker | Name | Latest Data Date | Signal Date | Lag | Held In Portfolio | Reason |",
+            "|--------|------|------------------|-------------|-----|-------------------|--------|",
+        ]
+
+        for abnormal_ticker in abnormal_tickers:
+            lag_text = (
+                f"{abnormal_ticker.lag_days}d"
+                if abnormal_ticker.lag_days is not None
+                else "N/A"
+            )
+            held_text = ", ".join(abnormal_ticker.held_by_groups) or "No"
+            lines.append(
+                f"| {abnormal_ticker.ticker} | {abnormal_ticker.ticker_name} | "
+                f"{abnormal_ticker.latest_data_date} | {abnormal_ticker.expected_date} | "
+                f"{lag_text} | {held_text} | {abnormal_ticker.exclusion_reason} |"
+            )
+
+        return "\n".join(lines)
 
     def _build_overlay_summary_section(self, overlay_summary: List[Dict]) -> str:
         lines = [

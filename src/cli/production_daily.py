@@ -1,8 +1,9 @@
 import os
 import json
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -21,12 +22,135 @@ from src.data.sector_metrics_updater import update_sector_metrics
 from src.utils.signal_sizing import extract_buy_size_multiplier
 
 
+@dataclass(frozen=True)
+class SignalDateDecision:
+    signal_date: Optional[date]
+    ready_ticker_count: int
+    total_ticker_count: int
+    coverage_ratio: float
+    latest_observed_date: Optional[date]
+    abnormal_tickers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SignalSemanticMetadata:
+    momentum_rank: Optional[int]
+    momentum_value: Optional[float]
+    is_executable: bool
+    is_executable_buy: bool
+    is_executable_sell: bool
+
+
+def _select_signal_date_from_latest_dates(
+    latest_dates_by_ticker: Dict[str, Optional[date]],
+    minimum_ratio: float = 0.9,
+) -> SignalDateDecision:
+    total_ticker_count = len(latest_dates_by_ticker)
+    observed_dates = sorted(
+        {
+            latest_date
+            for latest_date in latest_dates_by_ticker.values()
+            if latest_date is not None
+        },
+        reverse=True,
+    )
+
+    if total_ticker_count == 0 or not observed_dates:
+        return SignalDateDecision(
+            signal_date=None,
+            ready_ticker_count=0,
+            total_ticker_count=total_ticker_count,
+            coverage_ratio=0.0,
+            latest_observed_date=None,
+            abnormal_tickers=tuple(sorted(latest_dates_by_ticker.keys())),
+        )
+
+    latest_observed_date = observed_dates[0]
+    for candidate_date in observed_dates:
+        ready_tickers = sorted(
+            ticker
+            for ticker, latest_date in latest_dates_by_ticker.items()
+            if latest_date is not None and latest_date >= candidate_date
+        )
+        coverage_ratio = len(ready_tickers) / total_ticker_count
+        if coverage_ratio > minimum_ratio:
+            abnormal_tickers = tuple(
+                sorted(
+                    ticker
+                    for ticker in latest_dates_by_ticker.keys()
+                    if ticker not in ready_tickers
+                )
+            )
+            return SignalDateDecision(
+                signal_date=candidate_date,
+                ready_ticker_count=len(ready_tickers),
+                total_ticker_count=total_ticker_count,
+                coverage_ratio=coverage_ratio,
+                latest_observed_date=latest_observed_date,
+                abnormal_tickers=abnormal_tickers,
+            )
+
+    ready_tickers = sorted(
+        ticker
+        for ticker, latest_date in latest_dates_by_ticker.items()
+        if latest_date is not None
+    )
+    return SignalDateDecision(
+        signal_date=None,
+        ready_ticker_count=len(ready_tickers),
+        total_ticker_count=total_ticker_count,
+        coverage_ratio=(len(ready_tickers) / total_ticker_count),
+        latest_observed_date=latest_observed_date,
+        abnormal_tickers=tuple(
+            sorted(
+                ticker
+                for ticker in latest_dates_by_ticker.keys()
+                if ticker not in ready_tickers
+            )
+        ),
+    )
+
+
+def _derive_signal_semantic_metadata(signal) -> SignalSemanticMetadata:
+    is_executable_buy = bool(
+        signal.signal_type == "BUY" and (signal.suggested_qty or 0) > 0
+    )
+    is_executable_sell = bool(
+        signal.signal_type == "SELL" and (signal.planned_sell_qty or 0) > 0
+    )
+    return SignalSemanticMetadata(
+        momentum_rank=signal.rank if signal.signal_type == "BUY" else None,
+        momentum_value=(
+            float(signal.rank_score) if signal.signal_type == "BUY" and signal.rank_score is not None else None
+        ),
+        is_executable=bool(is_executable_buy or is_executable_sell),
+        is_executable_buy=is_executable_buy,
+        is_executable_sell=is_executable_sell,
+    )
+
+
+def _apply_signal_semantic_metadata(signals: List) -> List:
+    return [
+        replace(
+            signal,
+            momentum_rank=semantics.momentum_rank,
+            momentum_value=semantics.momentum_value,
+            is_executable=semantics.is_executable,
+            is_executable_buy=semantics.is_executable_buy,
+            is_executable_sell=semantics.is_executable_sell,
+        )
+        for signal in signals
+        for semantics in [_derive_signal_semantic_metadata(signal)]
+    ]
+
+
 def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.analysis.signals import Position, SignalAction
     from src.data.market_data_builder import MarketDataBuilder
     from src.data.stock_data_manager import StockDataManager
     from src.overlays import OverlayContext, OverlayManager
     from src.production import ReportBuilder
+    from src.production.report_builder import AbnormalSignalTicker
     from src.production.state_manager import build_state_as_of
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
     from src.production.signal_generator import Signal
@@ -52,11 +176,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
     monitor_tickers = load_monitor_tickers(prod_cfg.monitor_list_file)
 
-    def _get_latest_data_date_for_tickers(tickers: List[str]):
-        """
-        遍历所有股票，返回所有股票中最小的最新数据日（即全市场可用的最新日）
-        """
-        latest_dates = []
+    def _collect_latest_feature_dates(
+        tickers: List[str],
+    ) -> Dict[str, Optional[date]]:
+        latest_dates: Dict[str, Optional[date]] = {}
         for ticker in tickers:
             try:
                 market_data = MarketDataBuilder.build_from_manager(
@@ -67,40 +190,12 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 if market_data is not None and not market_data.df_features.empty:
                     latest_feature_date = market_data.df_features.index.max()
                     if pd.notna(latest_feature_date):
-                        latest_dates.append(latest_feature_date.date())
+                        latest_dates[ticker] = latest_feature_date.date()
+                        continue
             except Exception:
-                continue
-        if not latest_dates:
-            return None
-        return min(latest_dates)
-
-    def _has_data_for_date(tickers: List[str], target_date: str):
-        """
-        检查所有股票是否有target_date的数据
-        """
-        expected = pd.Timestamp(target_date).date()
-        checked = 0
-        data_ready_count = 0
-        for ticker in tickers:
-            try:
-                market_data = MarketDataBuilder.build_from_manager(
-                    data_manager=data_manager,
-                    ticker=ticker,
-                    current_date=pd.Timestamp.now(),
-                )
-            except Exception:
-                continue
-            checked += 1
-            if market_data is None or market_data.df_features.empty:
-                continue
-            latest_feature_date = market_data.df_features.index.max()
-            if pd.isna(latest_feature_date):
-                continue
-            latest = latest_feature_date.date()
-            data_ready_count += 1
-            if latest < expected:
-                return False, checked, data_ready_count, latest
-        return True, checked, data_ready_count, expected
+                pass
+            latest_dates[ticker] = None
+        return latest_dates
 
     if not args.skip_fetch:
         print("\n[Data Update] Fetching latest market data...")
@@ -195,31 +290,53 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     print(f"  Monitoring {len(monitor_tickers)} stocks for signal evaluation")
 
     # 自动检测全市场最新可用数据日
-    latest_data_date = _get_latest_data_date_for_tickers(monitor_tickers)
-    if latest_data_date is None:
-        print("\n[ERROR] No available market data for any ticker. Workflow aborted.")
+    latest_dates_by_ticker = _collect_latest_feature_dates(monitor_tickers)
+    signal_date_decision = _select_signal_date_from_latest_dates(
+        latest_dates_by_ticker,
+        minimum_ratio=0.9,
+    )
+    if signal_date_decision.signal_date is None:
+        latest_txt = (
+            signal_date_decision.latest_observed_date.strftime("%Y-%m-%d")
+            if signal_date_decision.latest_observed_date is not None
+            else "N/A"
+        )
+        print("\n[WARN] Majority market data threshold not met for signal generation.")
+        print(f"  Latest observed date: {latest_txt}")
+        print(
+            "  Ready tickers: "
+            f"{signal_date_decision.ready_ticker_count}/"
+            f"{signal_date_decision.total_ticker_count} "
+            f"({signal_date_decision.coverage_ratio:.1%})"
+        )
+        print("  Workflow aborted.")
         return
 
     # 如果今天还没开盘，API只能拿到前一日数据，信号生成日应为latest_data_date
     today_str = datetime.now().strftime("%Y-%m-%d")
-    signal_date = latest_data_date.strftime("%Y-%m-%d")
+    signal_date = signal_date_decision.signal_date.strftime("%Y-%m-%d")
     if signal_date != today_str:
         print(
-            f"\n[INFO] Using latest available data date for signal generation: {signal_date}"
+            f"\n[INFO] Using majority-available data date for signal generation: {signal_date}"
         )
     else:
         print(f"\n[INFO] Using today as signal date: {signal_date}")
-
-    ready, checked, ready_count, latest_seen = _has_data_for_date(
-        monitor_tickers, signal_date
+    print(
+        "  Signal date coverage: "
+        f"{signal_date_decision.ready_ticker_count}/"
+        f"{signal_date_decision.total_ticker_count} "
+        f"({signal_date_decision.coverage_ratio:.1%})"
     )
-    if not ready:
-        latest_txt = latest_seen.strftime("%Y-%m-%d") if latest_seen else "N/A"
-        print("\n[WARN] No market data detected for signal date.")
-        print(f"  Signal date: {signal_date} | Latest available: {latest_txt}")
-        print(f"  Checked tickers: {checked}, with feature data: {ready_count}")
-        print("  It may be too early (before EOD data is published). Workflow aborted.")
-        return
+
+    abnormal_ticker_set = set(signal_date_decision.abnormal_tickers)
+    signal_tickers = [
+        ticker for ticker in monitor_tickers if ticker not in abnormal_ticker_set
+    ]
+    if abnormal_ticker_set:
+        print(
+            "  Excluding abnormal tickers from signal generation: "
+            + ", ".join(sorted(abnormal_ticker_set))
+        )
 
     effective_state = build_state_as_of(
         base_state=state,
@@ -241,7 +358,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
     def _get_recent_trading_dates(end_date: str, window_size: int) -> List[str]:
         target_ts = pd.Timestamp(end_date)
-        for ticker in monitor_tickers:
+        for ticker in signal_tickers:
             try:
                 market_data = MarketDataBuilder.build_from_manager(
                     data_manager=data_manager,
@@ -367,9 +484,40 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     strategies_config = [{"name": name} for name in sorted(entry_strategy_names)]
     evaluator = ComprehensiveEvaluator(data_manager, strategies_config)
 
-    print(f"  Evaluating all {len(monitor_tickers)} stocks...")
+    abnormal_signal_tickers: List[AbnormalSignalTicker] = []
+    if abnormal_ticker_set:
+        held_groups_by_ticker: Dict[str, List[str]] = {}
+        for group in groups:
+            for position in group.positions:
+                if position.quantity <= 0 or position.ticker not in abnormal_ticker_set:
+                    continue
+                held_groups_by_ticker.setdefault(position.ticker, []).append(group.name)
+
+        for ticker in signal_date_decision.abnormal_tickers:
+            latest_date = latest_dates_by_ticker.get(ticker)
+            abnormal_signal_tickers.append(
+                AbnormalSignalTicker(
+                    ticker=ticker,
+                    ticker_name=_ticker_name_map.get(ticker, ticker),
+                    latest_data_date=(
+                        latest_date.strftime("%Y-%m-%d")
+                        if latest_date is not None
+                        else "N/A"
+                    ),
+                    expected_date=signal_date,
+                    lag_days=(
+                        (signal_date_decision.signal_date - latest_date).days
+                        if latest_date is not None
+                        else None
+                    ),
+                    exclusion_reason="Missing feature data for selected signal date",
+                    held_by_groups=tuple(sorted(held_groups_by_ticker.get(ticker, []))),
+                )
+            )
+
+    print(f"  Evaluating all {len(signal_tickers)} stocks...")
     comprehensive_evals = evaluator.evaluate_all_stocks(
-        tickers=monitor_tickers,
+        tickers=signal_tickers,
         current_date=signal_date,
         verbose=False,
     )
@@ -1158,17 +1306,31 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 return bool(obj)
             return super().default(obj)
 
+    filtered_signals = [
+        signal for signal in all_signals if signal.ticker not in abnormal_ticker_set
+    ]
+    filtered_signals = _apply_signal_semantic_metadata(filtered_signals)
+    excluded_signal_count = len(all_signals) - len(filtered_signals)
+    buy_signal_count = len(
+        [signal for signal in filtered_signals if signal.signal_type == "BUY"]
+    )
+    sell_signal_count = len(
+        [signal for signal in filtered_signals if signal.signal_type == "SELL"]
+    )
+
     with open(signal_file, "w", encoding="utf-8") as f:
         json.dump(
-            [s.__dict__ for s in all_signals],
+            [s.__dict__ for s in filtered_signals],
             f,
             indent=2,
             ensure_ascii=False,
             cls=CustomJSONEncoder,
         )
 
-    print(f"\n[Output] Total signals: {len(all_signals)}")
-    print(f"  BUY: {total_buy_signals}, SELL: {total_sell_signals}")
+    print(f"\n[Output] Total signals: {len(filtered_signals)}")
+    print(f"  BUY: {buy_signal_count}, SELL: {sell_signal_count}")
+    if excluded_signal_count > 0:
+        print(f"  Excluded abnormal ticker signals: {excluded_signal_count}")
     print(f"  Signals saved: {signal_file}")
 
     initial_capital_override = (
@@ -1185,11 +1347,12 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         default_exit_strategy=prod_cfg.default_exit_strategy,
     )
     report_md = builder.generate_daily_report(
-        signals=all_signals,
+        signals=filtered_signals,
         report_date=signal_date,
         comprehensive_evaluations=comprehensive_evals,
         overlay_summary=overlay_summaries,
         capacity_summary=capacity_summary,
+        abnormal_tickers=abnormal_signal_tickers,
     )
     report_md += "\n\n" + _build_buy_diagnostics_markdown(
         groups=groups,
@@ -1198,7 +1361,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         runtime_cfg=prod_cfg,
     )
     report_md += "\n\n" + _build_macd_hist_snapshot_markdown(
-        tickers=monitor_tickers,
+        tickers=signal_tickers,
         target_date=signal_date,
         lookback_days=5,
     )

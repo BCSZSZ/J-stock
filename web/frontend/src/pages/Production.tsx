@@ -4,6 +4,11 @@ import { useConfirmDialog } from "../components/ConfirmDialog";
 import LogOutput from "../components/LogOutput";
 import { useStreamExec } from "../hooks/useStreamExec";
 import { api } from "../api/client";
+import {
+  compareSignalsForDisplay,
+  getExecutionQuantity,
+  getNormalizedTradeAction,
+} from "../signalSemantics";
 import { useTickerNames } from "../hooks/useTickerNames";
 
 interface TradeRow {
@@ -58,13 +63,14 @@ export default function Production() {
       api.signals(effectiveImportDate),
       fetchNextTradingDay(effectiveImportDate),
     ]);
-    const newRows: TradeRow[] = signals
-      .filter((s) => s.action === "BUY" || s.action === "SELL")
+    const newRows: TradeRow[] = [...signals]
+      .sort(compareSignalsForDisplay)
       .map((s) => {
-        const action = String(s.action) as "BUY" | "SELL";
-        const qtyNum = action === "SELL"
-          ? Number(s.planned_sell_qty ?? s.position_qty ?? 0)
-          : Number(s.suggested_qty ?? 0);
+        const action = getNormalizedTradeAction(s);
+        const qtyNum = getExecutionQuantity(s);
+        if (action === null) {
+          return null;
+        }
         return {
           ticker: String(s.ticker ?? ""),
           action,
@@ -74,6 +80,7 @@ export default function Production() {
           _qtyNum: qtyNum,
         } as TradeRow & { _qtyNum: number };
       })
+      .filter((row): row is TradeRow & { _qtyNum: number } => row !== null)
       // Only import actually-executable trades (qty > 0). Skip rows like
       // "max positions reached" BUYs or HOLD-recommended SELLs which the
       // backend report records with qty=0.
