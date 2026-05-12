@@ -25,8 +25,8 @@
     "default": 100
   },
   "default_strategies": {
-    "entry": "SimpleScorerStrategy",
-    "exit": "MVX_N3_R3p25_T1p6_D21_B20p0"
+    "entry": "MACDPreCross2BarEntry",
+    "exit": "MVXW_N5_R3p35_T1p45_D21_B20p0"
   },
   "capacity_regime": {
     "version": "2026-05-v1",
@@ -127,13 +127,14 @@
     "max_position_pct": 0.18,
     "capacity_regime_mode": "enforce",
     "buy_threshold": 65,
+    "signal_ranking_strategy": "momentum",
     "strategy_groups": [
       {
         "id": "group_main",
-        "name": "main",
-        "initial_capital": 3000000,
-        "entry_strategy": "MACDCrossoverStrategy",
-        "exit_strategy": "MVX_N3_R3p25_T1p6_D21_B20p0"
+        "name": "主策略组",
+        "initial_capital": 8000000,
+        "entry_strategy": "MACDPreCross2BarEntry",
+        "exit_strategy": "MVXW_N5_R3p35_T1p45_D21_B20p0"
       }
     ]
   }
