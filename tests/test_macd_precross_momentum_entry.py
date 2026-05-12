@@ -5,6 +5,9 @@ from src.analysis.strategies.entry.macd_precross_momentum_entry import (
     MACDPreCross2BarEntry,
     MACDPreCross2BarLiteComboEntry,
     MACDPreCross2BarMinHistDeltaNorm0005Entry,
+    MACDPreCross2BarMinHistDeltaNorm0015Entry,
+    MACDPreCross2BarMinHistDeltaNorm001Entry,
+    MACDPreCross2BarMinHistDeltaNorm002Entry,
     MACDPreCross2BarRet5d008Entry,
     MACDPreCross3BarEntry,
     MACDPreCrossMomentumEntry,
@@ -234,6 +237,9 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     three_bar = MACDPreCross3BarEntry()
     ret5d = MACDPreCross2BarRet5d008Entry()
     min_delta = MACDPreCross2BarMinHistDeltaNorm0005Entry()
+    min_delta_001 = MACDPreCross2BarMinHistDeltaNorm001Entry()
+    min_delta_0015 = MACDPreCross2BarMinHistDeltaNorm0015Entry()
+    min_delta_002 = MACDPreCross2BarMinHistDeltaNorm002Entry()
     lite = MACDPreCross2BarLiteComboEntry()
 
     assert plain.strategy_name == "MACDPreCross2BarEntry"
@@ -250,14 +256,35 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     assert min_delta.strategy_name == "MACDPreCross2BarMinHistDeltaNorm0005Entry"
     assert min_delta.min_hist_delta_norm == 0.0005
 
+    assert min_delta_001.strategy_name == "MACDPreCross2BarMinHistDeltaNorm001Entry"
+    assert min_delta_001.min_hist_delta_norm == 0.001
+
+    assert min_delta_0015.strategy_name == "MACDPreCross2BarMinHistDeltaNorm0015Entry"
+    assert min_delta_0015.min_hist_delta_norm == 0.0015
+
+    assert min_delta_002.strategy_name == "MACDPreCross2BarMinHistDeltaNorm002Entry"
+    assert min_delta_002.min_hist_delta_norm == 0.002
+
     assert lite.strategy_name == "MACDPreCross2BarLiteComboEntry"
     assert lite.max_hist_abs_norm == 0.01
     assert lite.min_adx_14 == 10.0
     assert lite.max_return_5d == 0.08
 
     assert "MACDPreCross2BarMinHistDeltaNorm0005Entry" in ENTRY_STRATEGIES
+    assert "MACDPreCross2BarMinHistDeltaNorm001Entry" in ENTRY_STRATEGIES
+    assert "MACDPreCross2BarMinHistDeltaNorm0015Entry" in ENTRY_STRATEGIES
+    assert "MACDPreCross2BarMinHistDeltaNorm002Entry" in ENTRY_STRATEGIES
     assert create_strategy_instance(
         "MACDPreCross2BarMinHistDeltaNorm0005Entry", "entry"
+    ) is not None
+    assert create_strategy_instance(
+        "MACDPreCross2BarMinHistDeltaNorm001Entry", "entry"
+    ) is not None
+    assert create_strategy_instance(
+        "MACDPreCross2BarMinHistDeltaNorm0015Entry", "entry"
+    ) is not None
+    assert create_strategy_instance(
+        "MACDPreCross2BarMinHistDeltaNorm002Entry", "entry"
     ) is not None
 
 

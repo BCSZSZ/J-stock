@@ -522,6 +522,42 @@ class MACDPreCross2BarMinHistDeltaNorm0005Entry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACDPreCross2BarMinHistDeltaNorm0005Entry"
 
 
+class MACDPreCross2BarMinHistDeltaNorm001Entry(MACDPreCrossMomentumEntry):
+    """2-bar pre-cross with a 0.001 normalized histogram-rise floor."""
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            min_hist_delta_norm=0.001,
+        )
+        self.strategy_name = "MACDPreCross2BarMinHistDeltaNorm001Entry"
+
+
+class MACDPreCross2BarMinHistDeltaNorm0015Entry(MACDPreCrossMomentumEntry):
+    """2-bar pre-cross with a 0.0015 normalized histogram-rise floor."""
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            min_hist_delta_norm=0.0015,
+        )
+        self.strategy_name = "MACDPreCross2BarMinHistDeltaNorm0015Entry"
+
+
+class MACDPreCross2BarMinHistDeltaNorm002Entry(MACDPreCrossMomentumEntry):
+    """2-bar pre-cross with a 0.002 normalized histogram-rise floor."""
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            min_hist_delta_norm=0.002,
+        )
+        self.strategy_name = "MACDPreCross2BarMinHistDeltaNorm002Entry"
+
+
 class MACDPreCross2BarLiteComboEntry(MACDPreCrossMomentumEntry):
     """CLI-friendly fixed variant for the current best LiteCombo entry."""
 
@@ -576,6 +612,9 @@ __all__ = [
     "MACDPreCross2BarEntry",
     "MACDPreCross2BarRet5d008Entry",
     "MACDPreCross2BarMinHistDeltaNorm0005Entry",
+    "MACDPreCross2BarMinHistDeltaNorm001Entry",
+    "MACDPreCross2BarMinHistDeltaNorm0015Entry",
+    "MACDPreCross2BarMinHistDeltaNorm002Entry",
     "MACDPreCross2BarLiteComboEntry",
     "MACDPreCrossHist2BarEntry",
     "MACDPreCrossHist3BarEntry",
