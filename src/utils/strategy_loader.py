@@ -14,6 +14,7 @@ ENTRY_STRATEGIES = {
     "MACDPreCrossMomentumEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossMomentumEntry",
     "MACDPreCross2BarEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarEntry",
     "MACDPreCross2BarRet5d008Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarRet5d008Entry",
+    "MACDPreCross2BarMinHistDeltaNorm0005Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarMinHistDeltaNorm0005Entry",
     "MACDPreCross2BarLiteComboEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarLiteComboEntry",
     "MACDPreCrossHist2BarEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossHist2BarEntry",
     "MACDPreCrossHist3BarEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossHist3BarEntry",

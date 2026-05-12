@@ -4,7 +4,9 @@ from src.analysis.signals import MarketData, SignalAction
 from src.analysis.strategies.entry.macd_precross_momentum_entry import (
     MACDPreCross2BarEntry,
     MACDPreCross2BarLiteComboEntry,
+    MACDPreCross2BarMinHistDeltaNorm0005Entry,
     MACDPreCross2BarRet5d008Entry,
+    MACDPreCross3BarEntry,
     MACDPreCrossMomentumEntry,
     _latest_precross_momentum_flags,
     build_precross_momentum_flags,
@@ -229,20 +231,68 @@ def test_lightweight_helper_filters_block_or_allow_as_expected():
 
 def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     plain = MACDPreCross2BarEntry()
+    three_bar = MACDPreCross3BarEntry()
     ret5d = MACDPreCross2BarRet5d008Entry()
+    min_delta = MACDPreCross2BarMinHistDeltaNorm0005Entry()
     lite = MACDPreCross2BarLiteComboEntry()
 
     assert plain.strategy_name == "MACDPreCross2BarEntry"
     assert plain.hist_rise_days == 2
     assert plain.price_rise_days == 2
 
+    assert three_bar.strategy_name == "MACDPreCross3BarEntry"
+    assert three_bar.hist_rise_days == 3
+    assert three_bar.price_rise_days == 3
+
     assert ret5d.strategy_name == "MACDPreCross2BarRet5d008Entry"
     assert ret5d.max_return_5d == 0.08
+
+    assert min_delta.strategy_name == "MACDPreCross2BarMinHistDeltaNorm0005Entry"
+    assert min_delta.min_hist_delta_norm == 0.0005
 
     assert lite.strategy_name == "MACDPreCross2BarLiteComboEntry"
     assert lite.max_hist_abs_norm == 0.01
     assert lite.min_adx_14 == 10.0
     assert lite.max_return_5d == 0.08
+
+    assert "MACDPreCross2BarMinHistDeltaNorm0005Entry" in ENTRY_STRATEGIES
+    assert create_strategy_instance(
+        "MACDPreCross2BarMinHistDeltaNorm0005Entry", "entry"
+    ) is not None
+
+
+def test_min_hist_delta_norm_blocks_tiny_histogram_rise():
+    df = pd.DataFrame(
+        {
+            "Close": [4101.0, 4130.0],
+            "MACD_Hist": [-26.7168, -26.5211],
+            "MACD": [-2.7679, -9.2025],
+            "MACD_Signal": [23.9489, 17.3186],
+        }
+    )
+    st = MACDPreCross2BarMinHistDeltaNorm0005Entry()
+
+    sig = st.generate_entry_signal(_mk_market_data(df))
+
+    assert sig.action == SignalAction.HOLD
+    assert "Histogram rise is too small" in sig.reasons
+
+
+def test_min_hist_delta_norm_allows_meaningful_histogram_rise():
+    df = pd.DataFrame(
+        {
+            "Close": [1215.0, 1251.0],
+            "MACD_Hist": [-6.0958, -0.6892],
+            "MACD": [-41.3630, -36.1287],
+            "MACD_Signal": [-35.2672, -35.4395],
+        }
+    )
+    st = MACDPreCross2BarMinHistDeltaNorm0005Entry()
+
+    sig = st.generate_entry_signal(_mk_market_data(df))
+
+    assert sig.action == SignalAction.BUY
+    assert "Histogram rise >= 0.0005" in sig.reasons
 
 
 def test_latest_precross_flags_match_batch_flags_for_latest_row():
@@ -291,6 +341,7 @@ def test_latest_precross_flags_match_batch_flags_for_latest_row():
         "peak_at_window_start",
         "hist_below_zero",
         "near_zero_ok",
+        "hist_delta_ok",
         "above_ema200",
         "gap_above_ema20_ok",
         "return_5d_ok",

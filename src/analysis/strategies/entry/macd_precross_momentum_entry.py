@@ -35,6 +35,7 @@ def build_precross_momentum_flags(
     price_rise_days: int = 3,
     require_hist_below_zero: bool = True,
     max_hist_abs_norm: float | None = None,
+    min_hist_delta_norm: float | None = None,
     require_above_ema200: bool = False,
     require_peak_at_window_start: bool = False,
     max_gap_above_ema20_pct: float | None = None,
@@ -44,6 +45,7 @@ def build_precross_momentum_flags(
     close = pd.to_numeric(df["Close"], errors="coerce")
     macd_hist = pd.to_numeric(df["MACD_Hist"], errors="coerce")
     hist_abs_norm = macd_hist.abs() / close.replace(0, np.nan)
+    hist_delta_norm = macd_hist.diff() / close.replace(0, np.nan)
     ema20 = pd.to_numeric(df["EMA_20"], errors="coerce") if "EMA_20" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
     return_5d = pd.to_numeric(df["Return_5d"], errors="coerce") if "Return_5d" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
     adx_14 = pd.to_numeric(df["ADX_14"], errors="coerce") if "ADX_14" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
@@ -61,6 +63,11 @@ def build_precross_momentum_flags(
         near_zero_ok = pd.Series(True, index=df.index, dtype="boolean")
     else:
         near_zero_ok = hist_abs_norm.le(float(max_hist_abs_norm)).fillna(False)
+
+    if min_hist_delta_norm is None:
+        hist_delta_ok = pd.Series(True, index=df.index, dtype="boolean")
+    else:
+        hist_delta_ok = hist_delta_norm.ge(float(min_hist_delta_norm)).fillna(False)
 
     if require_above_ema200:
         if "EMA_200" in df.columns:
@@ -101,6 +108,8 @@ def build_precross_momentum_flags(
             "hist_below_zero": hist_below_zero,
             "hist_abs_norm": hist_abs_norm,
             "near_zero_ok": near_zero_ok,
+            "hist_delta_norm": hist_delta_norm,
+            "hist_delta_ok": hist_delta_ok,
             "above_ema200": above_ema200,
             "gap_above_ema20_pct": gap_above_ema20_pct,
             "gap_above_ema20_ok": gap_above_ema20_ok,
@@ -123,6 +132,7 @@ def build_precross_momentum_flags(
             "price_rising",
             "hist_below_zero",
             "near_zero_ok",
+            "hist_delta_ok",
             "above_ema200",
             "peak_ok",
             "gap_above_ema20_ok",
@@ -140,6 +150,7 @@ def _latest_precross_momentum_flags(
     require_price_rising: bool = True,
     require_hist_below_zero: bool = True,
     max_hist_abs_norm: float | None = None,
+    min_hist_delta_norm: float | None = None,
     require_above_ema200: bool = False,
     require_peak_at_window_start: bool = False,
     max_gap_above_ema20_pct: float | None = None,
@@ -153,6 +164,7 @@ def _latest_precross_momentum_flags(
     macd_hist = pd.to_numeric(df["MACD_Hist"], errors="coerce")
     latest_close = close.iloc[-1]
     latest_hist = macd_hist.iloc[-1]
+    prev_hist = macd_hist.iloc[-2] if len(macd_hist) >= 2 else np.nan
 
     hist_window_values = macd_hist.tail(hist_window)
     price_window_values = close.tail(price_window)
@@ -196,6 +208,23 @@ def _latest_precross_momentum_flags(
         near_zero_ok = True
     else:
         near_zero_ok = bool(pd.notna(hist_abs_norm) and hist_abs_norm <= float(max_hist_abs_norm))
+
+    hist_delta_norm = np.nan
+    if (
+        pd.notna(latest_close)
+        and latest_close != 0
+        and pd.notna(latest_hist)
+        and pd.notna(prev_hist)
+    ):
+        hist_delta_norm = (float(latest_hist) - float(prev_hist)) / float(latest_close)
+
+    if min_hist_delta_norm is None:
+        hist_delta_ok = True
+    else:
+        hist_delta_ok = bool(
+            pd.notna(hist_delta_norm)
+            and float(hist_delta_norm) >= float(min_hist_delta_norm)
+        )
 
     if require_above_ema200:
         if "EMA_200" in df.columns:
@@ -242,6 +271,7 @@ def _latest_precross_momentum_flags(
             price_rising_ok,
             hist_below_zero,
             near_zero_ok,
+            hist_delta_ok,
             above_ema200,
             peak_ok,
             gap_above_ema20_ok,
@@ -257,6 +287,8 @@ def _latest_precross_momentum_flags(
         "hist_below_zero": hist_below_zero,
         "hist_abs_norm": hist_abs_norm,
         "near_zero_ok": near_zero_ok,
+        "hist_delta_norm": hist_delta_norm,
+        "hist_delta_ok": hist_delta_ok,
         "above_ema200": above_ema200,
         "gap_above_ema20_pct": gap_above_ema20_pct,
         "gap_above_ema20_ok": gap_above_ema20_ok,
@@ -280,6 +312,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         require_price_rising: bool = True,
         require_hist_below_zero: bool = True,
         max_hist_abs_norm: float | None = None,
+        min_hist_delta_norm: float | None = None,
         require_above_ema200: bool = False,
         require_peak_at_window_start: bool = False,
         max_gap_above_ema20_pct: float | None = None,
@@ -294,6 +327,11 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         self.require_hist_below_zero = bool(require_hist_below_zero)
         self.max_hist_abs_norm = (
             None if max_hist_abs_norm is None else max(0.0, float(max_hist_abs_norm))
+        )
+        self.min_hist_delta_norm = (
+            None
+            if min_hist_delta_norm is None
+            else max(0.0, float(min_hist_delta_norm))
         )
         self.require_above_ema200 = bool(require_above_ema200)
         self.require_peak_at_window_start = bool(require_peak_at_window_start)
@@ -333,6 +371,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             require_price_rising=self.require_price_rising,
             require_hist_below_zero=self.require_hist_below_zero,
             max_hist_abs_norm=self.max_hist_abs_norm,
+            min_hist_delta_norm=self.min_hist_delta_norm,
             require_above_ema200=self.require_above_ema200,
             require_peak_at_window_start=self.require_peak_at_window_start,
             max_gap_above_ema20_pct=self.max_gap_above_ema20_pct,
@@ -350,6 +389,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             "require_above_ema200": self.require_above_ema200,
             "require_peak_at_window_start": self.require_peak_at_window_start,
             "max_hist_abs_norm": self.max_hist_abs_norm,
+            "min_hist_delta_norm": self.min_hist_delta_norm,
             "max_gap_above_ema20_pct": self.max_gap_above_ema20_pct,
             "max_return_5d": self.max_return_5d,
             "min_adx_14": self.min_adx_14,
@@ -360,6 +400,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             "close": float(pd.to_numeric(latest.get("Close"), errors="coerce")),
             "close_prev": float(pd.to_numeric(df.iloc[-2].get("Close"), errors="coerce")),
             "hist_abs_norm": float(pd.to_numeric(latest_flags.get("hist_abs_norm"), errors="coerce")),
+            "hist_delta_norm": float(pd.to_numeric(latest_flags.get("hist_delta_norm"), errors="coerce")),
             "above_ema200": bool(latest_flags.get("above_ema200", False)),
             "peak_at_window_start": bool(latest_flags.get("peak_at_window_start", False)),
             "gap_above_ema20_pct": float(pd.to_numeric(latest_flags.get("gap_above_ema20_pct"), errors="coerce")),
@@ -378,6 +419,8 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
                 reasons.append("Histogram is not below zero")
             if self.max_hist_abs_norm is not None and not bool(latest_flags["near_zero_ok"]):
                 reasons.append("Histogram is too far below zero axis")
+            if self.min_hist_delta_norm is not None and not bool(latest_flags["hist_delta_ok"]):
+                reasons.append("Histogram rise is too small")
             if self.require_above_ema200 and not bool(latest_flags["above_ema200"]):
                 reasons.append("Price is below EMA200")
             if self.require_peak_at_window_start and not bool(latest_flags["peak_at_window_start"]):
@@ -407,6 +450,8 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
 
         if self.require_peak_at_window_start:
             reasons.append("Rising window starts at the negative histogram peak")
+        if self.min_hist_delta_norm is not None:
+            reasons.append(f"Histogram rise >= {self.min_hist_delta_norm:.4f}")
         if self.max_gap_above_ema20_pct is not None:
             reasons.append(f"Gap above EMA20 <= {self.max_gap_above_ema20_pct:.2f}%")
         if self.max_return_5d is not None:
@@ -465,6 +510,18 @@ class MACDPreCross2BarRet5d008Entry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACDPreCross2BarRet5d008Entry"
 
 
+class MACDPreCross2BarMinHistDeltaNorm0005Entry(MACDPreCrossMomentumEntry):
+    """2-bar pre-cross that rejects tiny one-day histogram improvements."""
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            min_hist_delta_norm=0.0005,
+        )
+        self.strategy_name = "MACDPreCross2BarMinHistDeltaNorm0005Entry"
+
+
 class MACDPreCross2BarLiteComboEntry(MACDPreCrossMomentumEntry):
     """CLI-friendly fixed variant for the current best LiteCombo entry."""
 
@@ -518,6 +575,7 @@ __all__ = [
     "MACDPreCrossMomentumEntry",
     "MACDPreCross2BarEntry",
     "MACDPreCross2BarRet5d008Entry",
+    "MACDPreCross2BarMinHistDeltaNorm0005Entry",
     "MACDPreCross2BarLiteComboEntry",
     "MACDPreCrossHist2BarEntry",
     "MACDPreCrossHist3BarEntry",
