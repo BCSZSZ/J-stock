@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+from io import BytesIO
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, TypedDict
 from urllib.parse import urlparse
 
 import boto3
+import pandas as pd
 from botocore.exceptions import ClientError
 
 from src.aws.jpx_holidays import is_jpx_trading_day
@@ -15,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 JST = timezone(timedelta(hours=9))
+
+
+class ReadinessObjectStatus(TypedDict):
+    exists: bool
+    ready: bool
+    last_modified_jst: str | None
+    content_latest_date: str | None
+    error_code: str | None
 
 
 def _parse_s3_uri(s3_uri: str) -> Tuple[str, str]:
@@ -33,7 +43,38 @@ def _jst_today_str() -> str:
     return datetime.now(timezone.utc).astimezone(JST).strftime("%Y-%m-%d")
 
 
-def _head_status_for_date(s3, bucket: str, key: str, run_date: str) -> Dict[str, object]:
+def _extract_latest_parquet_date(body: bytes) -> str | None:
+    try:
+        df = pd.read_parquet(BytesIO(body))
+    except Exception:
+        return None
+
+    if df.empty:
+        return None
+
+    if "Date" in df.columns:
+        date_series = pd.to_datetime(df["Date"], errors="coerce")
+    elif isinstance(df.index, pd.DatetimeIndex):
+        date_series = pd.Series(df.index)
+    else:
+        reset_df = df.reset_index()
+        if "Date" in reset_df.columns:
+            date_series = pd.to_datetime(reset_df["Date"], errors="coerce")
+        else:
+            return None
+
+    valid_dates = date_series.dropna()
+    if valid_dates.empty:
+        return None
+    return valid_dates.max().strftime("%Y-%m-%d")
+
+
+def _object_status_for_date(
+    s3,
+    bucket: str,
+    key: str,
+    run_date: str,
+) -> ReadinessObjectStatus:
     try:
         resp = s3.head_object(Bucket=bucket, Key=key)
     except ClientError as exc:
@@ -42,20 +83,46 @@ def _head_status_for_date(s3, bucket: str, key: str, run_date: str) -> Dict[str,
             "exists": False,
             "ready": False,
             "last_modified_jst": None,
+            "content_latest_date": None,
             "error_code": error_code,
         }
 
     last_modified_jst = resp["LastModified"].astimezone(JST).strftime("%Y-%m-%d")
+    content_latest_date: str | None = None
+    if last_modified_jst == run_date:
+        try:
+            body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "ClientError")
+            return {
+                "exists": True,
+                "ready": False,
+                "last_modified_jst": last_modified_jst,
+                "content_latest_date": None,
+                "error_code": error_code,
+            }
+        content_latest_date = _extract_latest_parquet_date(body)
+
     return {
         "exists": True,
-        "ready": last_modified_jst == run_date,
+        "ready": last_modified_jst == run_date and content_latest_date == run_date,
         "last_modified_jst": last_modified_jst,
+        "content_latest_date": content_latest_date,
         "error_code": None,
     }
 
 
 def _head_ok_for_date(s3, bucket: str, key: str, run_date: str) -> bool:
-    return bool(_head_status_for_date(s3, bucket, key, run_date)["ready"])
+    return bool(_object_status_for_date(s3, bucket, key, run_date)["ready"])
+
+
+def _format_ticker_readiness_sample(ticker: str, status: ReadinessObjectStatus) -> str:
+    content_latest_date = status.get("content_latest_date")
+    if content_latest_date and content_latest_date != status.get("last_modified_jst"):
+        return f"{ticker}@content:{content_latest_date}"
+    if content_latest_date:
+        return f"{ticker}@content:{content_latest_date}"
+    return ticker
 
 
 def _validate_data_freshness(data_s3_prefix: str, tickers: List[str], run_date: str) -> Dict[str, Any]:
@@ -69,13 +136,16 @@ def _validate_data_freshness(data_s3_prefix: str, tickers: List[str], run_date: 
         price_key = f"{prefix}/raw_prices/{t}.parquet" if prefix else f"raw_prices/{t}.parquet"
         feature_key = f"{prefix}/features/{t}_features.parquet" if prefix else f"features/{t}_features.parquet"
 
-        if not _head_ok_for_date(s3, bucket, price_key, run_date):
-            missing_prices.append(t)
-        if not _head_ok_for_date(s3, bucket, feature_key, run_date):
-            missing_features.append(t)
+        price_status = _object_status_for_date(s3, bucket, price_key, run_date)
+        feature_status = _object_status_for_date(s3, bucket, feature_key, run_date)
+
+        if not price_status["ready"]:
+            missing_prices.append(_format_ticker_readiness_sample(t, price_status))
+        if not feature_status["ready"]:
+            missing_features.append(_format_ticker_readiness_sample(t, feature_status))
 
     bench_key = f"{prefix}/benchmarks/topix_daily.parquet" if prefix else "benchmarks/topix_daily.parquet"
-    benchmark_status = _head_status_for_date(s3, bucket, bench_key, run_date)
+    benchmark_status = _object_status_for_date(s3, bucket, bench_key, run_date)
     benchmark_ok = bool(benchmark_status["ready"])
 
     ready = (not missing_prices) and (not missing_features) and benchmark_ok
@@ -89,6 +159,7 @@ def _validate_data_freshness(data_s3_prefix: str, tickers: List[str], run_date: 
         "benchmark_key": bench_key,
         "benchmark_exists": bool(benchmark_status["exists"]),
         "benchmark_last_modified_jst": benchmark_status["last_modified_jst"],
+        "benchmark_content_latest_date": benchmark_status["content_latest_date"],
         "benchmark_error_code": benchmark_status["error_code"],
     }
 
