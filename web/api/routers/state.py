@@ -17,11 +17,20 @@ from web.api.schemas import PortfolioHistoryPoint, PortfolioHistoryResponse, Por
 
 router = APIRouter(prefix="/api/state", tags=["state"])
 
+TOPIX_BENCHMARK_FILENAME = "topix_daily.parquet"
+NIKKEI225_PROXY_TICKER = "1321"
+
 
 @dataclass(frozen=True)
 class CloseSeries:
     dates: tuple[str, ...]
     closes: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class ValueSeriesPoint:
+    date: str
+    value: float | None
 
 
 def _load_json(path: str | Path) -> object:
@@ -60,8 +69,12 @@ def _features_path(ticker: str) -> Path:
     return root / "data" / "features" / f"{ticker}_features.parquet"
 
 
-def _load_close_series(ticker: str) -> CloseSeries | None:
-    path = _features_path(ticker)
+def _benchmark_path(filename: str) -> Path:
+    root = get_project_root()
+    return root / "data" / "benchmarks" / filename
+
+
+def _load_close_series_from_path(path: Path) -> CloseSeries | None:
     if not path.exists():
         return None
 
@@ -73,7 +86,8 @@ def _load_close_series(ticker: str) -> CloseSeries | None:
     if df.empty or "Close" not in df.columns:
         return None
 
-    df = df.reset_index()
+    if "Date" not in df.columns:
+        df = df.reset_index()
     if "Date" not in df.columns:
         return None
 
@@ -88,6 +102,14 @@ def _load_close_series(ticker: str) -> CloseSeries | None:
     dates = tuple(str(value) for value in close_frame["Date"].tolist())
     closes = tuple(float(value) for value in close_frame["Close"].tolist())
     return CloseSeries(dates=dates, closes=closes)
+
+
+def _load_close_series(ticker: str) -> CloseSeries | None:
+    return _load_close_series_from_path(_features_path(ticker))
+
+
+def _load_topix_close_series() -> CloseSeries | None:
+    return _load_close_series_from_path(_benchmark_path(TOPIX_BENCHMARK_FILENAME))
 
 
 def _load_latest_close(ticker: str) -> float | None:
@@ -236,6 +258,139 @@ def _calculate_total_pnl_pct(total_pnl: float, total_capital: float) -> float:
         return 0.0
     return float((total_pnl / total_capital) * 100.0)
 
+
+def _build_cash_flow_by_date(cash_events: list[CashFlowEvent]) -> dict[str, float]:
+    cash_flow_by_date: dict[str, float] = {}
+    for event in cash_events:
+        event_date = str(event.date)
+        cash_flow_by_date[event_date] = cash_flow_by_date.get(event_date, 0.0) + float(
+            event.amount or 0.0
+        )
+    return cash_flow_by_date
+
+
+def _build_benchmark_value_by_date(
+    history_points: list[PortfolioHistoryPoint],
+    benchmark_series: CloseSeries | None,
+    cash_flow_by_date: dict[str, float],
+) -> dict[str, float | None]:
+    value_by_date: dict[str, float | None] = {
+        point.date: None for point in history_points
+    }
+    if not history_points or benchmark_series is None:
+        return value_by_date
+
+    first_point = history_points[0]
+    first_price = _lookup_close_on_or_before(benchmark_series, first_point.date)
+    if first_price is None or first_price <= 0:
+        return value_by_date
+
+    units = first_point.total_capital / first_price
+    value_by_date[first_point.date] = float(first_point.total_capital)
+    for point in history_points[1:]:
+        price = _lookup_close_on_or_before(benchmark_series, point.date)
+        if price is None or price <= 0:
+            continue
+        units += cash_flow_by_date.get(point.date, 0.0) / price
+        value_by_date[point.date] = float(units * price)
+    return value_by_date
+
+
+def _build_normalized_value_by_date(
+    points: list[ValueSeriesPoint],
+    cash_flow_by_date: dict[str, float],
+) -> dict[str, float | None]:
+    normalized_by_date: dict[str, float | None] = {
+        point.date: None for point in points
+    }
+    valid_points = [point for point in points if point.value is not None]
+    if not valid_points:
+        return normalized_by_date
+
+    first_point = valid_points[0]
+    if first_point.value is None or first_point.value <= 0:
+        return normalized_by_date
+
+    normalized_value = 100.0
+    previous_value = first_point.value
+    normalized_by_date[first_point.date] = normalized_value
+    for point in valid_points[1:]:
+        current_value = point.value
+        if current_value is None:
+            continue
+        if previous_value <= 0:
+            normalized_by_date[point.date] = normalized_value
+            previous_value = current_value
+            continue
+
+        cash_flow = cash_flow_by_date.get(point.date, 0.0)
+        period_return = (current_value - previous_value - cash_flow) / previous_value
+        normalized_value = float(normalized_value * (1.0 + period_return))
+        normalized_by_date[point.date] = normalized_value
+        previous_value = current_value
+    return normalized_by_date
+
+
+def _enrich_portfolio_history_points(
+    points: list[PortfolioHistoryPoint],
+    cash_events: list[CashFlowEvent],
+) -> list[PortfolioHistoryPoint]:
+    if not points:
+        return []
+
+    cash_flow_by_date = _build_cash_flow_by_date(cash_events)
+    topix_value_by_date = _build_benchmark_value_by_date(
+        points,
+        _load_topix_close_series(),
+        cash_flow_by_date,
+    )
+    nikkei225_value_by_date = _build_benchmark_value_by_date(
+        points,
+        _load_close_series(NIKKEI225_PROXY_TICKER),
+        cash_flow_by_date,
+    )
+    normalized_portfolio_by_date = _build_normalized_value_by_date(
+        [
+            ValueSeriesPoint(date=point.date, value=point.current_value)
+            for point in points
+        ],
+        cash_flow_by_date,
+    )
+    normalized_topix_by_date = _build_normalized_value_by_date(
+        [
+            ValueSeriesPoint(date=point.date, value=topix_value_by_date[point.date])
+            for point in points
+        ],
+        cash_flow_by_date,
+    )
+    normalized_nikkei225_by_date = _build_normalized_value_by_date(
+        [
+            ValueSeriesPoint(date=point.date, value=nikkei225_value_by_date[point.date])
+            for point in points
+        ],
+        cash_flow_by_date,
+    )
+
+    return [
+        PortfolioHistoryPoint(
+            **point.model_dump(
+                exclude={
+                    "topix_value",
+                    "nikkei225_value",
+                    "normalized_portfolio",
+                    "normalized_topix",
+                    "normalized_nikkei225",
+                }
+            ),
+            topix_value=topix_value_by_date.get(point.date),
+            nikkei225_value=nikkei225_value_by_date.get(point.date),
+            normalized_portfolio=normalized_portfolio_by_date.get(point.date),
+            normalized_topix=normalized_topix_by_date.get(point.date),
+            normalized_nikkei225=normalized_nikkei225_by_date.get(point.date),
+        )
+        for point in points
+    ]
+
     latest_close = df["Close"].iloc[-1]
     if pd.isna(latest_close):
         return None
@@ -340,15 +495,18 @@ def get_portfolio_history() -> PortfolioHistoryResponse:
         if not fallback_date:
             return PortfolioHistoryResponse(points=[])
         return PortfolioHistoryResponse(
-            points=[
-                PortfolioHistoryPoint(
-                    date=fallback_date,
-                    total_capital=total_capital,
-                    current_value=current_value,
-                    total_pnl=total_pnl,
-                    total_pnl_pct=_calculate_total_pnl_pct(total_pnl, total_capital),
-                )
-            ]
+            points=_enrich_portfolio_history_points(
+                [
+                    PortfolioHistoryPoint(
+                        date=fallback_date,
+                        total_capital=total_capital,
+                        current_value=current_value,
+                        total_pnl=total_pnl,
+                        total_pnl_pct=_calculate_total_pnl_pct(total_pnl, total_capital),
+                    )
+                ],
+                cash_events,
+            )
         )
 
     points: list[PortfolioHistoryPoint] = []
@@ -382,7 +540,9 @@ def get_portfolio_history() -> PortfolioHistoryResponse:
             )
         )
 
-    return PortfolioHistoryResponse(points=points)
+    return PortfolioHistoryResponse(
+        points=_enrich_portfolio_history_points(points, cash_events)
+    )
 
 
 @router.get("/trade-history")

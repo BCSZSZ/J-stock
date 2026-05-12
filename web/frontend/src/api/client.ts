@@ -53,6 +53,11 @@ export const api = {
         current_value: number;
         total_pnl: number;
         total_pnl_pct: number;
+        topix_value: number | null;
+        nikkei225_value: number | null;
+        normalized_portfolio: number | null;
+        normalized_topix: number | null;
+        normalized_nikkei225: number | null;
       }>;
     }>("/state/portfolio-history"),
 

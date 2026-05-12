@@ -1,22 +1,44 @@
 import { useEffect, useRef } from "react";
 import { createChart, IChartApi, LineData, Time } from "lightweight-charts";
 
-export interface PortfolioValuePoint {
+export interface PortfolioValueChartPoint {
   date: string;
-  current_value: number;
-  total_capital: number;
+  value: number;
+}
+
+export interface PortfolioValueChartSeries {
+  id: string;
+  label: string;
+  color: string;
+  data: PortfolioValueChartPoint[];
+  lineWidth?: 1 | 2 | 3 | 4;
+  lastValueVisible?: boolean;
+  crosshairMarkerVisible?: boolean;
 }
 
 interface PortfolioValueChartProps {
-  points: PortfolioValuePoint[];
+  series: PortfolioValueChartSeries[];
+  height?: number;
+  valueFormatter?: (value: number) => string;
+  emptyMessage?: string;
 }
 
-export default function PortfolioValueChart({ points }: PortfolioValueChartProps) {
+function defaultValueFormatter(value: number): string {
+  return `¥${Math.round(value).toLocaleString()}`;
+}
+
+export default function PortfolioValueChart({
+  series,
+  height = 280,
+  valueFormatter = defaultValueFormatter,
+  emptyMessage = "No portfolio history available.",
+}: PortfolioValueChartProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<IChartApi | null>(null);
+  const activeSeries = series.filter((entry) => entry.data.length > 0);
 
   useEffect(() => {
-    if (!chartRef.current || points.length === 0) {
+    if (!chartRef.current || activeSeries.length === 0) {
       return undefined;
     }
 
@@ -27,7 +49,7 @@ export default function PortfolioValueChart({ points }: PortfolioValueChartProps
 
     const chart = createChart(chartRef.current, {
       width: chartRef.current.clientWidth,
-      height: 280,
+      height,
       layout: {
         background: { color: "#111827" },
         textColor: "#9ca3af",
@@ -46,36 +68,25 @@ export default function PortfolioValueChart({ points }: PortfolioValueChartProps
         secondsVisible: false,
       },
       localization: {
-        priceFormatter: (value: number) =>
-          `¥${Math.round(value).toLocaleString()}`,
+        priceFormatter: valueFormatter,
       },
     });
     chartInstance.current = chart;
 
-    const valueSeries = chart.addLineSeries({
-      color: "#60a5fa",
-      lineWidth: 3,
-      priceLineVisible: false,
-      lastValueVisible: true,
-    });
-    const valueData: LineData<Time>[] = points.map((point) => ({
-      time: point.date as Time,
-      value: point.current_value,
-    }));
-    valueSeries.setData(valueData);
-
-    const baselineSeries = chart.addLineSeries({
-      color: "rgba(148, 163, 184, 0.5)",
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-      crosshairMarkerVisible: false,
-    });
-    const baselineData: LineData<Time>[] = points.map((point) => ({
-      time: point.date as Time,
-      value: point.total_capital,
-    }));
-    baselineSeries.setData(baselineData);
+    for (const entry of activeSeries) {
+      const lineSeries = chart.addLineSeries({
+        color: entry.color,
+        lineWidth: entry.lineWidth ?? 2,
+        priceLineVisible: false,
+        lastValueVisible: entry.lastValueVisible ?? false,
+        crosshairMarkerVisible: entry.crosshairMarkerVisible ?? true,
+      });
+      const lineData: LineData<Time>[] = entry.data.map((point) => ({
+        time: point.date as Time,
+        value: point.value,
+      }));
+      lineSeries.setData(lineData);
+    }
 
     chart.timeScale().fitContent();
 
@@ -91,12 +102,12 @@ export default function PortfolioValueChart({ points }: PortfolioValueChartProps
       chart.remove();
       chartInstance.current = null;
     };
-  }, [points]);
+  }, [activeSeries, height, valueFormatter]);
 
-  if (points.length === 0) {
+  if (activeSeries.length === 0) {
     return (
       <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-gray-800 text-sm text-gray-500">
-        No portfolio history available.
+        {emptyMessage}
       </div>
     );
   }

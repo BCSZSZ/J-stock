@@ -99,7 +99,9 @@ def test_get_portfolio_history_builds_total_asset_series(
     history_file = tmp_path / "history.json"
     cash_history_file = tmp_path / "cash_history.json"
     features_dir = tmp_path / "data" / "features"
+    benchmarks_dir = tmp_path / "data" / "benchmarks"
     features_dir.mkdir(parents=True)
+    benchmarks_dir.mkdir(parents=True)
 
     state_file.write_text(
         json.dumps(
@@ -193,6 +195,18 @@ def test_get_portfolio_history_builds_total_asset_series(
             "Close": [100.0, 120.0],
         }
     ).set_index("Date").to_parquet(features_dir / "6674_features.parquet")
+    pd.DataFrame(
+        {
+            "Date": ["2026-05-02", "2026-05-05"],
+            "Close": [100.0, 110.0],
+        }
+    ).to_parquet(benchmarks_dir / "topix_daily.parquet", index=False)
+    pd.DataFrame(
+        {
+            "Date": ["2026-05-02", "2026-05-05"],
+            "Close": [200.0, 230.0],
+        }
+    ).set_index("Date").to_parquet(features_dir / "1321_features.parquet")
 
     monkeypatch.setattr(
         state_router,
@@ -218,3 +232,25 @@ def test_get_portfolio_history_builds_total_asset_series(
     assert response.points[2].current_value == 15_200.0
     assert response.points[2].total_pnl == 200.0
     assert response.points[2].total_pnl_pct == pytest.approx(1.3333333333)
+    assert response.points[0].topix_value == 15_000.0
+    assert response.points[2].topix_value == 16_500.0
+    assert response.points[2].nikkei225_value == 17_250.0
+    assert response.points[0].normalized_portfolio == pytest.approx(100.0)
+    assert response.points[2].normalized_portfolio == pytest.approx(101.3333333333)
+    assert response.points[2].normalized_topix == pytest.approx(110.0)
+    assert response.points[2].normalized_nikkei225 == pytest.approx(115.0)
+
+
+def test_build_normalized_value_by_date_ignores_midstream_cash_flows() -> None:
+    normalized = state_router._build_normalized_value_by_date(
+        points=[
+            state_router.ValueSeriesPoint(date="2026-05-01", value=10_000.0),
+            state_router.ValueSeriesPoint(date="2026-05-02", value=11_000.0),
+            state_router.ValueSeriesPoint(date="2026-05-03", value=17_000.0),
+        ],
+        cash_flow_by_date={"2026-05-03": 5_000.0},
+    )
+
+    assert normalized["2026-05-01"] == pytest.approx(100.0)
+    assert normalized["2026-05-02"] == pytest.approx(110.0)
+    assert normalized["2026-05-03"] == pytest.approx(120.0)

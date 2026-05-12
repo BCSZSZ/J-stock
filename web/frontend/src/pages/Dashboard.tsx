@@ -1,8 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import PortfolioValueChart from "../components/PortfolioValueChart";
+import PortfolioValueChart, {
+  type PortfolioValueChartPoint,
+  type PortfolioValueChartSeries,
+} from "../components/PortfolioValueChart";
 import { useTickerNames } from "../hooks/useTickerNames";
+
+type PortfolioHistoryResponse = Awaited<ReturnType<typeof api.portfolioHistory>>;
+type PortfolioHistoryPoint = PortfolioHistoryResponse["points"][number];
 
 function formatCurrency(value: number): string {
   return `¥${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -16,6 +22,20 @@ function formatSignedCurrency(value: number): string {
 function formatSignedPercent(value: number): string {
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;
+}
+
+function formatIndexValue(value: number): string {
+  return value.toFixed(1);
+}
+
+function buildSeriesData(
+  points: PortfolioHistoryPoint[],
+  selector: (point: PortfolioHistoryPoint) => number | null | undefined,
+): PortfolioValueChartPoint[] {
+  return points.flatMap((point) => {
+    const value = selector(point);
+    return value == null ? [] : [{ date: point.date, value }];
+  });
 }
 
 export default function Dashboard() {
@@ -41,6 +61,121 @@ export default function Dashboard() {
   const totalPnl = groups.reduce((sum, group) => sum + group.total_pnl, 0);
   const totalPnlPct =
     totalCapital === 0 ? 0 : (totalPnl / totalCapital) * 100;
+  const assetSeries: PortfolioValueChartSeries[] = [
+    {
+      id: "portfolio",
+      label: "总资产",
+      color: "#60a5fa",
+      data: buildSeriesData(portfolioHistoryPoints, (point) => point.current_value),
+      lineWidth: 3,
+      lastValueVisible: true,
+    },
+    {
+      id: "capital",
+      label: "总资金基线",
+      color: "rgba(148, 163, 184, 0.55)",
+      data: buildSeriesData(portfolioHistoryPoints, (point) => point.total_capital),
+      lineWidth: 2,
+      crosshairMarkerVisible: false,
+    },
+    {
+      id: "topix",
+      label: "TOPIX 持有资产",
+      color: "#34d399",
+      data: buildSeriesData(portfolioHistoryPoints, (point) => point.topix_value),
+      lineWidth: 2,
+    },
+    {
+      id: "nikkei225",
+      label: "日经225 持有资产 (1321)",
+      color: "#f59e0b",
+      data: buildSeriesData(portfolioHistoryPoints, (point) => point.nikkei225_value),
+      lineWidth: 2,
+    },
+  ];
+  const normalizedSeries: PortfolioValueChartSeries[] = [
+    {
+      id: "normalized-portfolio",
+      label: "策略净表现",
+      color: "#60a5fa",
+      data: buildSeriesData(
+        portfolioHistoryPoints,
+        (point) => point.normalized_portfolio,
+      ),
+      lineWidth: 3,
+      lastValueVisible: true,
+    },
+    {
+      id: "normalized-topix",
+      label: "TOPIX",
+      color: "#34d399",
+      data: buildSeriesData(
+        portfolioHistoryPoints,
+        (point) => point.normalized_topix,
+      ),
+      lineWidth: 2,
+    },
+    {
+      id: "normalized-nikkei225",
+      label: "日经225 (1321)",
+      color: "#f59e0b",
+      data: buildSeriesData(
+        portfolioHistoryPoints,
+        (point) => point.normalized_nikkei225,
+      ),
+      lineWidth: 2,
+    },
+  ];
+  const visibleAssetSeries = assetSeries.filter((series) => series.data.length > 0);
+  const visibleNormalizedSeries = normalizedSeries.filter(
+    (series) => series.data.length > 0,
+  );
+  const missingBenchmarkLabels = [
+    visibleAssetSeries.some((series) => series.id === "topix") ? null : "TOPIX",
+    visibleAssetSeries.some((series) => series.id === "nikkei225")
+      ? null
+      : "日经225 (1321)",
+  ].filter((label): label is string => label !== null);
+
+  const renderPortfolioHistoryChart = (
+    series: PortfolioValueChartSeries[],
+    formatter: (value: number) => string,
+    emptyMessage: string,
+  ) => {
+    if (portfolioHistory.isLoading) {
+      return (
+        <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-gray-800 text-sm text-gray-500">
+          Loading chart...
+        </div>
+      );
+    }
+    if (portfolioHistory.isError) {
+      return (
+        <div className="flex h-[280px] flex-col items-center justify-center rounded-lg border border-dashed border-red-900/60 bg-red-950/20 px-4 text-center text-sm text-red-300">
+          <div>Portfolio history failed to load.</div>
+          <div className="mt-2 text-xs text-red-200/80">
+            {portfolioHistory.error instanceof Error
+              ? portfolioHistory.error.message
+              : "Unknown API error"}
+          </div>
+        </div>
+      );
+    }
+    if (portfolioHistoryPoints.length === 0) {
+      return (
+        <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-gray-800 text-sm text-gray-500">
+          No portfolio history available.
+        </div>
+      );
+    }
+    return (
+      <PortfolioValueChart
+        series={series}
+        valueFormatter={formatter}
+        emptyMessage={emptyMessage}
+      />
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -99,7 +234,7 @@ export default function Dashboard() {
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
-            <h3 className="text-sm text-gray-400">总资产折线图</h3>
+            <h3 className="text-sm text-gray-400">总资产对照图</h3>
             <div className="mt-1 text-xl font-semibold text-gray-100">
               {formatCurrency(totalCurrentValue)}
             </div>
@@ -112,34 +247,58 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-gray-400">
-          <div className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-400" />
-            <span>总资产</span>
-          </div>
-          <div className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-slate-400/60" />
-            <span>总资金基线</span>
-          </div>
+          {visibleAssetSeries.map((series) => (
+            <div key={series.id} className="inline-flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: series.color }}
+              />
+              <span>{series.label}</span>
+            </div>
+          ))}
         </div>
-        {portfolioHistory.isLoading ? (
-          <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-gray-800 text-sm text-gray-500">
-            Loading chart...
+        {missingBenchmarkLabels.length > 0 ? (
+          <div className="text-xs text-amber-300/80">
+            Comparison data unavailable: {missingBenchmarkLabels.join(" / ")}
           </div>
-        ) : portfolioHistory.isError ? (
-          <div className="flex h-[280px] flex-col items-center justify-center rounded-lg border border-dashed border-red-900/60 bg-red-950/20 px-4 text-center text-sm text-red-300">
-            <div>Portfolio history failed to load.</div>
-            <div className="mt-2 text-xs text-red-200/80">
-              {portfolioHistory.error instanceof Error
-                ? portfolioHistory.error.message
-                : "Unknown API error"}
+        ) : null}
+        {renderPortfolioHistoryChart(
+          assetSeries,
+          formatCurrency,
+          "No asset comparison data available.",
+        )}
+      </div>
+
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h3 className="text-sm text-gray-400">归一化净表现图</h3>
+            <div className="mt-1 text-xl font-semibold text-gray-100">
+              起点 100.0
+            </div>
+            <div className="text-sm text-gray-500">
+              剔除中途入金/出金影响，比较策略与 TOPIX / 日经225(1321) 的净表现
             </div>
           </div>
-        ) : portfolioHistoryPoints.length === 0 ? (
-          <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-gray-800 text-sm text-gray-500">
-            No portfolio history available.
+          <div className="text-xs text-gray-500">
+            日经225 使用 1321 代理
           </div>
-        ) : (
-          <PortfolioValueChart points={portfolioHistoryPoints} />
+        </div>
+        <div className="flex flex-wrap gap-3 text-xs text-gray-400">
+          {visibleNormalizedSeries.map((series) => (
+            <div key={series.id} className="inline-flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: series.color }}
+              />
+              <span>{series.label}</span>
+            </div>
+          ))}
+        </div>
+        {renderPortfolioHistoryChart(
+          normalizedSeries,
+          formatIndexValue,
+          "No normalized benchmark data available.",
         )}
       </div>
 

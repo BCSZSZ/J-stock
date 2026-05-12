@@ -47,6 +47,11 @@ class PortfolioHistoryPoint(BaseModel):
     current_value: float
     total_pnl: float
     total_pnl_pct: float
+    topix_value: float | None = None
+    nikkei225_value: float | None = None
+    normalized_portfolio: float | None = None
+    normalized_topix: float | None = None
+    normalized_nikkei225: float | None = None
 
 
 class PortfolioHistoryResponse(BaseModel):
