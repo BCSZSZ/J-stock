@@ -5,7 +5,7 @@ import PortfolioValueChart, {
   type PortfolioValueChartPoint,
   type PortfolioValueChartSeries,
 } from "../components/PortfolioValueChart";
-import { useTickerNames } from "../hooks/useTickerNames";
+import SectorAttributionPanel from "../components/SectorAttributionPanel";
 
 type PortfolioHistoryResponse = Awaited<ReturnType<typeof api.portfolioHistory>>;
 type PortfolioHistoryPoint = PortfolioHistoryResponse["points"][number];
@@ -51,7 +51,10 @@ export default function Dashboard() {
     queryKey: ["signal-dates"],
     queryFn: api.signalDates,
   });
-  const names = useTickerNames();
+  const sectorAttribution = useQuery({
+    queryKey: ["sector-attribution"],
+    queryFn: api.sectorAttribution,
+  });
 
   const groups = portfolio.data?.groups ?? [];
   const latestSignalDate = signalDates.data?.[0];
@@ -302,62 +305,12 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Positions table */}
-      {groups.map((g) => (
-        <div key={g.id}>
-          <h3 className="text-lg font-semibold mb-2">
-            Positions — {g.name}
-          </h3>
-          {g.positions.length === 0 ? (
-            <p className="text-gray-500 text-sm">No open positions</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 border-b border-gray-800">
-                    <th className="py-2 px-3">Ticker</th>
-                    <th className="py-2 px-3">Name</th>
-                    <th className="py-2 px-3">Qty</th>
-                    <th className="py-2 px-3">Entry Price</th>
-                    <th className="py-2 px-3">Entry Date</th>
-                    <th className="py-2 px-3">Peak</th>
-                    <th className="py-2 px-3">Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {g.positions.map((p) => (
-                    <tr
-                      key={p.lot_id}
-                      className="border-b border-gray-800/50 hover:bg-gray-800/30"
-                    >
-                      <td className="py-2 px-3">
-                        <Link
-                          to={`/stock/${p.ticker}`}
-                          className="text-blue-400 hover:underline"
-                        >
-                          {p.ticker}
-                        </Link>
-                      </td>
-                      <td className="py-2 px-3 text-gray-400 text-xs">
-                        {names[p.ticker] ?? ""}
-                      </td>
-                      <td className="py-2 px-3">{p.quantity}</td>
-                      <td className="py-2 px-3">
-                        ¥{p.entry_price.toLocaleString()}
-                      </td>
-                      <td className="py-2 px-3">{p.entry_date}</td>
-                      <td className="py-2 px-3">
-                        ¥{p.peak_price.toLocaleString()}
-                      </td>
-                      <td className="py-2 px-3">{p.entry_score.toFixed(1)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      ))}
+      <SectorAttributionPanel
+        data={sectorAttribution.data}
+        isLoading={sectorAttribution.isLoading}
+        isError={sectorAttribution.isError}
+        error={sectorAttribution.error}
+      />
 
       {/* Quick links */}
       <div className="flex gap-3 flex-wrap">

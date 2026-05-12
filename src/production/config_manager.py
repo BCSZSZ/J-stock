@@ -5,6 +5,7 @@ Phase 1: Configuration Manager
 
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, Dict, List, Optional
 
 from src.config.capacity import CapacityRegimeConfig, parse_capacity_regime, parse_production_capacity_mode
@@ -141,9 +142,21 @@ class ConfigManager:
         path_obj = Path(local_probe)
         test_dir = path_obj.parent
         test_dir.mkdir(parents=True, exist_ok=True)
-        probe = test_dir / ".write_probe.tmp"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink(missing_ok=True)
+        probe_path: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=test_dir,
+                prefix=".write_probe_",
+                suffix=".tmp",
+                delete=False,
+            ) as probe_file:
+                probe_file.write("ok")
+                probe_path = Path(probe_file.name)
+        finally:
+            if probe_path is not None:
+                probe_path.unlink(missing_ok=True)
         return path_value
 
     def _ensure_gdrive_dir_ready(self, path_value: str) -> str:

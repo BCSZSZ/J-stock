@@ -58,6 +58,36 @@ class PortfolioHistoryResponse(BaseModel):
     points: list[PortfolioHistoryPoint]
 
 
+class SectorPeriodOut(BaseModel):
+    key: str
+    label: str
+    start_date: str
+    end_date: str
+
+
+class SectorPeriodPnLOut(BaseModel):
+    period_key: str
+    pnl: float
+    start_value: float
+    end_value: float
+    buy_amount: float
+    sell_amount: float
+
+
+class SectorAttributionOut(BaseModel):
+    sector: str
+    current_value: float
+    summary_periods: list[SectorPeriodPnLOut]
+    heatmap_periods: list[SectorPeriodPnLOut]
+
+
+class SectorAttributionResponse(BaseModel):
+    as_of_date: str
+    summary_periods: list[SectorPeriodOut]
+    heatmap_periods: list[SectorPeriodOut]
+    sectors: list[SectorAttributionOut]
+
+
 class TradeEvent(BaseModel):
     date: str
     ticker: str

@@ -61,6 +61,43 @@ export const api = {
       }>;
     }>("/state/portfolio-history"),
 
+  sectorAttribution: () =>
+    request<{
+      as_of_date: string;
+      summary_periods: Array<{
+        key: string;
+        label: string;
+        start_date: string;
+        end_date: string;
+      }>;
+      heatmap_periods: Array<{
+        key: string;
+        label: string;
+        start_date: string;
+        end_date: string;
+      }>;
+      sectors: Array<{
+        sector: string;
+        current_value: number;
+        summary_periods: Array<{
+          period_key: string;
+          pnl: number;
+          start_value: number;
+          end_value: number;
+          buy_amount: number;
+          sell_amount: number;
+        }>;
+        heatmap_periods: Array<{
+          period_key: string;
+          pnl: number;
+          start_value: number;
+          end_value: number;
+          buy_amount: number;
+          sell_amount: number;
+        }>;
+      }>;
+    }>("/state/sector-attribution"),
+
   tradeHistory: () => request<Record<string, unknown>>("/state/trade-history"),
   cashHistory: () => request<Record<string, unknown>>("/state/cash-history"),
   signalDates: () => request<string[]>("/state/signals"),

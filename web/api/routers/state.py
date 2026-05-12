@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from bisect import bisect_right
+import calendar
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
+from datetime import date, timedelta
 import json
 from pathlib import Path
 
@@ -13,12 +15,13 @@ from fastapi import APIRouter, HTTPException
 from src.production import CashHistoryManager, ProductionState, StrategyGroupState, TradeHistoryManager
 from src.production.state_manager import CashFlowEvent, Trade, build_state_as_of
 from web.api.dependencies import get_production_config, get_project_root
-from web.api.schemas import PortfolioHistoryPoint, PortfolioHistoryResponse, PortfolioResponse, StrategyGroupOut, PositionOut
+from web.api.schemas import PortfolioHistoryPoint, PortfolioHistoryResponse, PortfolioResponse, SectorAttributionOut, SectorAttributionResponse, SectorPeriodOut, SectorPeriodPnLOut, StrategyGroupOut, PositionOut
 
 router = APIRouter(prefix="/api/state", tags=["state"])
 
 TOPIX_BENCHMARK_FILENAME = "topix_daily.parquet"
 NIKKEI225_PROXY_TICKER = "1321"
+SECTOR_UNCLASSIFIED = "未分类"
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,30 @@ class CloseSeries:
 class ValueSeriesPoint:
     date: str
     value: float | None
+
+
+@dataclass(frozen=True)
+class SectorPeriodDefinition:
+    key: str
+    label: str
+    days: int | None = None
+    year_to_date: bool = False
+    all_history: bool = False
+
+
+@dataclass(frozen=True)
+class SectorTradeFlow:
+    buy_amount: float
+    sell_amount: float
+
+
+SUMMARY_PERIOD_DEFINITIONS: tuple[SectorPeriodDefinition, ...] = (
+    SectorPeriodDefinition(key="1W", label="1W", days=7),
+    SectorPeriodDefinition(key="1M", label="1M", days=30),
+    SectorPeriodDefinition(key="3M", label="3M", days=90),
+    SectorPeriodDefinition(key="YTD", label="YTD", year_to_date=True),
+    SectorPeriodDefinition(key="ALL", label="ALL", all_history=True),
+)
 
 
 def _load_json(path: str | Path) -> object:
@@ -67,6 +94,11 @@ def _normalize_group_items(raw_groups: object) -> list[tuple[str, dict[str, obje
 def _features_path(ticker: str) -> Path:
     root = get_project_root()
     return root / "data" / "features" / f"{ticker}_features.parquet"
+
+
+def _jpx_master_path() -> Path:
+    root = get_project_root()
+    return root / "data" / "jpx_final_list.csv"
 
 
 def _benchmark_path(filename: str) -> Path:
@@ -257,6 +289,214 @@ def _calculate_total_pnl_pct(total_pnl: float, total_capital: float) -> float:
     if total_capital == 0:
         return 0.0
     return float((total_pnl / total_capital) * 100.0)
+
+
+def _normalize_sector_name(value: object) -> str:
+    sector = str(value or "").strip()
+    if not sector or sector == "-":
+        return SECTOR_UNCLASSIFIED
+    return sector
+
+
+def _load_sector_by_ticker() -> dict[str, str]:
+    path = _jpx_master_path()
+    if not path.exists():
+        return {}
+
+    df = pd.read_csv(path, dtype=str, usecols=["Code", "33業種区分"])
+    return {
+        str(row["Code"]): _normalize_sector_name(row["33業種区分"])
+        for _, row in df.iterrows()
+        if row.get("Code")
+    }
+
+
+def _lookup_sector_for_ticker(
+    ticker: str,
+    sector_by_ticker: dict[str, str],
+) -> str:
+    return sector_by_ticker.get(ticker, SECTOR_UNCLASSIFIED)
+
+
+def _build_sector_holdings_value(
+    snapshot: ProductionState,
+    current_prices: dict[str, float],
+    sector_by_ticker: dict[str, str],
+) -> dict[str, float]:
+    holdings_value_by_sector: dict[str, float] = {}
+    for group in snapshot.get_all_groups():
+        for position in group.positions:
+            effective_price = current_prices.get(position.ticker, float(position.entry_price))
+            sector = _lookup_sector_for_ticker(position.ticker, sector_by_ticker)
+            position_value = float(position.quantity * effective_price)
+            holdings_value_by_sector[sector] = holdings_value_by_sector.get(sector, 0.0) + position_value
+    return holdings_value_by_sector
+
+
+def _build_sector_trade_flows(
+    trades: list[Trade],
+    sector_by_ticker: dict[str, str],
+    start_date: str,
+    end_date: str,
+) -> dict[str, SectorTradeFlow]:
+    buys_by_sector: dict[str, float] = {}
+    sells_by_sector: dict[str, float] = {}
+    for trade in trades:
+        trade_date = str(trade.date)
+        if trade_date <= start_date or trade_date > end_date:
+            continue
+        sector = _lookup_sector_for_ticker(trade.ticker, sector_by_ticker)
+        if trade.action == "BUY":
+            buys_by_sector[sector] = buys_by_sector.get(sector, 0.0) + float(trade.total_jpy)
+        elif trade.action == "SELL":
+            sells_by_sector[sector] = sells_by_sector.get(sector, 0.0) + float(trade.total_jpy)
+
+    sectors = set(buys_by_sector) | set(sells_by_sector)
+    return {
+        sector: SectorTradeFlow(
+            buy_amount=float(buys_by_sector.get(sector, 0.0)),
+            sell_amount=float(sells_by_sector.get(sector, 0.0)),
+        )
+        for sector in sectors
+    }
+
+
+def _resolve_history_boundary_date(
+    history_dates: list[str],
+    anchor_date: str,
+) -> str:
+    if not history_dates:
+        return ""
+    index = bisect_right(history_dates, anchor_date) - 1
+    if index < 0:
+        return history_dates[0]
+    return history_dates[index]
+
+
+def _resolve_period_start_date(
+    history_dates: list[str],
+    end_date: str,
+    definition: SectorPeriodDefinition,
+) -> str:
+    if not history_dates:
+        return ""
+    if definition.all_history:
+        return history_dates[0]
+
+    end_dt = date.fromisoformat(end_date)
+    if definition.year_to_date:
+        anchor_dt = end_dt.replace(month=1, day=1)
+    else:
+        anchor_dt = end_dt - timedelta(days=definition.days or 0)
+    return _resolve_history_boundary_date(history_dates, anchor_dt.isoformat())
+
+
+def _build_year_month_heatmap_periods(
+    end_date: str,
+) -> list[SectorPeriodOut]:
+    display_year = date.fromisoformat(end_date).year
+    periods: list[SectorPeriodOut] = []
+    for month in range(1, 13):
+        month_start = date(display_year, month, 1)
+        month_end = date(
+            display_year,
+            month,
+            calendar.monthrange(display_year, month)[1],
+        )
+        periods.append(
+            SectorPeriodOut(
+                key=f"M{month:02d}",
+                label=f"{month}月",
+                start_date=month_start.isoformat(),
+                end_date=month_end.isoformat(),
+            )
+        )
+    return periods
+
+
+def _has_history_date_in_range(
+    history_dates: list[str],
+    start_date: str,
+    end_date: str,
+) -> bool:
+    if not history_dates:
+        return False
+    start_index = bisect_left(history_dates, start_date)
+    if start_index >= len(history_dates):
+        return False
+    return history_dates[start_index] <= end_date
+
+
+def _resolve_heatmap_window_dates(
+    history_dates: list[str],
+    start_date: str,
+    end_date: str,
+    as_of_date: str,
+) -> tuple[str, str] | None:
+    effective_end_date = min(end_date, as_of_date)
+    if effective_end_date < start_date:
+        return None
+    if not _has_history_date_in_range(history_dates, start_date, effective_end_date):
+        return None
+
+    resolved_start_date = _resolve_history_boundary_date(history_dates, start_date)
+    resolved_end_date = _resolve_history_boundary_date(history_dates, effective_end_date)
+    if resolved_end_date < resolved_start_date:
+        return None
+    return resolved_start_date, resolved_end_date
+
+
+def _build_snapshot_for_date(
+    base_state: ProductionState,
+    history_file: str,
+    cash_history_file: str,
+    price_series_by_ticker: dict[str, CloseSeries],
+    target_date: str,
+) -> tuple[ProductionState, dict[str, float]]:
+    snapshot = build_state_as_of(
+        base_state=base_state,
+        history_file=history_file,
+        cash_history_file=cash_history_file,
+        as_of_date=target_date,
+    )
+    current_prices = _build_current_prices_for_snapshot(
+        snapshot,
+        price_series_by_ticker,
+        target_date,
+    )
+    return snapshot, current_prices
+
+
+def _build_sector_period_metrics(
+    trades: list[Trade],
+    sector_by_ticker: dict[str, str],
+    start_values: dict[str, float],
+    end_values: dict[str, float],
+    start_date: str,
+    end_date: str,
+) -> dict[str, SectorPeriodPnLOut]:
+    flows_by_sector = _build_sector_trade_flows(
+        trades,
+        sector_by_ticker,
+        start_date,
+        end_date,
+    )
+    sectors = set(start_values) | set(end_values) | set(flows_by_sector)
+    metrics: dict[str, SectorPeriodPnLOut] = {}
+    for sector in sectors:
+        start_value = float(start_values.get(sector, 0.0))
+        end_value = float(end_values.get(sector, 0.0))
+        flow = flows_by_sector.get(sector, SectorTradeFlow(buy_amount=0.0, sell_amount=0.0))
+        pnl = float(end_value - start_value + flow.sell_amount - flow.buy_amount)
+        metrics[sector] = SectorPeriodPnLOut(
+            period_key="",
+            pnl=pnl,
+            start_value=start_value,
+            end_value=end_value,
+            buy_amount=flow.buy_amount,
+            sell_amount=flow.sell_amount,
+        )
+    return metrics
 
 
 def _build_cash_flow_by_date(cash_events: list[CashFlowEvent]) -> dict[str, float]:
@@ -542,6 +782,168 @@ def get_portfolio_history() -> PortfolioHistoryResponse:
 
     return PortfolioHistoryResponse(
         points=_enrich_portfolio_history_points(points, cash_events)
+    )
+
+
+@router.get("/sector-attribution", response_model=SectorAttributionResponse)
+def get_sector_attribution() -> SectorAttributionResponse:
+    cfg = get_production_config()
+    state_data = _load_state_data(cfg.state_file)
+    group_items = _normalize_group_items(state_data.get("strategy_groups", []))
+    base_state = _build_base_state(state_data, cfg.state_file)
+
+    trade_history = TradeHistoryManager(cfg.history_file)
+    active_trades = list(trade_history.get_active_trades())
+    cash_history = CashHistoryManager(cfg.cash_history_file)
+    cash_events = list(cash_history.events)
+    sector_by_ticker = _load_sector_by_ticker()
+
+    relevant_tickers = _collect_relevant_tickers(group_items, active_trades)
+    price_series_by_ticker: dict[str, CloseSeries] = {}
+    for ticker in relevant_tickers:
+        close_series = _load_close_series(ticker)
+        if close_series is not None:
+            price_series_by_ticker[ticker] = close_series
+
+    anchor_dates = _collect_anchor_dates(group_items, active_trades, cash_events)
+    history_dates = _collect_history_dates(price_series_by_ticker, anchor_dates)
+    if not history_dates:
+        return SectorAttributionResponse(
+            as_of_date="",
+            summary_periods=[],
+            heatmap_periods=[],
+            sectors=[],
+        )
+
+    end_date = history_dates[-1]
+    snapshot_cache: dict[str, tuple[ProductionState, dict[str, float]]] = {}
+
+    def get_snapshot_bundle(target_date: str) -> tuple[ProductionState, dict[str, float]]:
+        if target_date not in snapshot_cache:
+            snapshot_cache[target_date] = _build_snapshot_for_date(
+                base_state=base_state,
+                history_file=cfg.history_file,
+                cash_history_file=cfg.cash_history_file,
+                price_series_by_ticker=price_series_by_ticker,
+                target_date=target_date,
+            )
+        return snapshot_cache[target_date]
+
+    end_snapshot, end_prices = get_snapshot_bundle(end_date)
+    current_values = _build_sector_holdings_value(
+        end_snapshot,
+        end_prices,
+        sector_by_ticker,
+    )
+
+    summary_payload_by_sector: dict[str, list[SectorPeriodPnLOut]] = {}
+    summary_periods_payload: list[SectorPeriodOut] = []
+    for definition in SUMMARY_PERIOD_DEFINITIONS:
+        start_date = _resolve_period_start_date(history_dates, end_date, definition)
+        start_snapshot, start_prices = get_snapshot_bundle(start_date)
+        start_values = _build_sector_holdings_value(
+            start_snapshot,
+            start_prices,
+            sector_by_ticker,
+        )
+        period_metrics = _build_sector_period_metrics(
+            trades=active_trades,
+            sector_by_ticker=sector_by_ticker,
+            start_values=start_values,
+            end_values=current_values,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        summary_periods_payload.append(
+            SectorPeriodOut(
+                key=definition.key,
+                label=definition.label,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+        for sector, metric in period_metrics.items():
+            summary_payload_by_sector.setdefault(sector, []).append(
+                SectorPeriodPnLOut(
+                    period_key=definition.key,
+                    pnl=metric.pnl,
+                    start_value=metric.start_value,
+                    end_value=metric.end_value,
+                    buy_amount=metric.buy_amount,
+                    sell_amount=metric.sell_amount,
+                )
+            )
+
+    heatmap_periods_payload = _build_year_month_heatmap_periods(end_date)
+    heatmap_payload_by_sector: dict[str, list[SectorPeriodPnLOut]] = {}
+    for period in heatmap_periods_payload:
+        heatmap_window = _resolve_heatmap_window_dates(
+            history_dates,
+            period.start_date,
+            period.end_date,
+            end_date,
+        )
+        if heatmap_window is None:
+            continue
+
+        period_start_date, period_end_date = heatmap_window
+        start_snapshot, start_prices = get_snapshot_bundle(period_start_date)
+        start_values = _build_sector_holdings_value(
+            start_snapshot,
+            start_prices,
+            sector_by_ticker,
+        )
+        period_end_snapshot, period_end_prices = get_snapshot_bundle(period_end_date)
+        period_end_values = _build_sector_holdings_value(
+            period_end_snapshot,
+            period_end_prices,
+            sector_by_ticker,
+        )
+        period_metrics = _build_sector_period_metrics(
+            trades=active_trades,
+            sector_by_ticker=sector_by_ticker,
+            start_values=start_values,
+            end_values=period_end_values,
+            start_date=period_start_date,
+            end_date=period_end_date,
+        )
+        for sector, metric in period_metrics.items():
+            heatmap_payload_by_sector.setdefault(sector, []).append(
+                SectorPeriodPnLOut(
+                    period_key=period.key,
+                    pnl=metric.pnl,
+                    start_value=metric.start_value,
+                    end_value=metric.end_value,
+                    buy_amount=metric.buy_amount,
+                    sell_amount=metric.sell_amount,
+                )
+            )
+
+    sector_names = (
+        set(current_values)
+        | set(summary_payload_by_sector)
+        | set(heatmap_payload_by_sector)
+    )
+
+    sectors = [
+        SectorAttributionOut(
+            sector=sector,
+            current_value=float(current_values.get(sector, 0.0)),
+            summary_periods=summary_payload_by_sector.get(sector, []),
+            heatmap_periods=heatmap_payload_by_sector.get(sector, []),
+        )
+        for sector in sector_names
+        if float(current_values.get(sector, 0.0)) != 0.0
+        or any(metric.pnl != 0.0 for metric in summary_payload_by_sector.get(sector, []))
+        or any(metric.pnl != 0.0 for metric in heatmap_payload_by_sector.get(sector, []))
+    ]
+    sectors.sort(key=lambda item: (-abs(item.current_value), item.sector))
+
+    return SectorAttributionResponse(
+        as_of_date=end_date,
+        summary_periods=summary_periods_payload,
+        heatmap_periods=heatmap_periods_payload,
+        sectors=sectors,
     )
 
 

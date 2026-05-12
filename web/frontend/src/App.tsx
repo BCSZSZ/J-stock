@@ -14,7 +14,7 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<Navigate to="/signals?view=report" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/production" element={<Production />} />
         <Route path="/evaluation" element={<Evaluation />} />
