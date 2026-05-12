@@ -36,11 +36,12 @@ class EvaluationRunContext:
 
 @dataclass
 class EvaluationOutputBundle:
-    """Segmented and optional annual-continuous outputs for one run context."""
+    """Segmented and optional continuous outputs for one run context."""
 
     segmented: Dict[str, str]
     continuous: Optional[Dict[str, str]] = None
     annual_companion: Optional[Dict[str, str]] = None
+    final_report: Optional[str] = None
 
 
 def _log_step(message: str):
@@ -77,21 +78,71 @@ def _dedupe_filter_variants(variants):
     return deduped
 
 
-def _resolve_output_dir(user_output_dir):
+def _resolve_output_root(user_output_dir):
     if user_output_dir:
-        return user_output_dir
+        root = str(user_output_dir)
+    else:
+        cfg = load_config()
+        configured = cfg.get("evaluation", {}).get("output_dir")
+        root = str(configured) if configured else str(DEFAULT_EVALUATION_OUTPUT_DIR)
 
-    cfg = load_config()
-    configured = cfg.get("evaluation", {}).get("output_dir")
-    if configured:
-        if is_local_path(configured):
-            Path(configured).mkdir(parents=True, exist_ok=True)
-        print(f"📁 输出目录: {configured} (from config)")
-        return str(configured)
+    if is_local_path(root):
+        Path(root).mkdir(parents=True, exist_ok=True)
+    return root
 
-    DEFAULT_EVALUATION_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"📁 输出目录: {DEFAULT_EVALUATION_OUTPUT_DIR}")
-    return str(DEFAULT_EVALUATION_OUTPUT_DIR)
+
+def _summarize_selection_for_dir(label: str, values) -> str:
+    normalized = _dedupe_preserve_order(values or [])
+    if not normalized:
+        return f"{label}_all"
+
+    if len(normalized) == 1:
+        return f"{label}_{_sanitize_name(str(normalized[0]))[:72]}"
+
+    first = _sanitize_name(str(normalized[0]))[:36]
+    return f"{label}_{len(normalized)}_{first}_plus{len(normalized) - 1}"
+
+
+def _build_output_run_slug(run_kind: str, args, eval_cfg) -> str:
+    entry_strategies, exit_strategies = _resolve_entry_exit_strategies(
+        args, eval_cfg, announce=False
+    )
+    parts = [_sanitize_name(run_kind.replace("-", "_"))]
+
+    mode = getattr(args, "mode", None)
+    if mode:
+        parts.append(_sanitize_name(str(mode)))
+
+    parts.append(_summarize_selection_for_dir("entry", entry_strategies))
+    parts.append(_summarize_selection_for_dir("exit", exit_strategies))
+
+    if run_kind == "pos-evaluation":
+        profile_names = _dedupe_preserve_order(
+            getattr(args, "profile_name", None)
+            or eval_cfg.get("default_profile_names", [])
+        )
+        parts.append(_summarize_selection_for_dir("profile", profile_names))
+
+    slug = "__".join(part for part in parts if part)
+    return slug[:180].rstrip("_")
+
+
+def _resolve_output_dir(run_kind: str, args, user_output_dir, eval_cfg):
+    output_root = _resolve_output_root(user_output_dir)
+
+    if not is_local_path(output_root):
+        print(f"📁 输出目录: {output_root}")
+        return output_root
+
+    now = datetime.now()
+    date_dir = Path(output_root) / now.strftime("%Y%m%d")
+    run_slug = _build_output_run_slug(run_kind, args, eval_cfg)
+    run_dir = date_dir / f"{run_slug}__{now.strftime('%H%M%S')}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"📁 输出根目录: {output_root}")
+    print(f"📁 本次输出目录: {run_dir}")
+    return str(run_dir)
 
 
 def _load_entry_filter_variants(cfg):
@@ -219,16 +270,19 @@ def _build_periods(args):
     return periods
 
 
-def _build_annual_continuous_periods(args, periods: List[Tuple[str, str, str]]):
-    """Build a single full-span continuous period companion for annual mode."""
-    if getattr(args, "mode", None) != "annual" or len(periods) < 2:
+def _build_segmented_continuous_periods(args, periods: List[Tuple[str, str, str]]):
+    """Build one full-span continuous companion for annual/quarterly segmented runs."""
+    if getattr(args, "mode", None) not in {"annual", "quarterly"} or len(periods) < 2:
         return []
 
     start_date = min(start for _, start, _ in periods)
     end_date = max(end for _, _, end in periods)
     years = [int(year) for year in (getattr(args, "years", []) or [])]
     if years:
-        label = f"{min(years)}-{max(years)}_continuous"
+        if min(years) == max(years):
+            label = f"{min(years)}_continuous"
+        else:
+            label = f"{min(years)}-{max(years)}_continuous"
     else:
         label = f"{start_date}_to_{end_date}_continuous"
 
@@ -348,12 +402,12 @@ def _resolve_exit_confirm_days(args, eval_cfg) -> int:
     return max(1, int(exit_confirm_days))
 
 
-def _resolve_entry_exit_strategies(args, eval_cfg):
+def _resolve_entry_exit_strategies(args, eval_cfg, announce: bool = True):
     """Resolve entry and exit strategy lists from CLI/config with de-duplication."""
     entry_strategies = args.entry_strategies
     if not entry_strategies:
         entry_strategies = eval_cfg.get("default_entry_strategies")
-        if entry_strategies:
+        if announce and entry_strategies:
             print("\n🧭 使用 evaluation.default_entry_strategies")
             print(f"   入场策略: {', '.join(entry_strategies)}")
 
@@ -365,11 +419,11 @@ def _resolve_entry_exit_strategies(args, eval_cfg):
     exit_strategies = args.exit_strategies
     if not exit_strategies:
         exit_strategies = eval_cfg.get("default_exit_strategies")
-        if exit_strategies:
+        if announce and exit_strategies:
             print("\n🧭 使用 evaluation.default_exit_strategies")
             print(f"   出场策略: {', '.join(exit_strategies)}")
 
-    if not exit_strategies:
+    if announce and not exit_strategies:
         print("\n⚠️ 警告: 未定义 evaluation.default_exit_strategies，将使用所有可用策略")
 
     original_exit_count = len(exit_strategies) if exit_strategies else 0
@@ -652,6 +706,602 @@ def _write_annual_continuous_stability_rank(
     }
 
 
+def _segmented_mode_label(mode: str) -> str:
+    if mode == "annual":
+        return "年度"
+    if mode == "quarterly":
+        return "季度"
+    return "周期"
+
+
+def _normalize_result_ticker(value: object) -> str:
+    if value is None or pd.isna(value):
+        return ""
+
+    text = str(value).strip()
+    if text.endswith(".T"):
+        text = text[:-2]
+    if text.endswith(".0"):
+        text = text[:-2]
+
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return digits.zfill(4) if digits else text
+
+
+def _normalize_sector_name(value: object) -> str:
+    sector = str(value or "").strip()
+    if not sector or sector == "-":
+        return "未分类"
+    return sector
+
+
+def _load_sector_by_ticker() -> Dict[str, str]:
+    jpx_master_path = Path(__file__).resolve().parents[2] / "data" / "jpx_final_list.csv"
+    if not jpx_master_path.exists():
+        return {}
+
+    try:
+        df = pd.read_csv(jpx_master_path, dtype=str, encoding="utf-8-sig")
+    except Exception:
+        try:
+            df = pd.read_csv(jpx_master_path, dtype=str)
+        except Exception:
+            return {}
+
+    sector_col = next(
+        (column for column in df.columns if "33" in str(column) and "業種" in str(column)),
+        None,
+    )
+    if sector_col is None or "Code" not in df.columns:
+        return {}
+
+    sector_by_ticker: Dict[str, str] = {}
+    for _, row in df.iterrows():
+        code = _normalize_result_ticker(row.get("Code"))
+        if not code:
+            continue
+        sector_by_ticker[code] = _normalize_sector_name(row.get(sector_col))
+    return sector_by_ticker
+
+
+def _coerce_float(value: object) -> Optional[float]:
+    try:
+        numeric = pd.to_numeric(value, errors="coerce")
+    except Exception:
+        return None
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
+
+def _format_count(value: object) -> str:
+    numeric = _coerce_float(value)
+    if numeric is None:
+        return "-"
+    return f"{int(round(numeric)):,}"
+
+
+def _format_jpy(value: object) -> str:
+    numeric = _coerce_float(value)
+    if numeric is None:
+        return "-"
+    return f"{numeric:,.0f}"
+
+
+def _format_pct(value: object) -> str:
+    numeric = _coerce_float(value)
+    if numeric is None:
+        return "-"
+    return f"{numeric:.2f}%"
+
+
+def _format_ratio(value: object) -> str:
+    numeric = _coerce_float(value)
+    if numeric is None:
+        return "-"
+    return f"{numeric * 100:.1f}%"
+
+
+def _format_number(value: object, digits: int = 2) -> str:
+    numeric = _coerce_float(value)
+    if numeric is None:
+        return "-"
+    return f"{numeric:.{digits}f}"
+
+
+def _markdown_table_from_rows(
+    rows: List[Dict[str, str]],
+    columns: List[str],
+    empty_text: str = "无数据。",
+) -> str:
+    if not rows:
+        return empty_text
+    return _markdown_table(pd.DataFrame(rows, columns=columns))
+
+
+def _prepare_review_frames(
+    raw_path: Optional[str],
+    trades_path: Optional[str],
+    sector_by_ticker: Dict[str, str],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    raw_df = pd.read_csv(raw_path) if raw_path else pd.DataFrame()
+    trades_df = pd.read_csv(trades_path) if trades_path else pd.DataFrame()
+
+    if not raw_df.empty:
+        if "entry_filter" in raw_df.columns:
+            raw_df["entry_filter"] = raw_df["entry_filter"].fillna("off")
+        if "exit_confirmation_days" in raw_df.columns:
+            raw_df["exit_confirmation_days"] = (
+                pd.to_numeric(raw_df["exit_confirmation_days"], errors="coerce")
+                .fillna(0)
+                .astype(int)
+            )
+
+    if not trades_df.empty:
+        if "entry_filter" in trades_df.columns:
+            trades_df["entry_filter"] = trades_df["entry_filter"].fillna("off")
+        if "exit_confirmation_days" in trades_df.columns:
+            trades_df["exit_confirmation_days"] = (
+                pd.to_numeric(trades_df["exit_confirmation_days"], errors="coerce")
+                .fillna(0)
+                .astype(int)
+            )
+        if "exit_urgency" in trades_df.columns:
+            trades_df["exit_urgency"] = trades_df["exit_urgency"].fillna("未定义")
+        if "ticker" in trades_df.columns:
+            trades_df["ticker_key"] = trades_df["ticker"].map(_normalize_result_ticker)
+            trades_df["sector_name"] = (
+                trades_df["ticker_key"].map(sector_by_ticker).fillna("未分类")
+            )
+        else:
+            trades_df["sector_name"] = "未分类"
+
+    return raw_df, trades_df
+
+
+def _review_combo_columns(segmented_raw_df: pd.DataFrame, continuous_raw_df: pd.DataFrame) -> List[str]:
+    candidate_columns = [
+        "entry_strategy",
+        "exit_strategy",
+        "entry_filter",
+        "exit_confirmation_days",
+    ]
+    return [
+        column
+        for column in candidate_columns
+        if column in segmented_raw_df.columns or column in continuous_raw_df.columns
+    ]
+
+
+def _build_combo_mask(
+    df: pd.DataFrame,
+    combo_row: pd.Series,
+    combo_columns: List[str],
+) -> pd.Series:
+    if df.empty:
+        return pd.Series(dtype=bool)
+
+    mask = pd.Series([True] * len(df), index=df.index)
+    for column in combo_columns:
+        if column not in df.columns:
+            continue
+        mask &= df[column].astype(str) == str(combo_row.get(column, ""))
+    return mask
+
+
+def _summarize_trade_slice(trades_subset: pd.DataFrame) -> Dict[str, float]:
+    if trades_subset.empty or "return_jpy" not in trades_subset.columns:
+        return {
+            "exit_actions": 0.0,
+            "net_return_jpy": 0.0,
+            "gross_profit_jpy": 0.0,
+            "gross_loss_jpy": 0.0,
+        }
+
+    gross_profit = float(trades_subset.loc[trades_subset["return_jpy"] > 0, "return_jpy"].sum())
+    gross_loss = float(trades_subset.loc[trades_subset["return_jpy"] < 0, "return_jpy"].sum())
+    return {
+        "exit_actions": float(len(trades_subset)),
+        "net_return_jpy": float(trades_subset["return_jpy"].sum()),
+        "gross_profit_jpy": gross_profit,
+        "gross_loss_jpy": gross_loss,
+    }
+
+
+def _resolve_market_regime_label(topix_return_pct: object) -> str:
+    numeric = _coerce_float(topix_return_pct)
+    if numeric is None:
+        return "-"
+    return str(MarketRegime.classify(numeric))
+
+
+def _build_exit_breakdown_rows(trades_subset: pd.DataFrame) -> List[Dict[str, str]]:
+    if trades_subset.empty or "exit_urgency" not in trades_subset.columns:
+        return []
+
+    total_actions = len(trades_subset)
+    total_net_return = float(trades_subset["return_jpy"].sum())
+
+    grouped = (
+        trades_subset.groupby("exit_urgency", dropna=False)
+        .agg(
+            action_count=("return_jpy", "size"),
+            net_return_jpy=("return_jpy", "sum"),
+        )
+        .reset_index()
+    )
+
+    profit_map = (
+        trades_subset.assign(gross_profit_jpy=trades_subset["return_jpy"].clip(lower=0))
+        .groupby("exit_urgency")["gross_profit_jpy"]
+        .sum()
+    )
+    loss_map = (
+        trades_subset.assign(gross_loss_jpy=trades_subset["return_jpy"].clip(upper=0))
+        .groupby("exit_urgency")["gross_loss_jpy"]
+        .sum()
+    )
+
+    grouped["gross_profit_jpy"] = grouped["exit_urgency"].map(profit_map).fillna(0.0)
+    grouped["gross_loss_jpy"] = grouped["exit_urgency"].map(loss_map).fillna(0.0)
+    grouped["action_ratio"] = grouped["action_count"] / total_actions if total_actions else 0.0
+    grouped["net_return_share"] = (
+        grouped["net_return_jpy"] / total_net_return if total_net_return else 0.0
+    )
+    grouped = grouped.sort_values(
+        ["action_count", "net_return_jpy"],
+        ascending=[False, False],
+        kind="mergesort",
+    )
+
+    rows: List[Dict[str, str]] = []
+    for _, row in grouped.iterrows():
+        rows.append(
+            {
+                "退场条件": str(row["exit_urgency"]),
+                "数量": _format_count(row["action_count"]),
+                "数量占比": _format_ratio(row["action_ratio"]),
+                "净收益(JPY)": _format_jpy(row["net_return_jpy"]),
+                "净收益占比": _format_ratio(row["net_return_share"]),
+                "总盈利(JPY)": _format_jpy(row["gross_profit_jpy"]),
+                "总亏损(JPY)": _format_jpy(row["gross_loss_jpy"]),
+            }
+        )
+    return rows
+
+
+def _build_industry_breakdown_rows(trades_subset: pd.DataFrame) -> List[Dict[str, str]]:
+    if trades_subset.empty or "sector_name" not in trades_subset.columns:
+        return []
+
+    total_actions = len(trades_subset)
+    total_net_return = float(trades_subset["return_jpy"].sum())
+
+    grouped = (
+        trades_subset.groupby("sector_name", dropna=False)
+        .agg(
+            action_count=("return_jpy", "size"),
+            net_return_jpy=("return_jpy", "sum"),
+        )
+        .reset_index()
+    )
+
+    profit_map = (
+        trades_subset.assign(gross_profit_jpy=trades_subset["return_jpy"].clip(lower=0))
+        .groupby("sector_name")["gross_profit_jpy"]
+        .sum()
+    )
+    loss_map = (
+        trades_subset.assign(gross_loss_jpy=trades_subset["return_jpy"].clip(upper=0))
+        .groupby("sector_name")["gross_loss_jpy"]
+        .sum()
+    )
+
+    grouped["gross_profit_jpy"] = grouped["sector_name"].map(profit_map).fillna(0.0)
+    grouped["gross_loss_jpy"] = grouped["sector_name"].map(loss_map).fillna(0.0)
+    grouped["action_ratio"] = grouped["action_count"] / total_actions if total_actions else 0.0
+    grouped["net_return_share"] = (
+        grouped["net_return_jpy"] / total_net_return if total_net_return else 0.0
+    )
+    grouped = grouped.sort_values(
+        ["action_count", "net_return_jpy"],
+        ascending=[False, False],
+        kind="mergesort",
+    )
+
+    rows: List[Dict[str, str]] = []
+    for _, row in grouped.iterrows():
+        rows.append(
+            {
+                "33业种": str(row["sector_name"]),
+                "数量": _format_count(row["action_count"]),
+                "数量占比": _format_ratio(row["action_ratio"]),
+                "净收益(JPY)": _format_jpy(row["net_return_jpy"]),
+                "净收益占比": _format_ratio(row["net_return_share"]),
+                "总盈利(JPY)": _format_jpy(row["gross_profit_jpy"]),
+                "总亏损(JPY)": _format_jpy(row["gross_loss_jpy"]),
+            }
+        )
+    return rows
+
+
+def _build_period_overview_rows(
+    raw_df: pd.DataFrame,
+    trades_df: pd.DataFrame,
+    first_column_label: str,
+) -> List[Dict[str, str]]:
+    if raw_df.empty:
+        return []
+
+    rows: List[Dict[str, str]] = []
+    ordered_df = raw_df.sort_values(["start_date", "end_date", "period"], kind="mergesort")
+    for _, raw_row in ordered_df.iterrows():
+        period_label = str(raw_row.get("period", ""))
+        trades_subset = (
+            trades_df.loc[trades_df["period"].astype(str) == period_label].copy()
+            if "period" in trades_df.columns
+            else pd.DataFrame()
+        )
+        stats = _summarize_trade_slice(trades_subset)
+        rows.append(
+            {
+                first_column_label: period_label,
+                "市场环境": _resolve_market_regime_label(raw_row.get("topix_return_pct")),
+                "净收益(JPY)": _format_jpy(stats["net_return_jpy"]),
+                "收益率": _format_pct(raw_row.get("return_pct")),
+                "超额收益Alpha": _format_pct(raw_row.get("alpha")),
+                "夏普比率": _format_number(raw_row.get("sharpe_ratio")),
+                "最大回撤": _format_pct(raw_row.get("max_drawdown_pct")),
+                "交易数": _format_count(raw_row.get("num_trades")),
+                "退出动作数": _format_count(stats["exit_actions"]),
+                "胜率": _format_pct(raw_row.get("win_rate_pct")),
+                "总盈利(JPY)": _format_jpy(stats["gross_profit_jpy"]),
+                "总亏损(JPY)": _format_jpy(stats["gross_loss_jpy"]),
+            }
+        )
+    return rows
+
+
+def _append_period_detail_sections(
+    lines: List[str],
+    raw_df: pd.DataFrame,
+    trades_df: pd.DataFrame,
+    section_label: str,
+) -> None:
+    if raw_df.empty:
+        return
+
+    ordered_df = raw_df.sort_values(["start_date", "end_date", "period"], kind="mergesort")
+    for _, raw_row in ordered_df.iterrows():
+        period_label = str(raw_row.get("period", ""))
+        trades_subset = (
+            trades_df.loc[trades_df["period"].astype(str) == period_label].copy()
+            if "period" in trades_df.columns
+            else pd.DataFrame()
+        )
+        stats = _summarize_trade_slice(trades_subset)
+
+        snapshot_rows = [
+            {
+                "开始日期": str(raw_row.get("start_date", "-")),
+                "结束日期": str(raw_row.get("end_date", "-")),
+                "市场环境": _resolve_market_regime_label(raw_row.get("topix_return_pct")),
+                "净收益(JPY)": _format_jpy(stats["net_return_jpy"]),
+                "收益率": _format_pct(raw_row.get("return_pct")),
+                "超额收益Alpha": _format_pct(raw_row.get("alpha")),
+                "夏普比率": _format_number(raw_row.get("sharpe_ratio")),
+                "最大回撤": _format_pct(raw_row.get("max_drawdown_pct")),
+                "交易数": _format_count(raw_row.get("num_trades")),
+                "退出动作数": _format_count(stats["exit_actions"]),
+                "胜率": _format_pct(raw_row.get("win_rate_pct")),
+                "平均盈利": _format_pct(raw_row.get("avg_gain_pct")),
+                "平均亏损": _format_pct(raw_row.get("avg_loss_pct")),
+            }
+        ]
+
+        lines.extend(
+            [
+                f"### {section_label}明细：{period_label}",
+                "",
+                "#### 表现快照",
+                "",
+                _markdown_table_from_rows(
+                    snapshot_rows,
+                    [
+                        "开始日期",
+                        "结束日期",
+                        "市场环境",
+                        "净收益(JPY)",
+                        "收益率",
+                        "超额收益Alpha",
+                        "夏普比率",
+                        "最大回撤",
+                        "交易数",
+                        "退出动作数",
+                        "胜率",
+                        "平均盈利",
+                        "平均亏损",
+                    ],
+                ),
+                "",
+                "#### 退场条件分布",
+                "",
+                _markdown_table_from_rows(
+                    _build_exit_breakdown_rows(trades_subset),
+                    [
+                        "退场条件",
+                        "数量",
+                        "数量占比",
+                        "净收益(JPY)",
+                        "净收益占比",
+                        "总盈利(JPY)",
+                        "总亏损(JPY)",
+                    ],
+                ),
+                "",
+                "#### 33业种分布",
+                "",
+                _markdown_table_from_rows(
+                    _build_industry_breakdown_rows(trades_subset),
+                    [
+                        "33业种",
+                        "数量",
+                        "数量占比",
+                        "净收益(JPY)",
+                        "净收益占比",
+                        "总盈利(JPY)",
+                        "总亏损(JPY)",
+                    ],
+                ),
+                "",
+            ]
+        )
+
+
+def _write_localized_final_review_report(
+    args,
+    output_dir: str,
+    prefix: str,
+    bundle: EvaluationOutputBundle,
+) -> Optional[str]:
+    mode = getattr(args, "mode", None)
+    if mode not in {"annual", "quarterly"}:
+        return None
+
+    sector_by_ticker = _load_sector_by_ticker()
+    segmented_raw_df, segmented_trades_df = _prepare_review_frames(
+        bundle.segmented.get("raw"),
+        bundle.segmented.get("trades"),
+        sector_by_ticker,
+    )
+    if segmented_raw_df.empty:
+        return None
+
+    continuous_raw_df, continuous_trades_df = _prepare_review_frames(
+        bundle.continuous.get("raw") if bundle.continuous else None,
+        bundle.continuous.get("trades") if bundle.continuous else None,
+        sector_by_ticker,
+    )
+
+    combo_columns = _review_combo_columns(segmented_raw_df, continuous_raw_df)
+    combo_frames = []
+    if combo_columns:
+        if not segmented_raw_df.empty:
+            combo_frames.append(segmented_raw_df[combo_columns].copy())
+        if not continuous_raw_df.empty:
+            combo_frames.append(continuous_raw_df[combo_columns].copy())
+    if not combo_frames:
+        return None
+
+    combo_df = pd.concat(combo_frames, ignore_index=True).drop_duplicates().reset_index(drop=True)
+    segmented_label = _segmented_mode_label(mode)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = Path(output_dir) / f"{prefix}_{mode}_final_review_{timestamp}.md"
+
+    lines = [
+        f"# {segmented_label}策略评估整合最终报告",
+        "",
+        f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"分段模式：{segmented_label}",
+        f"输出目录：{output_dir}",
+        f"分段原始结果：{Path(bundle.segmented.get('raw', '')).name if bundle.segmented.get('raw') else '-'}",
+        f"分段交易明细：{Path(bundle.segmented.get('trades', '')).name if bundle.segmented.get('trades') else '-'}",
+        f"连续原始结果：{Path(bundle.continuous.get('raw', '')).name if bundle.continuous and bundle.continuous.get('raw') else '-'}",
+        f"连续交易明细：{Path(bundle.continuous.get('trades', '')).name if bundle.continuous and bundle.continuous.get('trades') else '-'}",
+        "",
+        "## 说明",
+        "",
+        f"- 本报告按策略组合汇总；分段部分按{segmented_label}展开。",
+        "- 收益率、超额收益Alpha、夏普比率、最大回撤、交易数、胜率来自原始结果汇总文件。",
+        "- 净收益、总盈利、总亏损，以及退场条件/33业种分布来自交易明细文件。",
+        "- 数量统计按退出动作行计数，部分止盈或减仓会单独计数。",
+        "- 净收益占比按该周期净收益合计计算；负值表示该项在拖累整体净收益。",
+        "- 33业种映射来自 data/jpx_final_list.csv，无法映射的代码记为“未分类”。",
+        "",
+    ]
+
+    for index, combo_row in combo_df.iterrows():
+        segmented_combo_raw = segmented_raw_df.loc[
+            _build_combo_mask(segmented_raw_df, combo_row, combo_columns)
+        ].copy()
+        segmented_combo_trades = segmented_trades_df.loc[
+            _build_combo_mask(segmented_trades_df, combo_row, combo_columns)
+        ].copy()
+        continuous_combo_raw = continuous_raw_df.loc[
+            _build_combo_mask(continuous_raw_df, combo_row, combo_columns)
+        ].copy()
+        continuous_combo_trades = continuous_trades_df.loc[
+            _build_combo_mask(continuous_trades_df, combo_row, combo_columns)
+        ].copy()
+
+        lines.extend(
+            [
+                f"## 策略组合 {index + 1}",
+                "",
+                f"- 入场策略：{combo_row.get('entry_strategy', '-')}",
+                f"- 出场策略：{combo_row.get('exit_strategy', '-')}",
+                f"- 入场过滤器：{combo_row.get('entry_filter', 'off')}",
+                f"- 出场确认天数：{_format_count(combo_row.get('exit_confirmation_days', 0))}",
+                "",
+                f"### {segmented_label}总览",
+                "",
+                _markdown_table_from_rows(
+                    _build_period_overview_rows(segmented_combo_raw, segmented_combo_trades, segmented_label),
+                    [
+                        segmented_label,
+                        "市场环境",
+                        "净收益(JPY)",
+                        "收益率",
+                        "超额收益Alpha",
+                        "夏普比率",
+                        "最大回撤",
+                        "交易数",
+                        "退出动作数",
+                        "胜率",
+                        "总盈利(JPY)",
+                        "总亏损(JPY)",
+                    ],
+                ),
+                "",
+            ]
+        )
+        _append_period_detail_sections(lines, segmented_combo_raw, segmented_combo_trades, segmented_label)
+
+        if not continuous_combo_raw.empty:
+            lines.extend(
+                [
+                    "### 连续区间总览",
+                    "",
+                    _markdown_table_from_rows(
+                        _build_period_overview_rows(
+                            continuous_combo_raw,
+                            continuous_combo_trades,
+                            "连续区间",
+                        ),
+                        [
+                            "连续区间",
+                            "市场环境",
+                            "净收益(JPY)",
+                            "收益率",
+                            "净收益占比",
+                            "超额收益Alpha",
+                            "最大回撤",
+                            "退出动作数",
+                            "胜率",
+                            "总盈利(JPY)",
+                            "总亏损(JPY)",
+                        ],
+                    ),
+                    "",
+                ]
+            )
+            _append_period_detail_sections(lines, continuous_combo_raw, continuous_combo_trades, "连续区间")
+
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"✅ 中文整合最终报告已保存: {report_path}")
+    return str(report_path)
+
+
 def _append_combined_context_frame(
     file_path: Optional[str],
     meta: Dict[str, Any],
@@ -669,7 +1319,6 @@ def _append_combined_context_frame(
     except Exception as e:
         print(
             f"⚠️ 合并{label}失败 ("
-            f"{meta.get('position_profile', 'n/a')}/"
             f"{meta.get('overlay_mode', 'n/a')}/"
             f"{meta.get('universe_name', 'n/a')}): {e}"
         )
@@ -1195,17 +1844,23 @@ def _run_context_bundle(
         return None
 
     bundle = EvaluationOutputBundle(segmented=segmented_files)
-    continuous_periods = _build_annual_continuous_periods(args, periods)
+    continuous_periods = _build_segmented_continuous_periods(args, periods)
     if not continuous_periods:
+        bundle.final_report = _write_localized_final_review_report(
+            args=args,
+            output_dir=output_dir,
+            prefix=prefix,
+            bundle=bundle,
+        )
         return bundle
 
     continuous_label, continuous_start, continuous_end = continuous_periods[0]
     print(
-        f"♾️ 追加全年连续聚合: {continuous_label} "
+        f"♾️ 追加全区间连续聚合: {continuous_label} "
         f"({continuous_start} ~ {continuous_end})"
     )
     _log_step(
-        f"annual-continuous: 开始 {continuous_label} ({continuous_start} ~ {continuous_end})"
+        f"segmented-continuous: 开始 {continuous_label} ({continuous_start} ~ {continuous_end})"
     )
     continuous_files = _run_once(
         args=args,
@@ -1221,12 +1876,19 @@ def _run_context_bundle(
     )
     if continuous_files:
         bundle.continuous = continuous_files
-        bundle.annual_companion = _write_annual_continuous_stability_rank(
-            output_dir=output_dir,
-            prefix=prefix,
-            segmented_raw_path=segmented_files.get("raw"),
-            continuous_raw_path=continuous_files.get("raw"),
-        )
+        if getattr(args, "mode", None) == "annual":
+            bundle.annual_companion = _write_annual_continuous_stability_rank(
+                output_dir=output_dir,
+                prefix=prefix,
+                segmented_raw_path=segmented_files.get("raw"),
+                continuous_raw_path=continuous_files.get("raw"),
+            )
+    bundle.final_report = _write_localized_final_review_report(
+        args=args,
+        output_dir=output_dir,
+        prefix=prefix,
+        bundle=bundle,
+    )
     return bundle
 
 
@@ -1402,6 +2064,7 @@ def cmd_evaluate(args):
     _log_step("evaluate: 命令开始")
 
     config = load_config()
+    eval_cfg = config.get("evaluation", {})
     _log_step("evaluate: 配置加载完成")
 
     try:
@@ -1414,7 +2077,7 @@ def cmd_evaluate(args):
         print(f"❌ 错误: {e}")
         return
 
-    output_dir = _resolve_output_dir(args.output_dir)
+    output_dir = _resolve_output_dir("evaluate", args, args.output_dir, eval_cfg)
     ranking_mode = _resolve_ranking_mode(config, args)
     _log_step(f"evaluate: 输出目录就绪 -> {output_dir}")
     _log_step(f"evaluate: 排名模式 -> {ranking_mode}")
@@ -1477,20 +2140,26 @@ def cmd_evaluate(args):
 
     _log_step("evaluate: 所有股票池运行完成，开始汇总输出")
 
+    segmented_result_label = "按年分段结果"
+    if getattr(args, "mode", None) == "quarterly":
+        segmented_result_label = "按季分段结果"
+
     print(f"\n{'=' * 80}")
     print("✅ 策略评价完成！")
     print(f"{'=' * 80}")
     for context, bundle in all_files:
         universe_file = context.metadata.get("universe_file")
         print(f"[股票池: {context.name}] {universe_file or '(config默认)'}")
-        print("  🧩 按年分段结果:")
+        print(f"  🧩 {segmented_result_label}:")
         _print_saved_files(bundle.segmented, indent="    ")
         if bundle.continuous:
-            print("  ♾️ 全年连续聚合结果:")
+            print("  ♾️ 全区间连续聚合结果:")
             _print_saved_files(bundle.continuous, indent="    ")
         if bundle.annual_companion:
             print("  🏆 Continuous+Stability结果:")
             _print_companion_files(bundle.annual_companion, indent="    ")
+        if bundle.final_report:
+            print(f"  📘 中文整合最终报告: {bundle.final_report}")
     print(f"{'=' * 80}\n")
 
 
@@ -1502,6 +2171,7 @@ def cmd_walk_forward_evaluate(args):
     _log_step("walk-forward: 命令开始")
 
     config = load_config()
+    eval_cfg = config.get("evaluation", {})
     _log_step("walk-forward: 配置加载完成")
 
     try:
@@ -1514,7 +2184,9 @@ def cmd_walk_forward_evaluate(args):
         print(f"❌ 错误: {e}")
         return
 
-    output_dir = _resolve_output_dir(args.output_dir)
+    output_dir = _resolve_output_dir(
+        "walk-forward-evaluate", args, args.output_dir, eval_cfg
+    )
     ranking_mode = _resolve_ranking_mode(config, args)
     effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
     min_train_years = max(1, int(args.min_train_years))
@@ -1609,7 +2281,9 @@ def cmd_pos_evaluation(args):
         print(f"❌ 错误: {e}")
         return
 
-    output_dir = _resolve_output_dir(args.output_dir)
+    output_dir = _resolve_output_dir(
+        "pos-evaluation", args, args.output_dir, eval_cfg
+    )
     ranking_mode = _resolve_ranking_mode(config, args)
 
     if args.overlay_modes:

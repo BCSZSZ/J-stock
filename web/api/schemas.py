@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -118,13 +120,31 @@ class StrategyInfo(BaseModel):
 
 
 class EvaluationRunRequest(BaseModel):
-    entry_strategies: list[str]
-    exit_strategies: list[str]
-    mode: str = "annual"
+    command: Literal["evaluate", "pos-evaluation", "walk-forward-evaluate"] = (
+        "evaluate"
+    )
+    override_strategies: bool = False
+    entry_strategies: list[str] | None = None
+    exit_strategies: list[str] | None = None
+    mode: Literal["annual", "quarterly", "monthly", "custom"] = "annual"
     years: list[int] | None = None
-    ranking_mode: str = "target20"
+    months: list[int] | None = None
+    custom_periods: str | None = None
+    min_train_years: int | None = None
+    ranking_mode: Literal["legacy", "target20", "risk60_profit40"] | None = (
+        "target20"
+    )
+    ranking_strategies: list[str] | None = None
+    exit_confirm_days: int | None = None
     enable_overlay: bool = False
-    entry_filter_mode: str = "off"
+    overlay_modes: list[Literal["off", "on"]] | None = None
+    entry_filter_mode: Literal["auto", "off", "single", "grid"] = "off"
+    entry_filter_names: list[str] | None = None
+    position_file: str | None = None
+    profile_names: list[str] | None = None
+    universe_files: list[str] | None = None
+    output_dir: str | None = None
+    verbose: bool = False
 
 
 class ProductionDailyRequest(BaseModel):

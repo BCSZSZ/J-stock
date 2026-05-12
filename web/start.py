@@ -35,6 +35,7 @@ def main() -> None:
                 "--port", "8000",
                 "--reload",
                 "--reload-dir", str(ROOT / "api"),
+                "--reload-dir", str(PROJECT_ROOT / "src"),
             ],
             cwd=str(PROJECT_ROOT),
         )

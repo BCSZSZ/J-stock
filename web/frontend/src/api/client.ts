@@ -2,6 +2,12 @@ import type { SignalRecord } from "../signalSemantics";
 
 const BASE = "/api";
 
+function withOutputDir(path: string, outputDir?: string): string {
+  if (!outputDir) return path;
+  const params = new URLSearchParams({ output_dir: outputDir });
+  return `${path}?${params.toString()}`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
@@ -145,19 +151,51 @@ export const api = {
   // Evaluation
   evalOptions: () =>
     request<{
+      commands: string[];
       entry_strategies: string[];
       exit_strategies: string[];
       ranking_strategies: string[];
       modes: string[];
+      entry_filter_modes: string[];
+      entry_filter_names: string[];
+      overlay_modes: string[];
       ranking_modes: string[];
+      position_profiles: string[];
+      production: {
+        entry_strategy: string;
+        exit_strategy: string;
+        ranking_strategy: string;
+        monitor_list_file: string;
+      };
+      defaults: {
+        command: string;
+        mode: string;
+        override_strategies: boolean;
+        entry_strategies: string[];
+        exit_strategies: string[];
+        ranking_mode: string;
+        ranking_strategies: string[];
+        entry_filter_mode: string;
+        entry_filter_names: string[];
+        enable_overlay: boolean;
+        overlay_modes: string[];
+        exit_confirm_days: number | null;
+        output_dir: string;
+        universe_files: string[];
+        position_file: string;
+        profile_names: string[];
+        min_train_years: number;
+      };
     }>("/evaluation/options"),
 
-  evalResults: () =>
+  evalResults: (outputDir?: string) =>
     request<Array<{ name: string; type: string; size: string }>>(
-      "/evaluation/results",
+      withOutputDir("/evaluation/results", outputDir),
     ),
-  evalResult: (filename: string) =>
-    request<Record<string, unknown>>(`/evaluation/results/${filename}`),
+  evalResult: (filename: string, outputDir?: string) =>
+    request<Record<string, unknown>>(
+      withOutputDir(`/evaluation/results/${filename}`, outputDir),
+    ),
 
   // Strategies
   strategies: () =>

@@ -323,6 +323,29 @@ def load_ranking_strategy(name: str = "default", params: Dict[str, Any] = None):
     return SignalRanker(method=method, **params)
 
 
+def get_available_ranking_strategies() -> List[str]:
+    """Return supported non-legacy buy-signal ranking strategy names."""
+    from src.backtest.signal_ranker import SignalRanker
+
+    preferred_order = [
+        "default",
+        "random",
+        "score_only",
+        "confidence_weighted",
+        "risk_adjusted",
+        "composite",
+        "momentum",
+        "volatility_penalty",
+        "trend_alignment",
+        "simple_score",
+    ]
+    available = list(getattr(SignalRanker, "_METHOD_MAP", {}).keys())
+    available_set = set(available)
+    ordered = [name for name in preferred_order if name in available_set]
+    remainder = sorted(name for name in available if name not in ordered)
+    return ordered + remainder
+
+
 if __name__ == "__main__":
     # 测试
     print_available_strategies()
