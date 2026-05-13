@@ -41,6 +41,8 @@ interface LegendState {
   values: Record<string, number | null>;
 }
 
+const EMPTY_REFERENCE_LINES: IndicatorReferenceLineConfig[] = [];
+
 function formatLegendValue(value: number | null | undefined, precision = 2): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "--";
@@ -76,11 +78,12 @@ export default function IndicatorChartCard({
   rows,
   series,
   height = 180,
-  referenceLines = [],
+  referenceLines,
 }: IndicatorChartCardProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<IChartApi | null>(null);
   const [legend, setLegend] = useState<LegendState | null>(null);
+  const activeReferenceLines = referenceLines ?? EMPTY_REFERENCE_LINES;
 
   useEffect(() => {
     if (!chartRef.current || rows.length === 0 || series.length === 0) {
@@ -185,8 +188,8 @@ export default function IndicatorChartCard({
           .filter((row): row is LineData<Time> => row !== null);
         lineSeries.setData(lineData);
 
-        if (!referenceLinesApplied && referenceLines.length > 0) {
-          for (const referenceLine of referenceLines) {
+        if (!referenceLinesApplied && activeReferenceLines.length > 0) {
+          for (const referenceLine of activeReferenceLines) {
             lineSeries.createPriceLine({
               price: referenceLine.value,
               color: referenceLine.color ?? "#6b7280",
@@ -234,15 +237,29 @@ export default function IndicatorChartCard({
     chart.timeScale().fitContent();
 
     chart.subscribeCrosshairMove((param) => {
+      if (!param.point || !chartRef.current) {
+        setLegend({ date: latestRow.time, values: latestRow.values });
+        return;
+      }
+
+      const { x, y } = param.point;
+      if (
+        x < 0
+        || y < 0
+        || x > chartRef.current.clientWidth
+        || y > height
+      ) {
+        setLegend({ date: latestRow.time, values: latestRow.values });
+        return;
+      }
+
       const nextTime = normalizeTimeKey(param.time);
       if (!nextTime) {
-        setLegend({ date: latestRow.time, values: latestRow.values });
         return;
       }
 
       const nextValues = valuesByTime.get(nextTime);
       if (!nextValues) {
-        setLegend({ date: latestRow.time, values: latestRow.values });
         return;
       }
 
@@ -264,7 +281,7 @@ export default function IndicatorChartCard({
       chart.remove();
       chartInstance.current = null;
     };
-  }, [height, referenceLines, rows, series]);
+  }, [activeReferenceLines, height, rows, series]);
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
