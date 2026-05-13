@@ -13,6 +13,7 @@
 - [Production 实操概要（单组 + 双终端）](cli/PRODUCTION_DAILY_SOP.md)
 - [策略逻辑与公式](strategies/ENTRY_EXIT_STRATEGIES.md)
 - [实现接口说明](interfaces/IMPLEMENTATION_INTERFACES.md)
+- [SBI 桌面自动化技术选型表](interfaces/SBI_DESKTOP_AUTOMATION_STACK_DECISION.md)
 - [Feature 目录与计算方法](features/FEATURE_CATALOG.md)
 
 ## 清洗说明

@@ -100,6 +100,7 @@ class Signal:
     oco1_price: Optional[float] = None
     oco1_condition: Optional[str] = None
     oco2_trigger_price: Optional[float] = None
+    oco2_limit_price: Optional[float] = None
     oco2_order_mode: Optional[str] = None
     formula_basis: Optional[str] = None
     guidance_notes: Optional[str] = None

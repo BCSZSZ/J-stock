@@ -20,7 +20,9 @@ import pandas as pd
 from src.config.capacity import parse_capacity_regime
 from src.config.service import load_config
 from src.config.runtime import CONFIG_ENV_VAR, GDRIVE_DEFAULT_CONFIG_FILE, get_config_file_path
+from src.evaluation.scoring import apply_prs_train_score, candidate_key_columns, positive_ratio, robust_inverse_norm, robust_norm, summarize_prs_train_metrics
 from src.overlays import OverlayManager
+from src.utils.strategy_loader import get_strategy_complexity_penalty
 
 
 @dataclass
@@ -71,6 +73,7 @@ TRADE_EXPORT_COLUMNS = [
     "entry_strategy",
     "exit_strategy",
     "entry_filter",
+    "ranking_strategy",
     "exit_confirmation_days",
     "ticker",
     "entry_date",
@@ -844,6 +847,7 @@ class StrategyEvaluator:
             entry_strategy=entry_strategy,
             exit_strategy=exit_strategy,
             entry_filter_name=entry_filter_name,
+            ranking_strategy=ranking_strategy,
         )
 
         # 计算alpha：如果没有TOPIX数据，则设为None
@@ -1005,6 +1009,7 @@ class StrategyEvaluator:
         entry_strategy: str,
         exit_strategy: str,
         entry_filter_name: str,
+        ranking_strategy: str,
     ) -> None:
         market_regime = MarketRegime.classify(topix_return)
 
@@ -1041,6 +1046,7 @@ class StrategyEvaluator:
                     "entry_strategy": entry_strategy,
                     "exit_strategy": exit_strategy,
                     "entry_filter": entry_filter_name,
+                    "ranking_strategy": ranking_strategy,
                     "exit_confirmation_days": self.exit_confirmation_days,
                     "ticker": getattr(trade, "ticker", None),
                     "entry_date": getattr(trade, "entry_date", None),
@@ -1765,7 +1771,7 @@ class StrategyEvaluator:
         if df.empty:
             return pd.DataFrame()
 
-        key_cols = ["entry_strategy", "exit_strategy", "entry_filter"]
+        key_cols = candidate_key_columns(df)
         rows = []
 
         for key, combo_df in df.groupby(key_cols):
@@ -1857,33 +1863,30 @@ class StrategyEvaluator:
                 min(100.0, base_score + bonus_bear - risk_penalty_total),
             )
 
-            rows.append(
-                {
-                    "entry_strategy": key[0],
-                    "exit_strategy": key[1],
-                    "entry_filter": key[2],
-                    "period_count": period_count,
-                    "hit20_rate": hit20_rate,
-                    "soft_hit20_score": soft_hit20_score,
-                    "shortfall_mean": shortfall_mean,
-                    "loss_period_rate": loss_period_rate,
-                    "bull_loss_rate": bull_loss_rate,
-                    "bear_hit20_rate": bear_hit20_rate,
-                    "worst_period_return": worst_period_return,
-                    "avg_mdd": avg_mdd,
-                    "mean_return": mean_return,
-                    "mean_return_component": mean_return_component,
-                    "no_loss_component": no_loss_component,
-                    "base_score": base_score,
-                    "bonus_bear": bonus_bear,
-                    "penalty_worst": penalty_worst,
-                    "penalty_loss_ratio": penalty_loss_ratio,
-                    "penalty_bull_loss": penalty_bull_loss,
-                    "penalty_avg_mdd": penalty_avg_mdd,
-                    "risk_penalty_total": risk_penalty_total,
-                    "target20_score": final_score,
-                }
-            )
+            row = {
+                "period_count": period_count,
+                "hit20_rate": hit20_rate,
+                "soft_hit20_score": soft_hit20_score,
+                "shortfall_mean": shortfall_mean,
+                "loss_period_rate": loss_period_rate,
+                "bull_loss_rate": bull_loss_rate,
+                "bear_hit20_rate": bear_hit20_rate,
+                "worst_period_return": worst_period_return,
+                "avg_mdd": avg_mdd,
+                "mean_return": mean_return,
+                "mean_return_component": mean_return_component,
+                "no_loss_component": no_loss_component,
+                "base_score": base_score,
+                "bonus_bear": bonus_bear,
+                "penalty_worst": penalty_worst,
+                "penalty_loss_ratio": penalty_loss_ratio,
+                "penalty_bull_loss": penalty_bull_loss,
+                "penalty_avg_mdd": penalty_avg_mdd,
+                "risk_penalty_total": risk_penalty_total,
+                "target20_score": final_score,
+            }
+            row.update(dict(zip(key_cols, key)))
+            rows.append(row)
 
         rank_df = pd.DataFrame(rows)
         if rank_df.empty:
@@ -1912,6 +1915,7 @@ class StrategyEvaluator:
         df = df.copy()
         df["market_regime"] = df["topix_return_pct"].apply(MarketRegime.classify)
 
+        key_cols = candidate_key_columns(df)
         strategy_performance = {}
         for regime in df["market_regime"].unique():
             regime_df = df[df["market_regime"] == regime].copy()
@@ -1925,30 +1929,26 @@ class StrategyEvaluator:
                 regime_df["legacy_rank"] = regime_df["return_pct"].rank(ascending=False)
 
             for _, row in regime_df.iterrows():
-                key = (row["entry_strategy"], row["exit_strategy"], row["entry_filter"])
+                key = tuple(row[col] for col in key_cols)
                 if key not in strategy_performance:
                     strategy_performance[key] = []
                 strategy_performance[key].append(float(row["legacy_rank"]))
 
         rows = []
         for key, ranks in strategy_performance.items():
-            combo_df = df[
-                (df["entry_strategy"] == key[0])
-                & (df["exit_strategy"] == key[1])
-                & (df["entry_filter"] == key[2])
-            ]
-            rows.append(
-                {
-                    "entry_strategy": key[0],
-                    "exit_strategy": key[1],
-                    "entry_filter": key[2],
-                    "avg_rank": float(sum(ranks) / len(ranks)) if ranks else 999.0,
-                    "mean_return": float(combo_df["return_pct"].mean()) if not combo_df.empty else 0.0,
-                    "mean_alpha": float(combo_df["alpha"].mean()) if not combo_df.empty else 0.0,
-                    "mean_sharpe": float(combo_df["sharpe_ratio"].mean()) if not combo_df.empty else 0.0,
-                    "mean_win_rate": float(combo_df["win_rate_pct"].mean()) if not combo_df.empty else 0.0,
-                }
-            )
+            combo_mask = pd.Series(True, index=df.index)
+            for index, column in enumerate(key_cols):
+                combo_mask &= df[column] == key[index]
+            combo_df = df[combo_mask]
+            row = {
+                "avg_rank": float(sum(ranks) / len(ranks)) if ranks else 999.0,
+                "mean_return": float(combo_df["return_pct"].mean()) if not combo_df.empty else 0.0,
+                "mean_alpha": float(combo_df["alpha"].mean()) if not combo_df.empty else 0.0,
+                "mean_sharpe": float(combo_df["sharpe_ratio"].mean()) if not combo_df.empty else 0.0,
+                "mean_win_rate": float(combo_df["win_rate_pct"].mean()) if not combo_df.empty else 0.0,
+            }
+            row.update(dict(zip(key_cols, key)))
+            rows.append(row)
 
         out = pd.DataFrame(rows)
         if out.empty:
@@ -1980,8 +1980,9 @@ class StrategyEvaluator:
         if df.empty:
             return pd.DataFrame()
 
+        key_cols = candidate_key_columns(df)
         grouped = (
-            df.groupby(["entry_strategy", "exit_strategy", "entry_filter"])
+            df.groupby(key_cols)
             .agg(
                 avg_return=("return_pct", "mean"),
                 avg_alpha=("alpha", "mean"),
@@ -2020,6 +2021,18 @@ class StrategyEvaluator:
         ).reset_index(drop=True)
         grouped.insert(0, "rank", range(1, len(grouped) + 1))
         return grouped
+
+    def rank_by_prs_train(self) -> pd.DataFrame:
+        """Train-only Production Robustness Score for candidate selection."""
+        df = self._create_results_dataframe()
+        if df.empty:
+            return pd.DataFrame()
+
+        train_summary_df = summarize_prs_train_metrics(df)
+        return apply_prs_train_score(
+            train_summary_df,
+            complexity_penalty_resolver=get_strategy_complexity_penalty,
+        )
 
     def save_results(self, prefix: str = "evaluation", ranking_mode: str = "target20"):
         """
@@ -2125,6 +2138,13 @@ class StrategyEvaluator:
             risk60_rank_df.to_csv(risk60_rank_file, index=False, encoding="utf-8-sig")
             print(f"✅ risk60_profit40排名已保存: {risk60_rank_file}")
             files["risk60_profit40_rank"] = str(risk60_rank_file)
+
+        if ranking_mode == "prs_train":
+            prs_train_rank_df = self.rank_by_prs_train()
+            prs_train_rank_file = self.output_dir / f"{prefix}_prs_train_rank_{timestamp}.csv"
+            prs_train_rank_df.to_csv(prs_train_rank_file, index=False, encoding="utf-8-sig")
+            print(f"✅ PRS-Train排名已保存: {prs_train_rank_file}")
+            files["prs_train_rank"] = str(prs_train_rank_file)
 
         # 4. Markdown报告
         report_file = self.output_dir / f"{prefix}_report_{timestamp}.md"

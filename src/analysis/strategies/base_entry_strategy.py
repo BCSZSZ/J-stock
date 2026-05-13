@@ -5,6 +5,8 @@ Entry策略基类
 """
 
 from abc import ABC, abstractmethod
+
+from .complexity import StrategyComplexity
 from ..signals import TradingSignal, MarketData
 
 
@@ -37,6 +39,8 @@ class BaseEntryStrategy(ABC):
                 return TradingSignal(action=SignalAction.HOLD, ...)
     """
     
+    complexity = StrategyComplexity()
+
     def __init__(self, strategy_name: str = "BaseEntry"):
         """
         初始化Entry策略
@@ -45,6 +49,12 @@ class BaseEntryStrategy(ABC):
             strategy_name: 策略名称（用于日志和识别）
         """
         self.strategy_name = strategy_name
+
+    def get_complexity(self) -> StrategyComplexity:
+        complexity = getattr(self.__class__, "complexity", None)
+        if isinstance(complexity, StrategyComplexity):
+            return complexity
+        return StrategyComplexity()
     
     @abstractmethod
     def generate_entry_signal(self, market_data: MarketData) -> TradingSignal:

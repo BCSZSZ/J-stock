@@ -1071,6 +1071,10 @@ class ReportBuilder:
     def _format_sell_trigger_label(signal: Signal) -> str:
         if signal.oco2_trigger_price is not None:
             trigger = f"¥{float(signal.oco2_trigger_price):,.2f}"
+            if signal.oco2_limit_price is not None:
+                trigger = (
+                    f"{trigger} -> 指値 ¥{float(signal.oco2_limit_price):,.2f}"
+                )
             if signal.oco2_order_mode:
                 trigger = f"{trigger} / {signal.oco2_order_mode}"
             return trigger
@@ -2328,6 +2332,7 @@ def load_signals_from_file(signals_file: str) -> List[Signal]:
             oco1_price=item.get("oco1_price"),
             oco1_condition=item.get("oco1_condition"),
             oco2_trigger_price=item.get("oco2_trigger_price"),
+            oco2_limit_price=item.get("oco2_limit_price"),
             oco2_order_mode=item.get("oco2_order_mode"),
             formula_basis=item.get("formula_basis"),
             guidance_notes=item.get("guidance_notes"),

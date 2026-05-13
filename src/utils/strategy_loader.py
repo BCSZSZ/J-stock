@@ -5,6 +5,8 @@
 
 from typing import Any, Dict, List, Tuple
 
+from src.analysis.strategies.complexity import StrategyComplexity
+
 # ==================== 策略映射表 ====================
 
 ENTRY_STRATEGIES = {
@@ -100,6 +102,9 @@ EXIT_STRATEGIES = {
     "MultiDimensionalMAExit": "src.analysis.strategies.exit.multidim_ma_exit.MultiDimensionalMAExit",
     "MultiViewUnifiedTakeProfitExit": "src.analysis.strategies.exit.multiview_grid_exit.MultiViewUnifiedTakeProfitExit",
 }
+
+
+STRATEGY_COMPLEXITY_OVERRIDES: Dict[Tuple[str, str], StrategyComplexity] = {}
 
 try:
     from src.analysis.strategies.exit.multiview_grid_exit import (
@@ -325,6 +330,53 @@ def load_ranking_strategy(name: str = "default", params: Dict[str, Any] = None):
     params = params or {}
     method = name or "default"
     return SignalRanker(method=method, **params)
+
+
+def get_strategy_complexity(
+    strategy_name: str,
+    strategy_type: str = "entry",
+) -> StrategyComplexity:
+    """Resolve complexity metadata from class attributes or registry fallback."""
+    override = STRATEGY_COMPLEXITY_OVERRIDES.get((strategy_type, strategy_name))
+    if override is not None:
+        return override
+
+    try:
+        strategy_class = load_strategy_class(strategy_name, strategy_type)
+    except Exception:
+        return StrategyComplexity()
+
+    complexity = getattr(strategy_class, "complexity", None)
+    if isinstance(complexity, StrategyComplexity):
+        return complexity
+    return StrategyComplexity()
+
+
+def get_combined_strategy_complexity(
+    entry_strategy_name: str,
+    exit_strategy_name: str,
+) -> StrategyComplexity:
+    """Combine entry/exit complexity into one additive penalty source."""
+    entry = get_strategy_complexity(entry_strategy_name, "entry")
+    exit_inst = get_strategy_complexity(exit_strategy_name, "exit")
+    return StrategyComplexity(
+        numeric_param_count=entry.numeric_param_count + exit_inst.numeric_param_count,
+        extra_filter_count=entry.extra_filter_count + exit_inst.extra_filter_count,
+        conditional_rule_count=(
+            entry.conditional_rule_count + exit_inst.conditional_rule_count
+        ),
+    )
+
+
+def get_strategy_complexity_penalty(
+    entry_strategy_name: str,
+    exit_strategy_name: str,
+) -> float:
+    """Return capped complexity penalty points for one strategy combination."""
+    return get_combined_strategy_complexity(
+        entry_strategy_name,
+        exit_strategy_name,
+    ).penalty_points()
 
 
 def get_available_ranking_strategies() -> List[str]:

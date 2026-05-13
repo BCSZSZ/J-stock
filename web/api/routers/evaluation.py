@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/evaluation", tags=["evaluation"])
 COMMANDS = ["evaluate", "pos-evaluation", "walk-forward-evaluate"]
 EVALUATION_MODES = ["annual", "quarterly", "monthly", "custom"]
 ENTRY_FILTER_MODES = ["off", "single", "grid", "auto"]
-RANKING_MODES = ["legacy", "target20", "risk60_profit40"]
+RANKING_MODES = ["prs_train"]
 OVERLAY_MODES = ["off", "on"]
 
 
@@ -242,7 +242,7 @@ def get_options() -> dict[str, object]:
             "override_strategies": False,
             "entry_strategies": [production_entry] if production_entry else [],
             "exit_strategies": [production_exit] if production_exit else [],
-            "ranking_mode": "target20",
+            "ranking_mode": "prs_train",
             "ranking_strategies": (
                 [str(default_ranking_strategy)] if default_ranking_strategy else []
             ),

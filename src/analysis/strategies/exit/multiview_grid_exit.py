@@ -19,11 +19,18 @@ from typing import Dict
 import pandas as pd
 
 from src.analysis.signals import MarketData, Position, SignalAction, TradingSignal
+from src.analysis.strategies.complexity import StrategyComplexity
 from src.analysis.strategies.base_exit_strategy import BaseExitStrategy
 
 
 class MultiViewCompositeExit(BaseExitStrategy):
     """Composite exit strategy with configurable parameters."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=7,
+        extra_filter_count=3,
+        conditional_rule_count=4,
+    )
 
     def __init__(
         self,
@@ -707,6 +714,12 @@ class MVXNew_N3_R3p25_T1p6_D21_B20p0(MultiViewCompositeExit):
 class MultiViewWindowDecayExit(MultiViewCompositeExit):
     """MVX variant that replaces strict histogram shrinking with window decay."""
 
+    complexity = StrategyComplexity(
+        numeric_param_count=7,
+        extra_filter_count=3,
+        conditional_rule_count=5,
+    )
+
     def _l2_is_triggered(self, df_features: pd.DataFrame) -> bool:
         return self._hist_window_decay(df_features, self.hist_shrink_n)
 
@@ -722,6 +735,12 @@ class MultiViewWindowDecayExit(MultiViewCompositeExit):
 
 class MultiViewUnifiedTakeProfitExit(BaseExitStrategy):
     """MVX variant with a single full-exit take-profit threshold."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=6,
+        extra_filter_count=3,
+        conditional_rule_count=4,
+    )
 
     def __init__(
         self,

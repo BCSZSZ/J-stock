@@ -5,6 +5,8 @@ Exit策略基类
 """
 
 from abc import ABC, abstractmethod
+
+from .complexity import StrategyComplexity
 from ..signals import TradingSignal, MarketData, Position
 
 
@@ -41,6 +43,8 @@ class BaseExitStrategy(ABC):
                 return TradingSignal(action=SignalAction.HOLD, ...)
     """
     
+    complexity = StrategyComplexity()
+
     def __init__(self, strategy_name: str = "BaseExit"):
         """
         初始化Exit策略
@@ -49,6 +53,12 @@ class BaseExitStrategy(ABC):
             strategy_name: 策略名称（用于日志和识别）
         """
         self.strategy_name = strategy_name
+
+    def get_complexity(self) -> StrategyComplexity:
+        complexity = getattr(self.__class__, "complexity", None)
+        if isinstance(complexity, StrategyComplexity):
+            return complexity
+        return StrategyComplexity()
     
     @abstractmethod
     def generate_exit_signal(

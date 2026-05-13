@@ -52,6 +52,7 @@ class SellExecutionGuidance:
     oco1_price: Optional[float]
     oco1_condition: Optional[str]
     oco2_trigger_price: Optional[float]
+    oco2_limit_price: Optional[float]
     oco2_order_mode: Optional[str]
     formula_basis: str
     guidance_notes: str
@@ -209,29 +210,35 @@ def _build_sell_execution_guidance(
         atr = max(safe_close_price * 0.03, 1.0)
         used_atr_fallback = True
 
-    planned_limit_price = _round_order_price(safe_close_price * sell_price_factor)
+    planned_limit_price = _round_order_price(
+        max(safe_close_price * 0.985, safe_close_price * sell_price_factor)
+    )
 
     if execution_intent == "止盈兑现":
         if sell_pct <= 0.55:
             oco1_price = _round_order_price(
-                max(safe_close_price * 0.985, safe_close_price - 0.5 * atr)
+                max(safe_close_price * 0.990, safe_close_price - 0.5 * atr)
             )
-            oco2_trigger_price = _round_order_price(safe_close_price - 1.8 * atr)
+            oco2_trigger_price = _round_order_price(safe_close_price - 1.6 * atr)
+            oco2_limit_price = _round_order_price(safe_close_price - 1.8 * atr)
             formula_basis = (
-                f"TP1: OCO1=max(0.985C, C-0.5A), OCO2=C-1.8A; "
+                f"TP1: OCO1=max(0.990C, C-0.5A), "
+                f"OCO2 trigger=C-1.6A, limit=C-1.8A; "
                 f"C={safe_close_price:.2f}, A={atr:.2f}"
             )
-            guidance_notes = "先兑现一半；若价格走弱，则由逆指値成行保护剩余仓位。"
+            guidance_notes = "先兑现一半；若价格走弱，则由逆指値指値保护剩余仓位。"
         else:
             oco1_price = _round_order_price(
-                max(safe_close_price * 0.980, safe_close_price - 0.7 * atr)
+                max(safe_close_price * 0.985, safe_close_price - 0.7 * atr)
             )
-            oco2_trigger_price = _round_order_price(safe_close_price - 1.2 * atr)
+            oco2_trigger_price = _round_order_price(safe_close_price - 1.05 * atr)
+            oco2_limit_price = _round_order_price(safe_close_price - 1.2 * atr)
             formula_basis = (
-                f"TP2/Overheat: OCO1=max(0.980C, C-0.7A), OCO2=C-1.2A; "
+                f"TP2/Overheat: OCO1=max(0.985C, C-0.7A), "
+                f"OCO2 trigger=C-1.05A, limit=C-1.2A; "
                 f"C={safe_close_price:.2f}, A={atr:.2f}"
             )
-            guidance_notes = "优先在强势或反弹里完成止盈；若回落失守，则用逆指値成行退出。"
+            guidance_notes = "优先在强势或反弹里完成止盈；若回落失守，则用逆指値指値退出。"
 
         if used_atr_fallback:
             guidance_notes = f"{guidance_notes} ATR缺失，临时用收盘价的3%代替。"
@@ -242,14 +249,15 @@ def _build_sell_execution_guidance(
             execution_method="OCO（利確優先）",
             execution_summary=(
                 f"OCO1 指値 ¥{oco1_price:,.2f} + 不成 / "
-                f"OCO2 ¥{oco2_trigger_price:,.2f} 触发后成行"
+                f"OCO2 ¥{oco2_trigger_price:,.2f} 触发后指値 ¥{oco2_limit_price:,.2f}"
             ),
             execution_period="当日中",
             broker_order_type="OCO",
             oco1_price=oco1_price,
             oco1_condition="不成",
             oco2_trigger_price=oco2_trigger_price,
-            oco2_order_mode="逆指値成行",
+            oco2_limit_price=oco2_limit_price,
+            oco2_order_mode="逆指値指値",
             formula_basis=formula_basis,
             guidance_notes=guidance_notes,
         )
@@ -265,9 +273,10 @@ def _build_sell_execution_guidance(
             oco1_price=planned_limit_price,
             oco1_condition="不成",
             oco2_trigger_price=None,
+            oco2_limit_price=None,
             oco2_order_mode=None,
             formula_basis=(
-                f"TimeExit: limit=Close*{sell_price_factor:.2f}; "
+                f"TimeExit: limit=max(0.985C, C*{sell_price_factor:.2f}); "
                 f"C={safe_close_price:.2f}"
             ),
             guidance_notes="重点不是搏反弹，而是今天把仓位处理完。",
@@ -290,6 +299,7 @@ def _build_sell_execution_guidance(
         oco1_price=None,
         oco1_condition=None,
         oco2_trigger_price=None,
+        oco2_limit_price=None,
         oco2_order_mode=None,
         formula_basis="Risk exit: prioritize same-day liquidation over rebound-first OCO.",
         guidance_notes=(
@@ -1109,6 +1119,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 md = market_data.metadata if market_data else {}
 
                 planned_sell_qty = None
+                planned_sell_price = None
                 planned_sell_value = None
                 exit_trigger = None
                 execution_guidance = None
@@ -1129,7 +1140,6 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         sell_pct=sell_pct,
                     )
                     estimated_sell_price = _estimate_sell_price(float(current_price))
-                    planned_sell_value = planned_sell_qty * estimated_sell_price
                     latest_atr = None
                     if (
                         market_data is not None
@@ -1151,6 +1161,13 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         atr_value=latest_atr,
                         sell_price_factor=float(1.0 - sell_price_buffer_pct),
                     )
+                    planned_sell_price = estimated_sell_price
+                    if (
+                        execution_guidance is not None
+                        and execution_guidance.oco1_price is not None
+                    ):
+                        planned_sell_price = float(execution_guidance.oco1_price)
+                    planned_sell_value = planned_sell_qty * planned_sell_price
 
                 signal = Signal(
                     group_id=group.id,
@@ -1168,8 +1185,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     current_price=float(current_price),
                     close_price=float(current_price),
                     planned_price=(
-                        float(estimated_sell_price)
-                        if signal_type == "SELL" and planned_sell_qty
+                        float(planned_sell_price)
+                        if signal_type == "SELL"
+                        and planned_sell_qty
+                        and planned_sell_price is not None
                         else None
                     ),
                     planning_price_factor=float(1.0 + buy_price_buffer_pct),
@@ -1221,6 +1240,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     ),
                     oco2_trigger_price=(
                         execution_guidance.oco2_trigger_price
+                        if execution_guidance
+                        else None
+                    ),
+                    oco2_limit_price=(
+                        execution_guidance.oco2_limit_price
                         if execution_guidance
                         else None
                     ),

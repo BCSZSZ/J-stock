@@ -14,7 +14,9 @@ from src.evaluation import (
     create_monthly_periods,
     create_quarterly_periods,
 )
+from src.evaluation.scoring import candidate_key_columns, rank_final_prs, summarize_prs_train_metrics
 from src.config.runtime import is_local_path
+from src.utils.strategy_loader import get_strategy_complexity_penalty
 
 from .common import load_config
 
@@ -329,13 +331,13 @@ def _resolve_effective_overlay_enabled(config, args, override: bool = None) -> b
 def _resolve_ranking_mode(config, args) -> str:
     """Resolve ranking mode from CLI first, then config, then default."""
     arg_mode = getattr(args, "ranking_mode", None)
-    if arg_mode in {"legacy", "target20", "risk60_profit40"}:
+    if arg_mode in {"legacy", "target20", "risk60_profit40", "prs_train"}:
         return arg_mode
 
     cfg_mode = config.get("evaluation", {}).get("ranking", {}).get("mode")
     if cfg_mode == "risk60_profit40_v2":
         return "risk60_profit40"
-    if cfg_mode in {"legacy", "target20", "risk60_profit40"}:
+    if cfg_mode in {"legacy", "target20", "risk60_profit40", "prs_train"}:
         return cfg_mode
 
     return "target20"
@@ -504,6 +506,8 @@ def _print_saved_files(files: Dict[str, str], indent: str = "  ") -> None:
         print(f"{indent}🎯 Target20排名: {files['target20_rank']}")
     if files.get("risk60_profit40_rank"):
         print(f"{indent}⚖️ Risk60/Profit40排名: {files['risk60_profit40_rank']}")
+    if files.get("prs_train_rank"):
+        print(f"{indent}🛡️ PRS-Train排名: {files['prs_train_rank']}")
     print(f"{indent}📝 综合报告: {files['report']}")
 
 
@@ -1417,6 +1421,8 @@ def _select_rank_df(evaluator: StrategyEvaluator, ranking_mode: str):
         return evaluator.rank_by_legacy_goal(), "avg_rank"
     if ranking_mode == "risk60_profit40":
         return evaluator.rank_by_risk60_profit40(), "risk60_profit40_score"
+    if ranking_mode == "prs_train":
+        return evaluator.rank_by_prs_train(), "prs_train_score"
     return evaluator.rank_by_target20_goal(), "target20_score"
 
 
@@ -1470,6 +1476,25 @@ def _build_walk_forward_regime_summary(oos_df: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
+def _candidate_match_mask(
+    df: pd.DataFrame,
+    candidate_row: pd.Series,
+    key_cols: List[str],
+) -> pd.Series:
+    if df.empty:
+        return pd.Series(dtype=bool)
+
+    mask = pd.Series(True, index=df.index)
+    for column in key_cols:
+        if column not in df.columns:
+            continue
+        selected_value = candidate_row.get(column)
+        left = df[column].fillna("").astype(str)
+        right = "" if pd.isna(selected_value) else str(selected_value)
+        mask &= left == right
+    return mask
+
+
 def _write_walk_forward_report(
     output_file: Path,
     ranking_mode: str,
@@ -1479,6 +1504,7 @@ def _write_walk_forward_report(
     selection_freq_df: pd.DataFrame,
     oos_df: pd.DataFrame,
     regime_df: pd.DataFrame,
+    final_prs_df: pd.DataFrame,
 ):
     lines = [
         "# Anchored Walk-Forward Evaluation",
@@ -1491,15 +1517,20 @@ def _write_walk_forward_report(
     ]
 
     if not selection_df.empty:
-        selection_view = selection_df[[
+        selection_cols = [
             "window_index",
             "train_label",
             "test_year",
             "selected_entry_strategy",
             "selected_exit_strategy",
+        ]
+        if "selected_ranking_strategy" in selection_df.columns:
+            selection_cols.append("selected_ranking_strategy")
+        selection_cols.extend([
             "selected_entry_filter",
             "train_selection_score",
-        ]].copy()
+        ])
+        selection_view = selection_df[selection_cols].copy()
         selection_view["train_selection_score"] = pd.to_numeric(
             selection_view["train_selection_score"], errors="coerce"
         ).map(lambda v: f"{v:.4f}" if pd.notna(v) else "N/A")
@@ -1520,19 +1551,24 @@ def _write_walk_forward_report(
         ])
 
     if not oos_df.empty:
-        oos_view = oos_df[[
+        oos_cols = [
             "window_index",
             "train_label",
             "period",
             "entry_strategy",
             "exit_strategy",
+        ]
+        if "ranking_strategy" in oos_df.columns:
+            oos_cols.append("ranking_strategy")
+        oos_cols.extend([
             "entry_filter",
             "return_pct",
             "alpha",
             "sharpe_ratio",
             "max_drawdown_pct",
             "win_rate_pct",
-        ]].copy()
+        ])
+        oos_view = oos_df[oos_cols].copy()
         for col in ["return_pct", "alpha", "max_drawdown_pct", "win_rate_pct"]:
             oos_view[col] = pd.to_numeric(oos_view[col], errors="coerce").map(
                 lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
@@ -1562,6 +1598,44 @@ def _write_walk_forward_report(
             "## Out-Of-Sample Window Results",
             "",
             _df_to_markdown(oos_view),
+            "",
+        ])
+
+    if not final_prs_df.empty:
+        prs_cols = ["rank", "entry_strategy", "exit_strategy"]
+        if "ranking_strategy" in final_prs_df.columns:
+            prs_cols.append("ranking_strategy")
+        prs_cols.extend(
+            [
+                "entry_filter",
+                "final_prs_score",
+                "mean_oos_alpha",
+                "oos_positive_alpha_ratio",
+                "avg_oos_mdd",
+                "worst_oos_year_alpha",
+                "train_oos_alpha_gap",
+                "recent_oos_health",
+            ]
+        )
+        prs_view = final_prs_df[prs_cols].head(10).copy()
+        for col in ["mean_oos_alpha", "avg_oos_mdd", "worst_oos_year_alpha"]:
+            prs_view[col] = pd.to_numeric(prs_view[col], errors="coerce").map(
+                lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
+            )
+        prs_view["final_prs_score"] = pd.to_numeric(
+            prs_view["final_prs_score"], errors="coerce"
+        ).map(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
+        prs_view["train_oos_alpha_gap"] = pd.to_numeric(
+            prs_view["train_oos_alpha_gap"], errors="coerce"
+        ).map(lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A")
+        for col in ["oos_positive_alpha_ratio", "recent_oos_health"]:
+            prs_view[col] = pd.to_numeric(prs_view[col], errors="coerce").map(
+                lambda v: f"{v:.1%}" if pd.notna(v) else "N/A"
+            )
+        lines.extend([
+            "## Final PRS Ranking",
+            "",
+            _df_to_markdown(prs_view),
             "",
         ])
 
@@ -1610,13 +1684,13 @@ def _run_walk_forward_once(
 
     entry_strategies, exit_strategies = _resolve_entry_exit_strategies(args, eval_cfg)
     windows = _build_walk_forward_windows(years, min_train_years)
-    filter_cfg_map = {name: (cfg or {}) for name, cfg in entry_filter_variants}
     out_dir = Path(output_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     train_rank_frames = []
     selection_rows = []
     oos_frames = []
+    oos_panel_frames = []
     oos_trade_frames = []
 
     print(f"🧷 Exit确认天数: {exit_confirm_days}")
@@ -1649,6 +1723,8 @@ def _run_walk_forward_once(
             print("⚠️ 训练结果为空，跳过该窗口")
             continue
 
+        train_summary_df = summarize_prs_train_metrics(train_df)
+
         train_rank_df, score_col = _select_rank_df(train_evaluator, ranking_mode)
         if train_rank_df.empty:
             print("⚠️ 训练排名为空，跳过该窗口")
@@ -1662,7 +1738,6 @@ def _run_walk_forward_once(
 
         selected = train_rank_df.iloc[0]
         selected_filter_name = str(selected["entry_filter"])
-        selected_filter_cfg = filter_cfg_map.get(selected_filter_name, {})
         selection_rows.append(
             {
                 "window_index": window["window_index"],
@@ -1670,6 +1745,7 @@ def _run_walk_forward_once(
                 "test_year": window["test_year"],
                 "selected_entry_strategy": selected["entry_strategy"],
                 "selected_exit_strategy": selected["exit_strategy"],
+                "selected_ranking_strategy": selected.get("ranking_strategy"),
                 "selected_entry_filter": selected_filter_name,
                 "train_score_metric": score_col,
                 "train_selection_score": selected.get(score_col),
@@ -1678,7 +1754,8 @@ def _run_walk_forward_once(
 
         print(
             "   训练期选中: "
-            f"{selected['entry_strategy']} × {selected['exit_strategy']} × {selected_filter_name} "
+            f"{selected['entry_strategy']} × {selected['exit_strategy']}"
+            f" × rank:{selected.get('ranking_strategy', 'default')} × {selected_filter_name} "
             f"({score_col}={selected.get(score_col)})",
             flush=True,
         )
@@ -1691,24 +1768,56 @@ def _run_walk_forward_once(
             portfolio_overrides=portfolio_overrides,
             enable_overlay=enable_overlay,
             exit_confirm_days=exit_confirm_days,
-            entry_filter_variants=[(selected_filter_name, selected_filter_cfg)],
+            entry_filter_variants=entry_filter_variants,
         )
         test_df = test_evaluator.run_evaluation(
             periods=test_periods,
-            entry_strategies=[selected["entry_strategy"]],
-            exit_strategies=[selected["exit_strategy"]],
+            entry_strategies=entry_strategies,
+            exit_strategies=exit_strategies,
         )
         if test_df.empty:
             print("⚠️ 测试结果为空，跳过该窗口")
             continue
 
-        test_df = test_df.copy()
-        test_df.insert(0, "window_index", window["window_index"])
-        test_df.insert(1, "train_label", window["train_label"])
-        test_df.insert(2, "test_year", window["test_year"])
-        test_df["train_score_metric"] = score_col
-        test_df["train_selection_score"] = selected.get(score_col)
-        oos_frames.append(test_df)
+        candidate_cols = [
+            column
+            for column in candidate_key_columns(test_df)
+            if column in train_rank_df.columns and column in train_summary_df.columns
+        ]
+
+        test_panel_df = test_df.copy()
+        test_panel_df.insert(0, "window_index", window["window_index"])
+        test_panel_df.insert(1, "train_label", window["train_label"])
+        test_panel_df.insert(2, "test_year", window["test_year"])
+        test_panel_df = test_panel_df.merge(
+            train_summary_df,
+            on=candidate_cols,
+            how="left",
+        )
+        train_rank_context_df = train_rank_df[candidate_cols + ["rank", score_col]].copy()
+        train_rank_context_df = train_rank_context_df.rename(
+            columns={
+                "rank": "train_candidate_rank",
+                score_col: "train_candidate_score",
+            }
+        )
+        test_panel_df = test_panel_df.merge(
+            train_rank_context_df,
+            on=candidate_cols,
+            how="left",
+        )
+        test_panel_df["train_score_metric"] = score_col
+        test_panel_df["train_selection_score"] = selected.get(score_col)
+        test_panel_df["is_train_selected"] = _candidate_match_mask(
+            test_panel_df,
+            selected,
+            candidate_cols,
+        )
+        oos_panel_frames.append(test_panel_df)
+
+        winner_test_df = test_panel_df[test_panel_df["is_train_selected"]].copy()
+        if not winner_test_df.empty:
+            oos_frames.append(winner_test_df)
 
         trade_df = test_evaluator._create_trade_results_dataframe()
         if not trade_df.empty:
@@ -1716,18 +1825,29 @@ def _run_walk_forward_once(
             trade_df.insert(0, "window_index", window["window_index"])
             trade_df.insert(1, "train_label", window["train_label"])
             trade_df.insert(2, "test_year", window["test_year"])
-            oos_trade_frames.append(trade_df)
+            trade_df["train_score_metric"] = score_col
+            trade_df["train_selection_score"] = selected.get(score_col)
+            trade_mask = _candidate_match_mask(trade_df, selected, candidate_cols)
+            oos_trade_frames.append(trade_df[trade_mask].copy())
 
     selection_df = pd.DataFrame(selection_rows)
     train_rank_all_df = pd.concat(train_rank_frames, ignore_index=True) if train_rank_frames else pd.DataFrame()
     oos_df = pd.concat(oos_frames, ignore_index=True) if oos_frames else pd.DataFrame()
+    oos_panel_df = pd.concat(oos_panel_frames, ignore_index=True) if oos_panel_frames else pd.DataFrame()
     oos_trade_df = pd.concat(oos_trade_frames, ignore_index=True) if oos_trade_frames else pd.DataFrame()
 
     selection_freq_df = pd.DataFrame()
     if not selection_df.empty:
+        selection_group_cols = [
+            "selected_entry_strategy",
+            "selected_exit_strategy",
+        ]
+        if "selected_ranking_strategy" in selection_df.columns:
+            selection_group_cols.append("selected_ranking_strategy")
+        selection_group_cols.append("selected_entry_filter")
         selection_freq_df = (
             selection_df.groupby(
-                ["selected_entry_strategy", "selected_exit_strategy", "selected_entry_filter"],
+                selection_group_cols,
                 dropna=False,
             )
             .agg(
@@ -1735,10 +1855,17 @@ def _run_walk_forward_once(
                 test_years=("test_year", lambda s: ", ".join(map(str, s))),
             )
             .reset_index()
-            .sort_values(["selected_windows", "selected_entry_strategy"], ascending=[False, True])
+            .sort_values(
+                ["selected_windows", "selected_entry_strategy"],
+                ascending=[False, True],
+            )
         )
 
     regime_df = _build_walk_forward_regime_summary(oos_df)
+    final_prs_df = rank_final_prs(
+        oos_panel_df,
+        complexity_penalty_resolver=get_strategy_complexity_penalty,
+    )
 
     files = {}
     selection_file = out_dir / f"{prefix}_selection_{timestamp}.csv"
@@ -1753,9 +1880,17 @@ def _run_walk_forward_once(
     oos_df.to_csv(oos_raw_file, index=False, encoding="utf-8-sig")
     files["oos_raw"] = str(oos_raw_file)
 
+    oos_panel_file = out_dir / f"{prefix}_oos_panel_{timestamp}.csv"
+    oos_panel_df.to_csv(oos_panel_file, index=False, encoding="utf-8-sig")
+    files["oos_panel"] = str(oos_panel_file)
+
     regime_file = out_dir / f"{prefix}_oos_by_regime_{timestamp}.csv"
     regime_df.to_csv(regime_file, index=False, encoding="utf-8-sig")
     files["oos_regime"] = str(regime_file)
+
+    final_prs_file = out_dir / f"{prefix}_final_prs_{timestamp}.csv"
+    final_prs_df.to_csv(final_prs_file, index=False, encoding="utf-8-sig")
+    files["final_prs"] = str(final_prs_file)
 
     selection_freq_file = out_dir / f"{prefix}_selection_frequency_{timestamp}.csv"
     selection_freq_df.to_csv(selection_freq_file, index=False, encoding="utf-8-sig")
@@ -1775,13 +1910,16 @@ def _run_walk_forward_once(
         selection_freq_df=selection_freq_df,
         oos_df=oos_df,
         regime_df=regime_df,
+        final_prs_df=final_prs_df,
     )
     files["report"] = str(report_file)
 
     print(f"✅ Walk-forward 选择结果已保存: {selection_file}")
     print(f"✅ Walk-forward 训练排名已保存: {train_rank_file}")
     print(f"✅ Walk-forward 测试结果已保存: {oos_raw_file}")
+    print(f"✅ Walk-forward 全候选OOS结果已保存: {oos_panel_file}")
     print(f"✅ Walk-forward 市场环境结果已保存: {regime_file}")
+    print(f"✅ Walk-forward Final PRS已保存: {final_prs_file}")
     print(f"✅ Walk-forward 报告已保存: {report_file}")
 
     return files
@@ -2256,7 +2394,9 @@ def cmd_walk_forward_evaluate(args):
         print(f"  🧭 选择明细: {files['selection']}")
         print(f"  🏁 训练排名: {files['train_rank']}")
         print(f"  📄 OOS原始结果: {files['oos_raw']}")
+        print(f"  🧪 OOS全候选面板: {files['oos_panel']}")
         print(f"  📊 OOS市场环境分析: {files['oos_regime']}")
+        print(f"  🛡️ Final PRS: {files['final_prs']}")
         print(f"  🧾 OOS交易明细: {files['oos_trades']}")
         print(f"  🔁 选择频率: {files['selection_frequency']}")
         print(f"  📝 综合报告: {files['report']}")

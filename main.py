@@ -107,11 +107,12 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--ranking-mode",
-        choices=["legacy", "target20", "risk60_profit40"],
+        choices=["legacy", "target20", "risk60_profit40", "prs_train"],
         default=None,
         help=(
             "最终策略排序模式: legacy=旧版跨市场平均排名, "
-            "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%"
+            "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%, "
+            "prs_train=生产稳健训练评分"
         ),
     )
     parser.add_argument(
@@ -191,11 +192,12 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
     )
     parser.add_argument(
         "--ranking-mode",
-        choices=["legacy", "target20", "risk60_profit40"],
+        choices=["legacy", "target20", "risk60_profit40", "prs_train"],
         default=None,
         help=(
             "训练阶段策略排序模式: legacy=旧版跨市场平均排名, "
-            "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%"
+            "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%, "
+            "prs_train=生产稳健训练评分"
         ),
     )
     parser.add_argument(

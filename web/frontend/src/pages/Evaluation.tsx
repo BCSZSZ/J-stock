@@ -138,7 +138,7 @@ export default function Evaluation() {
   const [selectedOverlayModes, setSelectedOverlayModes] = useState<string[]>([
     "off",
   ]);
-  const [rankingMode, setRankingMode] = useState("target20");
+  const [rankingMode, setRankingMode] = useState("prs_train");
   const [selectedRankingStrategies, setSelectedRankingStrategies] = useState<
     string[]
   >([]);
@@ -170,6 +170,8 @@ export default function Evaluation() {
     entryFilterMode === "single" ||
     entryFilterMode === "grid" ||
     entryFilterMode === "auto";
+  const rankingModeOptions = options.data?.ranking_modes ?? ["prs_train"];
+  const hasMultipleRankingModes = rankingModeOptions.length > 1;
   const productionEntry = options.data?.production.entry_strategy ?? "";
   const productionExit = options.data?.production.exit_strategy ?? "";
   const productionUniverse = options.data?.production.monitor_list_file ?? "";
@@ -194,7 +196,7 @@ export default function Evaluation() {
     setSelectedFilterNames(defaults.entry_filter_names ?? []);
     setEnableOverlay(Boolean(defaults.enable_overlay));
     setSelectedOverlayModes(defaults.overlay_modes ?? ["off"]);
-    setRankingMode(defaults.ranking_mode ?? "target20");
+    setRankingMode(defaults.ranking_mode ?? "prs_train");
     setSelectedRankingStrategies(defaults.ranking_strategies ?? []);
     setMinTrainYears(String(defaults.min_train_years ?? 2));
     setPositionFile(defaults.position_file ?? "");
@@ -462,17 +464,26 @@ export default function Evaluation() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 block mb-1">
-                Ranking Mode
+                Train Ranking Mode
               </label>
-              <select
-                value={rankingMode}
-                onChange={(e) => setRankingMode(e.target.value)}
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-              >
-                {(options.data?.ranking_modes ?? []).map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
+              {hasMultipleRankingModes ? (
+                <select
+                  value={rankingMode}
+                  onChange={(e) => setRankingMode(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+                >
+                  {rankingModeOptions.map((item) => (
+                    <option key={item}>{item}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-2 text-sm text-gray-300">
+                  <div className="font-medium text-white">prs_train</div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Legacy rank modes removed from web UI.
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>

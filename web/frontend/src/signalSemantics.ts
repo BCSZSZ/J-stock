@@ -23,6 +23,7 @@ export interface SignalRecord {
   oco1_price?: number | null;
   oco1_condition?: string | null;
   oco2_trigger_price?: number | null;
+  oco2_limit_price?: number | null;
   oco2_order_mode?: string | null;
   formula_basis?: string | null;
   guidance_notes?: string | null;
@@ -170,9 +171,8 @@ export function getSellTriggerLabel(signal: SignalRecord): string {
 
   const oco2Price = formatOrderPrice(asNumber(signal.oco2_trigger_price));
   if (oco2Price !== null) {
-    return signal.oco2_order_mode
-      ? `${oco2Price} / ${signal.oco2_order_mode}`
-      : oco2Price;
+    const oco2LimitPrice = formatOrderPrice(asNumber(signal.oco2_limit_price));
+    return oco2LimitPrice ? `${oco2Price} -> ${oco2LimitPrice}` : oco2Price;
   }
 
   return signal.exit_trigger || "—";

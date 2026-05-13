@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from ...signals import MarketData, SignalAction, TradingSignal
+from ..complexity import StrategyComplexity
 from ..base_entry_strategy import BaseEntryStrategy
 
 
@@ -305,6 +306,12 @@ def _latest_precross_momentum_flags(
 class MACDPreCrossMomentumEntry(BaseEntryStrategy):
     """Enter before MACD crosses above zero when histogram and price both strengthen."""
 
+    complexity = StrategyComplexity(
+        numeric_param_count=6,
+        extra_filter_count=4,
+        conditional_rule_count=3,
+    )
+
     def __init__(
         self,
         hist_rise_days: int = 3,
@@ -490,6 +497,12 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
 class MACDPreCross2BarEntry(MACDPreCrossMomentumEntry):
     """CLI-friendly fixed variant for the plain 2-bar pre-cross entry."""
 
+    complexity = StrategyComplexity(
+        numeric_param_count=1,
+        extra_filter_count=0,
+        conditional_rule_count=1,
+    )
+
     def __init__(self):
         super().__init__(
             hist_rise_days=2,
@@ -500,6 +513,12 @@ class MACDPreCross2BarEntry(MACDPreCrossMomentumEntry):
 
 class MACDPreCross2BarRet5d008Entry(MACDPreCrossMomentumEntry):
     """CLI-friendly fixed variant for 2-bar pre-cross plus Return_5d filter."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
 
     def __init__(self):
         super().__init__(
@@ -513,6 +532,12 @@ class MACDPreCross2BarRet5d008Entry(MACDPreCrossMomentumEntry):
 class MACDPreCross2BarMinHistDeltaNorm0005Entry(MACDPreCrossMomentumEntry):
     """2-bar pre-cross that rejects tiny one-day histogram improvements."""
 
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
     def __init__(self):
         super().__init__(
             hist_rise_days=2,
@@ -524,6 +549,12 @@ class MACDPreCross2BarMinHistDeltaNorm0005Entry(MACDPreCrossMomentumEntry):
 
 class MACDPreCross2BarMinHistDeltaNorm001Entry(MACDPreCrossMomentumEntry):
     """2-bar pre-cross with a 0.001 normalized histogram-rise floor."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
 
     def __init__(self):
         super().__init__(
@@ -537,6 +568,12 @@ class MACDPreCross2BarMinHistDeltaNorm001Entry(MACDPreCrossMomentumEntry):
 class MACDPreCross2BarMinHistDeltaNorm0015Entry(MACDPreCrossMomentumEntry):
     """2-bar pre-cross with a 0.0015 normalized histogram-rise floor."""
 
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
     def __init__(self):
         super().__init__(
             hist_rise_days=2,
@@ -549,6 +586,12 @@ class MACDPreCross2BarMinHistDeltaNorm0015Entry(MACDPreCrossMomentumEntry):
 class MACDPreCross2BarMinHistDeltaNorm002Entry(MACDPreCrossMomentumEntry):
     """2-bar pre-cross with a 0.002 normalized histogram-rise floor."""
 
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
     def __init__(self):
         super().__init__(
             hist_rise_days=2,
@@ -560,6 +603,12 @@ class MACDPreCross2BarMinHistDeltaNorm002Entry(MACDPreCrossMomentumEntry):
 
 class MACDPreCross2BarLiteComboEntry(MACDPreCrossMomentumEntry):
     """CLI-friendly fixed variant for the current best LiteCombo entry."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=4,
+        extra_filter_count=3,
+        conditional_rule_count=3,
+    )
 
     def __init__(self):
         super().__init__(
@@ -575,6 +624,12 @@ class MACDPreCross2BarLiteComboEntry(MACDPreCrossMomentumEntry):
 class MACDPreCrossHist2BarEntry(MACDPreCrossMomentumEntry):
     """2-bar MACD histogram rising only (no price rising requirement)."""
 
+    complexity = StrategyComplexity(
+        numeric_param_count=1,
+        extra_filter_count=0,
+        conditional_rule_count=1,
+    )
+
     def __init__(self):
         super().__init__(
             hist_rise_days=2,
@@ -587,6 +642,12 @@ class MACDPreCrossHist2BarEntry(MACDPreCrossMomentumEntry):
 class MACDPreCrossHist3BarEntry(MACDPreCrossMomentumEntry):
     """3-bar MACD histogram rising only (no price rising requirement)."""
 
+    complexity = StrategyComplexity(
+        numeric_param_count=1,
+        extra_filter_count=0,
+        conditional_rule_count=1,
+    )
+
     def __init__(self):
         super().__init__(
             hist_rise_days=3,
@@ -598,6 +659,12 @@ class MACDPreCrossHist3BarEntry(MACDPreCrossMomentumEntry):
 
 class MACDPreCross3BarEntry(MACDPreCrossMomentumEntry):
     """3-bar MACD histogram + price rising (synchronized momentum)."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=1,
+        extra_filter_count=0,
+        conditional_rule_count=1,
+    )
 
     def __init__(self):
         super().__init__(

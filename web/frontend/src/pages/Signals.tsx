@@ -76,7 +76,7 @@ export default function Signals() {
       {/* Signals table */}
       {!viewReport && signals.data && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[1440px] text-sm">
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-800">
                 <th className="py-2 px-3">Ticker</th>
@@ -87,10 +87,10 @@ export default function Signals() {
                 <th className="py-2 px-3">Price</th>
                 <th className="py-2 px-3">Intent</th>
                 <th className="py-2 px-3">Order</th>
-                <th className="py-2 px-3">Plan</th>
-                <th className="py-2 px-3">Trigger</th>
+                <th className="py-2 px-3 w-[180px]">Plan</th>
+                <th className="py-2 px-3 w-[240px]">Trigger</th>
                 <th className="py-2 px-3">Period</th>
-                <th className="py-2 px-3">Reason</th>
+                <th className="py-2 px-3 w-[300px]">Reason</th>
               </tr>
             </thead>
             <tbody>
@@ -173,13 +173,13 @@ export default function Signals() {
                   <td className="py-2 px-3 text-xs text-gray-400 max-w-[180px] truncate">
                     {sellPlan}
                   </td>
-                  <td className="py-2 px-3 text-xs text-gray-400 max-w-[180px] truncate">
+                  <td className="py-2 px-3 text-xs text-gray-400 max-w-[240px] truncate">
                     {sellTrigger}
                   </td>
                   <td className="py-2 px-3 text-xs text-gray-300">
                     {sellPeriod}
                   </td>
-                  <td className="py-2 px-3 text-xs text-gray-500 truncate max-w-sm">
+                  <td className="py-2 px-3 text-xs text-gray-500 truncate max-w-[300px]">
                     {(s.reason as string) ?? ""}
                   </td>
                 </tr>

@@ -131,9 +131,7 @@ class EvaluationRunRequest(BaseModel):
     months: list[int] | None = None
     custom_periods: str | None = None
     min_train_years: int | None = None
-    ranking_mode: Literal["legacy", "target20", "risk60_profit40"] | None = (
-        "target20"
-    )
+    ranking_mode: Literal["prs_train"] | None = "prs_train"
     ranking_strategies: list[str] | None = None
     exit_confirm_days: int | None = None
     enable_overlay: bool = False
