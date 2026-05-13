@@ -1054,6 +1054,32 @@ class ReportBuilder:
 
         return "<br>".join(parts)
 
+    @staticmethod
+    def _format_sell_order_label(signal: Signal) -> str:
+        return signal.execution_method or signal.broker_order_type or "—"
+
+    @staticmethod
+    def _format_sell_plan_label(signal: Signal) -> str:
+        if signal.oco1_price is not None:
+            plan = f"指値 ¥{float(signal.oco1_price):,.2f}"
+            if signal.oco1_condition:
+                plan = f"{plan} + {signal.oco1_condition}"
+            return plan
+        return signal.execution_summary or "—"
+
+    @staticmethod
+    def _format_sell_trigger_label(signal: Signal) -> str:
+        if signal.oco2_trigger_price is not None:
+            trigger = f"¥{float(signal.oco2_trigger_price):,.2f}"
+            if signal.oco2_order_mode:
+                trigger = f"{trigger} / {signal.oco2_order_mode}"
+            return trigger
+        return signal.exit_trigger or "—"
+
+    @staticmethod
+    def _format_sell_notes_label(signal: Signal) -> str:
+        return signal.guidance_notes or signal.formula_basis or "—"
+
         if not holdings_found:
             lines.append("| - | - | - | - | - | - | - | No holdings |")
 
@@ -1175,26 +1201,24 @@ class ReportBuilder:
             if executable_sells:
                 any_operations = True
                 lines.append(
-                    "| Rank | Ticker | Name | Action | Close Price | Planned Sell Price (Close*SellFactor) | Sell Qty | Est. Proceeds (¥) | Reason |"
+                    "| Rank | Ticker | Name | Action | Intent | Order | Plan | Trigger | Period | Sell Qty | Est. Proceeds (¥) | Notes | Reason |"
                 )
                 lines.append(
-                    "|------|--------|------|--------|-------------|--------------------------------------|----------|-------------------|--------|"
+                    "|------|--------|------|--------|--------|-------|------|---------|--------|----------|-------------------|-------|--------|"
                 )
                 for rank, sig in enumerate(executable_sells, 1):
                     planned_qty = int(getattr(sig, "planned_sell_qty", 0) or 0)
                     planned_value = float(getattr(sig, "planned_sell_value", 0.0) or 0.0)
-                    close_price = float(
-                        getattr(sig, "close_price", None)
-                        if getattr(sig, "close_price", None) is not None
-                        else (sig.current_price or 0.0)
-                    )
-                    planned_sell_price = getattr(sig, "planned_price", None)
-                    if planned_sell_price is None and planned_qty > 0:
-                        planned_sell_price = planned_value / planned_qty
+                    intent = getattr(sig, "execution_intent", None) or "—"
+                    order_label = self._format_sell_order_label(sig)
+                    plan_label = self._format_sell_plan_label(sig)
+                    trigger_label = self._format_sell_trigger_label(sig)
+                    period_label = getattr(sig, "execution_period", None) or "—"
+                    notes_label = self._format_sell_notes_label(sig).replace("|", "/")
                     reason = (sig.reason or "...").replace("|", "/")
                     lines.append(
-                        f"| {rank} | {sig.ticker} | {self._get_ticker_name(sig.ticker)} | {sig.action} | ¥{close_price:,.2f} | "
-                        f"¥{float(planned_sell_price or 0.0):,.2f} | {planned_qty} | {planned_value:,.0f} | {reason} |"
+                        f"| {rank} | {sig.ticker} | {self._get_ticker_name(sig.ticker)} | {sig.action} | {intent} | {order_label} | "
+                        f"{plan_label} | {trigger_label} | {period_label} | {planned_qty} | {planned_value:,.0f} | {notes_label} | {reason} |"
                     )
             else:
                 lines.append("*No executable SELL orders.*")
@@ -1518,10 +1542,24 @@ class ReportBuilder:
 
         # Derive urgency from action and reason
         def get_urgency(signal: Signal) -> str:
-            if "EMERGENCY" in signal.reason.upper() or "STOP" in signal.reason.upper():
+            urgency_source = " ".join(
+                part.upper()
+                for part in [
+                    signal.reason or "",
+                    signal.exit_trigger or "",
+                    signal.execution_method or "",
+                ]
+                if part
+            )
+            if any(
+                keyword in urgency_source
+                for keyword in ["EMERGENCY", "HARDSTOP", "GAPPANIC"]
+            ):
                 return "EMERGENCY"
-            elif signal.action == "SELL_100%":
+            elif signal.execution_intent == "风险退出":
                 return "HIGH"
+            elif signal.execution_intent == "时间/管理退出":
+                return "MEDIUM"
             elif signal.action in ["SELL_75%", "SELL_50%"]:
                 return "MEDIUM"
             else:
@@ -1547,8 +1585,12 @@ class ReportBuilder:
         ]
 
         # Table header
-        lines.append("| Urgency | Ticker | Score | Action | Reason | Strategy |")
-        lines.append("|---------|--------|-------|--------|--------|----------|")
+        lines.append(
+            "| Urgency | Ticker | Action | Intent | Order | Plan | Trigger | Period | Reason |"
+        )
+        lines.append(
+            "|---------|--------|--------|--------|-------|------|---------|--------|--------|"
+        )
 
         # Table rows with urgency icons
         urgency_icons = {"EMERGENCY": "🚨", "HIGH": "⚠️", "MEDIUM": "⚡", "LOW": "ℹ️"}
@@ -1556,10 +1598,16 @@ class ReportBuilder:
         for signal in sorted_signals:
             icon = urgency_icons.get(signal.urgency_derived, "")
             urgency_display = f"{icon} {signal.urgency_derived}"
+            intent = signal.execution_intent or "—"
+            order_label = self._format_sell_order_label(signal)
+            plan_label = self._format_sell_plan_label(signal).replace("|", "/")
+            trigger_label = self._format_sell_trigger_label(signal)
+            period_label = signal.execution_period or "—"
+            reason_label = (signal.reason or "N/A").replace("|", "/")
 
             lines.append(
-                f"| {urgency_display} | **{signal.ticker}** | {signal.score:.1f} | "
-                f"{signal.action} | {signal.reason or 'N/A'} | {signal.strategy_name} |"
+                f"| {urgency_display} | **{signal.ticker}** | {signal.action} | {intent} | {order_label} | "
+                f"{plan_label} | {trigger_label} | {period_label} | {reason_label} |"
             )
 
         # Add details for high urgency
@@ -1575,8 +1623,33 @@ class ReportBuilder:
             for signal in high_urgency:
                 lines.append(f"#### {signal.ticker} ({signal.urgency_derived})")
                 lines.append(f"- **Action:** {signal.action}")
+                lines.append(
+                    f"- **Intent:** {signal.execution_intent or '—'}"
+                )
                 lines.append(f"- **Reason:** {signal.reason or 'N/A'}")
-                lines.append(f"- **Current Score:** {signal.score:.1f}")
+                lines.append(
+                    f"- **Exit Trigger:** {signal.exit_trigger or '—'}"
+                )
+                lines.append(
+                    f"- **Order:** {self._format_sell_order_label(signal)}"
+                )
+                lines.append(
+                    f"- **Plan:** {self._format_sell_plan_label(signal)}"
+                )
+                lines.append(
+                    f"- **Trigger Plan:** {self._format_sell_trigger_label(signal)}"
+                )
+                lines.append(
+                    f"- **Period:** {signal.execution_period or '—'}"
+                )
+                lines.append(
+                    f"- **Summary:** {signal.execution_summary or '—'}"
+                )
+                lines.append(
+                    f"- **Notes:** {self._format_sell_notes_label(signal)}"
+                )
+                if signal.formula_basis:
+                    lines.append(f"- **Formula:** {signal.formula_basis}")
                 lines.append(f"- **Current Price:** ¥{signal.current_price:,.0f}")
                 lines.append(f"- **Strategy:** {signal.strategy_name}")
 
@@ -2245,6 +2318,19 @@ def load_signals_from_file(signals_file: str) -> List[Signal]:
             required_capital=item.get("required_capital"),
             strategy_name=item.get("strategy_name", ""),
             timestamp=item.get("timestamp", datetime.now().isoformat()),
+            evaluation_details=item.get("evaluation_details"),
+            exit_trigger=item.get("exit_trigger"),
+            execution_intent=item.get("execution_intent"),
+            execution_method=item.get("execution_method"),
+            execution_summary=item.get("execution_summary"),
+            execution_period=item.get("execution_period"),
+            broker_order_type=item.get("broker_order_type"),
+            oco1_price=item.get("oco1_price"),
+            oco1_condition=item.get("oco1_condition"),
+            oco2_trigger_price=item.get("oco2_trigger_price"),
+            oco2_order_mode=item.get("oco2_order_mode"),
+            formula_basis=item.get("formula_basis"),
+            guidance_notes=item.get("guidance_notes"),
         )
         signals.append(signal)
 

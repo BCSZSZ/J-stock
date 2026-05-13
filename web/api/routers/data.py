@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
+from src.data.stock_data_manager import StockDataManager
 from web.api.dependencies import get_production_config, get_project_root
 from src.aws.jpx_holidays import next_trading_day as _next_trading_day
 
@@ -20,6 +21,11 @@ def _features_path(ticker: str) -> Path:
     return root / "data" / "features" / f"{ticker}_features.parquet"
 
 
+def _load_features_frame(ticker: str) -> pd.DataFrame:
+    manager = StockDataManager(data_root=str(get_project_root() / "data"))
+    return manager.load_stock_features(ticker)
+
+
 @router.get("/features/{ticker}")
 def get_features(
     ticker: str,
@@ -28,7 +34,9 @@ def get_features(
     path = _features_path(ticker)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"No features for {ticker}")
-    df = pd.read_parquet(path)
+    df = _load_features_frame(ticker)
+    if df.empty:
+        raise HTTPException(status_code=404, detail=f"No usable features for {ticker}")
     df = df.tail(days).copy()
     df = df.reset_index()
     if "Date" in df.columns:
@@ -45,7 +53,9 @@ def get_chart_data(
     path = _features_path(ticker)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"No features for {ticker}")
-    df = pd.read_parquet(path)
+    df = _load_features_frame(ticker)
+    if df.empty:
+        raise HTTPException(status_code=404, detail=f"No usable features for {ticker}")
     df = df.tail(days).copy()
     df = df.reset_index()
     if "Date" in df.columns:

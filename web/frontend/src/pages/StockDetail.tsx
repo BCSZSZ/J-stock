@@ -3,6 +3,8 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { createChart, IChartApi, CandlestickData, HistogramData, LineData, Time } from "lightweight-charts";
 import { api } from "../api/client";
+import IndicatorChartCard from "../components/IndicatorChartCard";
+import { LineStyle } from "lightweight-charts";
 import { useTickerNames } from "../hooks/useTickerNames";
 
 function calcEMA(data: { time: string; close: number }[], period: number): LineData<Time>[] {
@@ -39,6 +41,11 @@ export default function StockDetail() {
   const features = useQuery({
     queryKey: ["features", ticker],
     queryFn: () => api.features(ticker!, 30),
+    enabled: !!ticker,
+  });
+  const indicatorFeatures = useQuery({
+    queryKey: ["features-indicators", ticker],
+    queryFn: () => api.features(ticker!, 250),
     enabled: !!ticker,
   });
 
@@ -163,6 +170,108 @@ export default function StockDetail() {
         </div>
         <div ref={chartRef} />
       </div>
+
+      {indicatorFeatures.data && indicatorFeatures.data.length > 0 && (
+        <div className="space-y-4">
+          <IndicatorChartCard
+            title="MACD"
+            rows={indicatorFeatures.data}
+            height={200}
+            series={[
+              {
+                key: "MACD",
+                label: "MACD",
+                type: "line",
+                color: "#22d3ee",
+                lineWidth: 2,
+                precision: 2,
+              },
+              {
+                key: "MACD_Signal",
+                label: "Signal",
+                type: "line",
+                color: "#f59e0b",
+                lineWidth: 2,
+                precision: 2,
+              },
+              {
+                key: "MACD_Hist",
+                label: "Hist",
+                type: "histogram",
+                positiveColor: "#22c55e99",
+                negativeColor: "#ef444499",
+                precision: 2,
+              },
+            ]}
+          />
+          <IndicatorChartCard
+            title="RSI (9 / 14 / 22)"
+            rows={indicatorFeatures.data}
+            height={150}
+            referenceLines={[
+              {
+                value: 70,
+                label: "70",
+                color: "#ef4444",
+                lineStyle: LineStyle.Dashed,
+              },
+              {
+                value: 50,
+                label: "50",
+                color: "#6b7280",
+                lineStyle: LineStyle.Solid,
+              },
+              {
+                value: 30,
+                label: "30",
+                color: "#22c55e",
+                lineStyle: LineStyle.Dashed,
+              },
+            ]}
+            series={[
+              {
+                key: "RSI_9",
+                label: "RSI 9",
+                type: "line",
+                color: "#f59e0b",
+                lineWidth: 2,
+                precision: 2,
+              },
+              {
+                key: "RSI_14",
+                label: "RSI 14",
+                type: "line",
+                color: "#38bdf8",
+                lineWidth: 2,
+                precision: 2,
+              },
+              {
+                key: "RSI_22",
+                label: "RSI 22",
+                type: "line",
+                color: "#a78bfa",
+                lineWidth: 2,
+                precision: 2,
+              },
+            ]}
+          />
+          <IndicatorChartCard
+            title="ADX (14)"
+            rows={indicatorFeatures.data}
+            height={150}
+            series={[
+              {
+                key: "ADX_14",
+                label: "ADX",
+                type: "line",
+                color: "#a78bfa",
+                lineWidth: 2,
+                precision: 2,
+              },
+            ]}
+          />
+        </div>
+      )}
 
       {/* Recent feature data */}
       {features.data && features.data.length > 0 && (

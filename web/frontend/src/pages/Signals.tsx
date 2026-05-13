@@ -10,6 +10,11 @@ import {
   getExecutionLabel,
   getMomentumRank,
   getMomentumValue,
+  getSellIntent,
+  getSellOrderLabel,
+  getSellPeriodLabel,
+  getSellPlanLabel,
+  getSellTriggerLabel,
 } from "../signalSemantics";
 import { useTickerNames } from "../hooks/useTickerNames";
 
@@ -80,7 +85,11 @@ export default function Signals() {
                 <th className="py-2 px-3">Execution</th>
                 <th className="py-2 px-3">Momentum</th>
                 <th className="py-2 px-3">Price</th>
-                <th className="py-2 px-3">Strategy</th>
+                <th className="py-2 px-3">Intent</th>
+                <th className="py-2 px-3">Order</th>
+                <th className="py-2 px-3">Plan</th>
+                <th className="py-2 px-3">Trigger</th>
+                <th className="py-2 px-3">Period</th>
                 <th className="py-2 px-3">Reason</th>
               </tr>
             </thead>
@@ -90,6 +99,11 @@ export default function Signals() {
                 const executableSell = getExecutableSell(s);
                 const momentumRank = getMomentumRank(s);
                 const momentumValue = getMomentumValue(s);
+                const sellIntent = getSellIntent(s);
+                const sellOrder = getSellOrderLabel(s);
+                const sellPlan = getSellPlanLabel(s);
+                const sellTrigger = getSellTriggerLabel(s);
+                const sellPeriod = getSellPeriodLabel(s);
 
                 let rowClassName = "border-b border-gray-800/50 hover:bg-gray-800/30";
                 if (executableSell) {
@@ -150,10 +164,22 @@ export default function Signals() {
                       ? `¥${Number(s.current_price).toLocaleString()}`
                       : "—"}
                   </td>
-                  <td className="py-2 px-3 text-xs text-gray-400">
-                    {(s.strategy_name as string) ?? ""}
+                  <td className="py-2 px-3 text-xs text-gray-300">
+                    {sellIntent}
                   </td>
-                  <td className="py-2 px-3 text-xs text-gray-500 truncate max-w-xs">
+                  <td className="py-2 px-3 text-xs text-gray-300">
+                    {sellOrder}
+                  </td>
+                  <td className="py-2 px-3 text-xs text-gray-400 max-w-[180px] truncate">
+                    {sellPlan}
+                  </td>
+                  <td className="py-2 px-3 text-xs text-gray-400 max-w-[180px] truncate">
+                    {sellTrigger}
+                  </td>
+                  <td className="py-2 px-3 text-xs text-gray-300">
+                    {sellPeriod}
+                  </td>
+                  <td className="py-2 px-3 text-xs text-gray-500 truncate max-w-sm">
                     {(s.reason as string) ?? ""}
                   </td>
                 </tr>

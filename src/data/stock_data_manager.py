@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 SPLIT_RATIO_CANDIDATES = [0.5, 0.3333, 0.25, 0.2, 0.1]
 SPLIT_TOLERANCE = 0.05
 SPLIT_ADJUSTED_VERSION = 2
-FEATURE_SCHEMA_VERSION = 2
+FEATURE_SCHEMA_VERSION = 3
 
 
 REQUIRED_FEATURE_COLUMNS = {
@@ -46,6 +46,9 @@ REQUIRED_FEATURE_COLUMNS = {
     "Ichi_Kijun",
     "Ichi_SpanA",
     "Ichi_SpanB",
+    "RSI_9",
+    "RSI_14",
+    "RSI_22",
     "RSI",
     "MACD",
     "MACD_Signal",
@@ -712,8 +715,15 @@ class StockDataManager:
 
         # ==================== MOMENTUM INDICATORS ====================
         # RSI
-        rsi = RSIIndicator(close=df["Close"], window=14)
-        df["RSI"] = rsi.rsi()
+        rsi_9 = RSIIndicator(close=df["Close"], window=9)
+        rsi_14 = RSIIndicator(close=df["Close"], window=14)
+        rsi_22 = RSIIndicator(close=df["Close"], window=22)
+        df["RSI_9"] = rsi_9.rsi()
+        df["RSI_14"] = rsi_14.rsi()
+        df["RSI_22"] = rsi_22.rsi()
+        # Keep the legacy RSI column mapped to the 14-period line so existing
+        # ranking, filters, and reports remain stable.
+        df["RSI"] = df["RSI_14"]
 
         # MACD
         macd = MACD(close=df["Close"], window_fast=12, window_slow=26, window_sign=9)

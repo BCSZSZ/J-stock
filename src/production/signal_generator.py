@@ -90,6 +90,20 @@ class Signal:
     # Exit strategy evaluation details (for report display)
     evaluation_details: Optional[Dict] = None
 
+    # SELL execution guidance
+    exit_trigger: Optional[str] = None
+    execution_intent: Optional[str] = None
+    execution_method: Optional[str] = None
+    execution_summary: Optional[str] = None
+    execution_period: Optional[str] = None
+    broker_order_type: Optional[str] = None
+    oco1_price: Optional[float] = None
+    oco1_condition: Optional[str] = None
+    oco2_trigger_price: Optional[float] = None
+    oco2_order_mode: Optional[str] = None
+    formula_basis: Optional[str] = None
+    guidance_notes: Optional[str] = None
+
 
 class SignalGenerator:
     """

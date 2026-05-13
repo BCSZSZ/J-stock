@@ -41,6 +41,22 @@ class SignalSemanticMetadata:
     is_executable_sell: bool
 
 
+@dataclass(frozen=True)
+class SellExecutionGuidance:
+    exit_trigger: Optional[str]
+    execution_intent: str
+    execution_method: str
+    execution_summary: str
+    execution_period: str
+    broker_order_type: str
+    oco1_price: Optional[float]
+    oco1_condition: Optional[str]
+    oco2_trigger_price: Optional[float]
+    oco2_order_mode: Optional[str]
+    formula_basis: str
+    guidance_notes: str
+
+
 def _select_signal_date_from_latest_dates(
     latest_dates_by_ticker: Dict[str, Optional[date]],
     minimum_ratio: float = 0.9,
@@ -142,6 +158,146 @@ def _apply_signal_semantic_metadata(signals: List) -> List:
         for signal in signals
         for semantics in [_derive_signal_semantic_metadata(signal)]
     ]
+
+
+def _coerce_positive_float(value: Optional[float]) -> Optional[float]:
+    if value is None or pd.isna(value):
+        return None
+    numeric_value = float(value)
+    return numeric_value if numeric_value > 0 else None
+
+
+def _round_order_price(value: float) -> float:
+    return round(max(float(value), 1.0), 2)
+
+
+def _build_sell_execution_guidance(
+    action: str,
+    trigger: Optional[str],
+    reason: Optional[str],
+    close_price: float,
+    atr_value: Optional[float],
+    sell_price_factor: float,
+) -> SellExecutionGuidance:
+    normalized_trigger = (trigger or "").strip() or None
+    intent_source = " ".join(
+        part.upper() for part in [trigger or "", reason or ""] if part
+    )
+
+    take_profit_keywords = (
+        "TP1",
+        "TP2",
+        "BIASOVERHEAT",
+        "RSIOVERHEATPULLBACK",
+        "MOMENTUMEXHAUSTION",
+    )
+    time_keywords = ("TIMESTOP", "TIMEREVIEW", "TIME-COST", "TIME COST")
+    immediate_risk_keywords = ("HARDSTOP", "GAPPANIC", "EMERGENCY")
+
+    if any(keyword in intent_source for keyword in take_profit_keywords):
+        execution_intent = "止盈兑现"
+    elif any(keyword in intent_source for keyword in time_keywords):
+        execution_intent = "时间/管理退出"
+    else:
+        execution_intent = "风险退出"
+
+    safe_close_price = max(float(close_price or 0.0), 1.0)
+    sell_pct = 0.5 if "50" in (action or "") else 1.0
+    atr = _coerce_positive_float(atr_value)
+    used_atr_fallback = False
+    if atr is None:
+        atr = max(safe_close_price * 0.03, 1.0)
+        used_atr_fallback = True
+
+    planned_limit_price = _round_order_price(safe_close_price * sell_price_factor)
+
+    if execution_intent == "止盈兑现":
+        if sell_pct <= 0.55:
+            oco1_price = _round_order_price(
+                max(safe_close_price * 0.985, safe_close_price - 0.5 * atr)
+            )
+            oco2_trigger_price = _round_order_price(safe_close_price - 1.8 * atr)
+            formula_basis = (
+                f"TP1: OCO1=max(0.985C, C-0.5A), OCO2=C-1.8A; "
+                f"C={safe_close_price:.2f}, A={atr:.2f}"
+            )
+            guidance_notes = "先兑现一半；若价格走弱，则由逆指値成行保护剩余仓位。"
+        else:
+            oco1_price = _round_order_price(
+                max(safe_close_price * 0.980, safe_close_price - 0.7 * atr)
+            )
+            oco2_trigger_price = _round_order_price(safe_close_price - 1.2 * atr)
+            formula_basis = (
+                f"TP2/Overheat: OCO1=max(0.980C, C-0.7A), OCO2=C-1.2A; "
+                f"C={safe_close_price:.2f}, A={atr:.2f}"
+            )
+            guidance_notes = "优先在强势或反弹里完成止盈；若回落失守，则用逆指値成行退出。"
+
+        if used_atr_fallback:
+            guidance_notes = f"{guidance_notes} ATR缺失，临时用收盘价的3%代替。"
+
+        return SellExecutionGuidance(
+            exit_trigger=normalized_trigger,
+            execution_intent=execution_intent,
+            execution_method="OCO（利確優先）",
+            execution_summary=(
+                f"OCO1 指値 ¥{oco1_price:,.2f} + 不成 / "
+                f"OCO2 ¥{oco2_trigger_price:,.2f} 触发后成行"
+            ),
+            execution_period="当日中",
+            broker_order_type="OCO",
+            oco1_price=oco1_price,
+            oco1_condition="不成",
+            oco2_trigger_price=oco2_trigger_price,
+            oco2_order_mode="逆指値成行",
+            formula_basis=formula_basis,
+            guidance_notes=guidance_notes,
+        )
+
+    if execution_intent == "时间/管理退出":
+        return SellExecutionGuidance(
+            exit_trigger=normalized_trigger,
+            execution_intent=execution_intent,
+            execution_method="当日処理",
+            execution_summary=f"指値 ¥{planned_limit_price:,.2f} + 不成で当日中に処理",
+            execution_period="当日中",
+            broker_order_type="通常注文",
+            oco1_price=planned_limit_price,
+            oco1_condition="不成",
+            oco2_trigger_price=None,
+            oco2_order_mode=None,
+            formula_basis=(
+                f"TimeExit: limit=Close*{sell_price_factor:.2f}; "
+                f"C={safe_close_price:.2f}"
+            ),
+            guidance_notes="重点不是搏反弹，而是今天把仓位处理完。",
+        )
+
+    is_immediate_risk = any(
+        keyword in intent_source for keyword in immediate_risk_keywords
+    )
+    return SellExecutionGuidance(
+        exit_trigger=normalized_trigger,
+        execution_intent=execution_intent,
+        execution_method="Immediate Exit" if is_immediate_risk else "Risk Exit",
+        execution_summary=(
+            "成行 / 引成で当日退出を优先"
+            if is_immediate_risk
+            else "引成または成行で当日退出を优先"
+        ),
+        execution_period="当日中",
+        broker_order_type="通常注文",
+        oco1_price=None,
+        oco1_condition=None,
+        oco2_trigger_price=None,
+        oco2_order_mode=None,
+        formula_basis="Risk exit: prioritize same-day liquidation over rebound-first OCO.",
+        guidance_notes=(
+            "反弹待ちをしない。寄付前なら寄成、場中なら成行を优先。"
+            if is_immediate_risk
+            else "下方保護优先。价格改善よりも持ち越し回避を优先。"
+        ),
+    )
 
 
 def run_daily_workflow(args, prod_cfg, state) -> None:
@@ -954,9 +1110,14 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
 
                 planned_sell_qty = None
                 planned_sell_value = None
+                exit_trigger = None
+                execution_guidance = None
                 if signal_type == "SELL":
                     sell_pct = 1.0
                     if exit_signal.metadata:
+                        trigger_value = exit_signal.metadata.get("trigger")
+                        if trigger_value is not None:
+                            exit_trigger = str(trigger_value)
                         sell_pct = float(
                             exit_signal.metadata.get("sell_percentage", 1.0)
                         )
@@ -969,6 +1130,27 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     )
                     estimated_sell_price = _estimate_sell_price(float(current_price))
                     planned_sell_value = planned_sell_qty * estimated_sell_price
+                    latest_atr = None
+                    if (
+                        market_data is not None
+                        and market_data.df_features is not None
+                        and not market_data.df_features.empty
+                    ):
+                        latest_atr = _coerce_positive_float(
+                            market_data.df_features.iloc[-1].get("ATR")
+                        )
+                    execution_guidance = _build_sell_execution_guidance(
+                        action=action_str,
+                        trigger=exit_trigger,
+                        reason=(
+                            "; ".join(exit_signal.reasons)
+                            if exit_signal.reasons
+                            else exit_signal.action.name
+                        ),
+                        close_price=float(current_price),
+                        atr_value=latest_atr,
+                        sell_price_factor=float(1.0 - sell_price_buffer_pct),
+                    )
 
                 signal = Signal(
                     group_id=group.id,
@@ -1001,6 +1183,62 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     planned_sell_value=planned_sell_value,
                     strategy_name=exit_strategy_name,
                     evaluation_details=evaluation_details,
+                    exit_trigger=(
+                        execution_guidance.exit_trigger if execution_guidance else None
+                    ),
+                    execution_intent=(
+                        execution_guidance.execution_intent
+                        if execution_guidance
+                        else None
+                    ),
+                    execution_method=(
+                        execution_guidance.execution_method
+                        if execution_guidance
+                        else None
+                    ),
+                    execution_summary=(
+                        execution_guidance.execution_summary
+                        if execution_guidance
+                        else None
+                    ),
+                    execution_period=(
+                        execution_guidance.execution_period
+                        if execution_guidance
+                        else None
+                    ),
+                    broker_order_type=(
+                        execution_guidance.broker_order_type
+                        if execution_guidance
+                        else None
+                    ),
+                    oco1_price=(
+                        execution_guidance.oco1_price if execution_guidance else None
+                    ),
+                    oco1_condition=(
+                        execution_guidance.oco1_condition
+                        if execution_guidance
+                        else None
+                    ),
+                    oco2_trigger_price=(
+                        execution_guidance.oco2_trigger_price
+                        if execution_guidance
+                        else None
+                    ),
+                    oco2_order_mode=(
+                        execution_guidance.oco2_order_mode
+                        if execution_guidance
+                        else None
+                    ),
+                    formula_basis=(
+                        execution_guidance.formula_basis
+                        if execution_guidance
+                        else None
+                    ),
+                    guidance_notes=(
+                        execution_guidance.guidance_notes
+                        if execution_guidance
+                        else None
+                    ),
                 )
                 all_signals.append(signal)
 

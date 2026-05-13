@@ -14,6 +14,18 @@ export interface SignalRecord {
   planned_sell_value?: number | null;
   strategy_name?: string | null;
   reason?: string | null;
+  exit_trigger?: string | null;
+  execution_intent?: string | null;
+  execution_method?: string | null;
+  execution_summary?: string | null;
+  execution_period?: string | null;
+  broker_order_type?: string | null;
+  oco1_price?: number | null;
+  oco1_condition?: string | null;
+  oco2_trigger_price?: number | null;
+  oco2_order_mode?: string | null;
+  formula_basis?: string | null;
+  guidance_notes?: string | null;
   momentum_rank?: number | null;
   momentum_value?: number | null;
   is_executable?: boolean | null;
@@ -25,6 +37,16 @@ export interface SignalRecord {
 
 function asNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatOrderPrice(value: number | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  return `¥${value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export function isBuySignal(signal: SignalRecord): boolean {
@@ -110,6 +132,57 @@ export function getExecutionLabel(signal: SignalRecord): string {
     return "Sell Watch";
   }
   return "Watch";
+}
+
+export function getSellIntent(signal: SignalRecord): string {
+  if (!isSellSignal(signal)) {
+    return "—";
+  }
+  return signal.execution_intent || "—";
+}
+
+export function getSellOrderLabel(signal: SignalRecord): string {
+  if (!isSellSignal(signal)) {
+    return "—";
+  }
+  return signal.execution_method || signal.broker_order_type || "—";
+}
+
+export function getSellPlanLabel(signal: SignalRecord): string {
+  if (!isSellSignal(signal)) {
+    return "—";
+  }
+
+  const oco1Price = formatOrderPrice(asNumber(signal.oco1_price));
+  if (oco1Price !== null) {
+    return signal.oco1_condition
+      ? `${oco1Price} + ${signal.oco1_condition}`
+      : oco1Price;
+  }
+
+  return signal.execution_summary || "—";
+}
+
+export function getSellTriggerLabel(signal: SignalRecord): string {
+  if (!isSellSignal(signal)) {
+    return "—";
+  }
+
+  const oco2Price = formatOrderPrice(asNumber(signal.oco2_trigger_price));
+  if (oco2Price !== null) {
+    return signal.oco2_order_mode
+      ? `${oco2Price} / ${signal.oco2_order_mode}`
+      : oco2Price;
+  }
+
+  return signal.exit_trigger || "—";
+}
+
+export function getSellPeriodLabel(signal: SignalRecord): string {
+  if (!isSellSignal(signal)) {
+    return "—";
+  }
+  return signal.execution_period || "—";
 }
 
 export function compareSignalsForDisplay(left: SignalRecord, right: SignalRecord): number {
