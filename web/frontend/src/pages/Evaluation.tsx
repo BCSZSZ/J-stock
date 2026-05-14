@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { useConfirmDialog } from "../components/ConfirmDialog";
@@ -69,6 +69,14 @@ interface CheckboxListProps {
   emptyText?: string;
 }
 
+interface SearchableCheckboxListProps {
+  options: string[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+  emptyText?: string;
+  searchPlaceholder?: string;
+}
+
 const DEFAULT_YEARS = Array.from({ length: 5 }, (_, index) =>
   String(new Date().getFullYear() - 4 + index),
 ).join(",");
@@ -99,6 +107,116 @@ function CheckboxList({
           <span className="break-all">{option}</span>
         </label>
       ))}
+    </div>
+  );
+}
+
+function SearchableCheckboxList({
+  options,
+  selected,
+  onChange,
+  emptyText = "No options available.",
+  searchPlaceholder = "Search...",
+}: SearchableCheckboxListProps) {
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const normalizedQuery = deferredQuery.trim().toLowerCase();
+  const filteredOptions = normalizedQuery
+    ? options.filter((option) => option.toLowerCase().includes(normalizedQuery))
+    : options;
+  const filteredSet = new Set(filteredOptions);
+  const filteredSelectedCount = selected.filter((option) => filteredSet.has(option)).length;
+  const hasSelectableFiltered = filteredOptions.some(
+    (option) => !selected.includes(option),
+  );
+  const hasSelectedFiltered = filteredOptions.some((option) => selected.includes(option));
+
+  if (options.length === 0) {
+    return <p className="text-xs text-gray-500">{emptyText}</p>;
+  }
+
+  return (
+    <div className="rounded border border-gray-800 bg-gray-950/40">
+      <div className="space-y-2 border-b border-gray-800 px-3 py-3">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={searchPlaceholder}
+          className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-500"
+        />
+        <div className="flex items-center justify-between gap-3 text-[11px] text-gray-500">
+          <span>
+            Showing {filteredOptions.length} / {options.length}
+          </span>
+          <span>
+            Selected {selected.length}
+            {filteredOptions.length > 0 ? ` (${filteredSelectedCount} in view)` : ""}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const next = [...selected];
+              for (const option of filteredOptions) {
+                if (!next.includes(option)) {
+                  next.push(option);
+                }
+              }
+              onChange(next);
+            }}
+            disabled={!hasSelectableFiltered}
+            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 disabled:opacity-40"
+          >
+            Select shown
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const filteredToClear = new Set(filteredOptions);
+              onChange(selected.filter((option) => !filteredToClear.has(option)));
+            }}
+            disabled={!hasSelectedFiltered}
+            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 disabled:opacity-40"
+          >
+            Clear shown
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            disabled={selected.length === 0}
+            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 disabled:opacity-40"
+          >
+            Clear all
+          </button>
+        </div>
+      </div>
+      <div className="max-h-64 overflow-y-auto space-y-0.5 p-2">
+        {filteredOptions.length === 0 ? (
+          <p className="px-1 py-2 text-xs text-gray-500">No matches found.</p>
+        ) : (
+          filteredOptions.map((option) => (
+            <label
+              key={option}
+              className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(option)}
+                onChange={() =>
+                  onChange(
+                    selected.includes(option)
+                      ? selected.filter((item) => item !== option)
+                      : [...selected, option],
+                  )
+                }
+                className="rounded"
+              />
+              <span className="break-all">{option}</span>
+            </label>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -524,12 +642,11 @@ export default function Evaluation() {
                 <label className="text-xs text-gray-500 block mb-1">
                   Entry Strategies ({selectedEntry.length} selected)
                 </label>
-                <CheckboxList
+                <SearchableCheckboxList
                   options={options.data?.entry_strategies ?? []}
                   selected={selectedEntry}
-                  onToggle={(name) =>
-                    toggleSelection(selectedEntry, setSelectedEntry, name)
-                  }
+                  onChange={setSelectedEntry}
+                  searchPlaceholder="Search entry strategies..."
                 />
               </div>
 
@@ -537,12 +654,11 @@ export default function Evaluation() {
                 <label className="text-xs text-gray-500 block mb-1">
                   Exit Strategies ({selectedExit.length} selected)
                 </label>
-                <CheckboxList
+                <SearchableCheckboxList
                   options={options.data?.exit_strategies ?? []}
                   selected={selectedExit}
-                  onToggle={(name) =>
-                    toggleSelection(selectedExit, setSelectedExit, name)
-                  }
+                  onChange={setSelectedExit}
+                  searchPlaceholder="Search exit strategies..."
                 />
               </div>
             </>

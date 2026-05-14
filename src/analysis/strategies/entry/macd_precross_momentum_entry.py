@@ -639,6 +639,43 @@ class MACDPreCrossHist2BarEntry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACDPreCrossHist2BarEntry"
 
 
+class MACDHist2BarAnySignEntry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram rising only, without requiring the latest bar below zero."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=1,
+        extra_filter_count=0,
+        conditional_rule_count=1,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+        )
+        self.strategy_name = "MACDHist2BarAnySignEntry"
+
+
+class MACD2BarAnySignEntry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram + price rising, without requiring the latest bar below zero."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=1,
+        extra_filter_count=0,
+        conditional_rule_count=1,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_hist_below_zero=False,
+        )
+        self.strategy_name = "MACD2BarAnySignEntry"
+
+
 class MACDPreCrossHist3BarEntry(MACDPreCrossMomentumEntry):
     """3-bar MACD histogram rising only (no price rising requirement)."""
 
@@ -655,6 +692,25 @@ class MACDPreCrossHist3BarEntry(MACDPreCrossMomentumEntry):
             require_price_rising=False,
         )
         self.strategy_name = "MACDPreCrossHist3BarEntry"
+
+
+class MACDHist3BarAnySignEntry(MACDPreCrossMomentumEntry):
+    """3-bar MACD histogram rising only, without requiring the latest bar below zero."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=1,
+        extra_filter_count=0,
+        conditional_rule_count=1,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=3,
+            price_rise_days=3,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+        )
+        self.strategy_name = "MACDHist3BarAnySignEntry"
 
 
 class MACDPreCross3BarEntry(MACDPreCrossMomentumEntry):
@@ -674,6 +730,24 @@ class MACDPreCross3BarEntry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACDPreCross3BarEntry"
 
 
+class MACD3BarAnySignEntry(MACDPreCrossMomentumEntry):
+    """3-bar MACD histogram + price rising, without requiring the latest bar below zero."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=1,
+        extra_filter_count=0,
+        conditional_rule_count=1,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=3,
+            price_rise_days=3,
+            require_hist_below_zero=False,
+        )
+        self.strategy_name = "MACD3BarAnySignEntry"
+
+
 __all__ = [
     "MACDPreCrossMomentumEntry",
     "MACDPreCross2BarEntry",
@@ -684,7 +758,11 @@ __all__ = [
     "MACDPreCross2BarMinHistDeltaNorm002Entry",
     "MACDPreCross2BarLiteComboEntry",
     "MACDPreCrossHist2BarEntry",
+    "MACDHist2BarAnySignEntry",
+    "MACD2BarAnySignEntry",
     "MACDPreCrossHist3BarEntry",
+    "MACDHist3BarAnySignEntry",
     "MACDPreCross3BarEntry",
+    "MACD3BarAnySignEntry",
     "build_precross_momentum_flags",
 ]

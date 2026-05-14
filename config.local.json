@@ -26,8 +26,8 @@
     "default": 100
   },
   "default_strategies": {
-    "entry": "MACDPreCross3BarEntry",
-    "exit": "MVXW_N5_R3p35_T1p45_D21_B20p0"
+    "entry": "MACDHist2BarAnySignEntry",
+    "exit": "MVXW_N3_R0p54_T1p3_D10_B20p0"
   },
   "capacity_regime": {
     "version": "2026-05-v1",
@@ -134,8 +134,8 @@
         "id": "group_main",
         "name": "主策略组",
         "initial_capital": 8000000,
-        "entry_strategy": "MACDPreCross3BarEntry",
-        "exit_strategy": "MVXW_N5_R3p35_T1p45_D21_B20p0"
+        "entry_strategy": "MACDHist2BarAnySignEntry",
+        "exit_strategy": "MVXW_N3_R0p54_T1p3_D10_B20p0"
       }
     ]
   }
