@@ -14,6 +14,7 @@ from src.evaluation import (
     create_monthly_periods,
     create_quarterly_periods,
 )
+from src.evaluation.strategy_evaluator import select_rank_df_for_mode
 from src.evaluation.scoring import candidate_key_columns, rank_final_prs, summarize_prs_train_metrics
 from src.config.runtime import is_local_path
 from src.utils.strategy_loader import get_strategy_complexity_penalty
@@ -117,6 +118,7 @@ def _build_output_run_slug(run_kind: str, args, eval_cfg) -> str:
 
     parts.append(_summarize_selection_for_dir("entry", entry_strategies))
     parts.append(_summarize_selection_for_dir("exit", exit_strategies))
+    parts.append(_sanitize_name(f"fill_{getattr(args, 'buy_fill_mode', 'next_open') or 'next_open'}"))
 
     if run_kind == "pos-evaluation":
         profile_names = _dedupe_preserve_order(
@@ -363,7 +365,7 @@ def _prepare_common_evaluation_inputs(args, config):
 
 
 def _prepare_walk_forward_inputs(args, config):
-    """Resolve entry filters, annual years and universe variants for walk-forward."""
+    """Resolve entry filters, base periods and universe variants for walk-forward."""
     selected_filter_names = _dedupe_preserve_order(args.entry_filter_name or [])
 
     if args.list_entry_filters:
@@ -380,20 +382,33 @@ def _prepare_walk_forward_inputs(args, config):
     if not years:
         raise ValueError("walk-forward模式需要指定--years参数")
 
+    walk_forward_mode = _resolve_walk_forward_mode(args)
     min_train_years = max(1, int(args.min_train_years))
     if len(years) < min_train_years + 1:
         raise ValueError(
             f"至少需要 {min_train_years + 1} 个年份，当前仅提供 {len(years)} 个"
         )
 
+    base_periods = _build_walk_forward_base_periods(walk_forward_mode, years)
+    min_train_periods = _resolve_walk_forward_min_train_periods(
+        walk_forward_mode,
+        min_train_years,
+    )
+    if len(base_periods) < min_train_periods + 1:
+        raise ValueError(
+            f"walk-forward {walk_forward_mode} 模式至少需要 {min_train_years + 1} 个年份才能形成测试窗口"
+        )
+
     universe_variants = _resolve_universe_variants(args.universe_file)
 
     print("📅 Anchored Walk-Forward 模式")
+    print(f"   粒度: {walk_forward_mode}")
     print(f"   年份: {', '.join(map(str, years))}")
     print(f"   最小训练年份数: {min_train_years}")
-    print(f"   测试窗口数: {len(years) - min_train_years}")
+    print(f"   基础时间窗数: {len(base_periods)}")
+    print(f"   测试窗口数: {len(base_periods) - min_train_periods}")
 
-    return entry_filter_variants, years, universe_variants
+    return entry_filter_variants, years, base_periods, universe_variants
 
 
 def _resolve_exit_confirm_days(args, eval_cfg) -> int:
@@ -477,6 +492,7 @@ def _build_evaluator(
         monitor_list_file=monitor_list_file,
         verbose=args.verbose,
         exit_confirmation_days=exit_confirm_days,
+        buy_fill_mode=getattr(args, "buy_fill_mode", "next_open"),
         overlay_config=overlay_config,
         entry_filter_config=config.get("evaluation", {}).get("filters", {}).get(
             "default", {}
@@ -540,6 +556,7 @@ def _annual_rank_group_columns(segmented_df: pd.DataFrame, continuous_df: pd.Dat
         "exit_strategy",
         "entry_filter",
         "exit_confirmation_days",
+        "buy_fill_mode",
         "position_profile",
         "overlay_mode",
         "universe_name",
@@ -834,6 +851,10 @@ def _prepare_review_frames(
     if not raw_df.empty:
         if "entry_filter" in raw_df.columns:
             raw_df["entry_filter"] = raw_df["entry_filter"].fillna("off")
+        if "buy_fill_mode" in raw_df.columns:
+            raw_df["buy_fill_mode"] = raw_df["buy_fill_mode"].fillna("next_open")
+        else:
+            raw_df["buy_fill_mode"] = "next_open"
         if "exit_confirmation_days" in raw_df.columns:
             raw_df["exit_confirmation_days"] = (
                 pd.to_numeric(raw_df["exit_confirmation_days"], errors="coerce")
@@ -844,6 +865,10 @@ def _prepare_review_frames(
     if not trades_df.empty:
         if "entry_filter" in trades_df.columns:
             trades_df["entry_filter"] = trades_df["entry_filter"].fillna("off")
+        if "buy_fill_mode" in trades_df.columns:
+            trades_df["buy_fill_mode"] = trades_df["buy_fill_mode"].fillna("next_open")
+        else:
+            trades_df["buy_fill_mode"] = "next_open"
         if "exit_confirmation_days" in trades_df.columns:
             trades_df["exit_confirmation_days"] = (
                 pd.to_numeric(trades_df["exit_confirmation_days"], errors="coerce")
@@ -869,6 +894,7 @@ def _review_combo_columns(segmented_raw_df: pd.DataFrame, continuous_raw_df: pd.
         "exit_strategy",
         "entry_filter",
         "exit_confirmation_days",
+        "buy_fill_mode",
     ]
     return [
         column
@@ -1246,6 +1272,7 @@ def _write_localized_final_review_report(
                 f"- 出场策略：{combo_row.get('exit_strategy', '-')}",
                 f"- 入场过滤器：{combo_row.get('entry_filter', 'off')}",
                 f"- 出场确认天数：{_format_count(combo_row.get('exit_confirmation_days', 0))}",
+                f"- 买入成交模式：{combo_row.get('buy_fill_mode', 'next_open')}",
                 "",
                 f"### {segmented_label}总览",
                 "",
@@ -1415,31 +1442,146 @@ def _write_combined_position_output_family(
     return files
 
 
-def _select_rank_df(evaluator: StrategyEvaluator, ranking_mode: str):
+def _select_rank_df(results_df: pd.DataFrame, ranking_mode: str):
     """Return the ranking table and the primary score column for the chosen mode."""
-    if ranking_mode == "legacy":
-        return evaluator.rank_by_legacy_goal(), "avg_rank"
-    if ranking_mode == "risk60_profit40":
-        return evaluator.rank_by_risk60_profit40(), "risk60_profit40_score"
-    if ranking_mode == "prs_train":
-        return evaluator.rank_by_prs_train(), "prs_train_score"
-    return evaluator.rank_by_target20_goal(), "target20_score"
+    return select_rank_df_for_mode(
+        results_df,
+        ranking_mode,
+        complexity_penalty_resolver=get_strategy_complexity_penalty,
+    )
 
 
-def _build_walk_forward_windows(years: List[int], min_train_years: int):
+def _precompute_walk_forward_panel(
+    args,
+    config,
+    base_periods,
+    output_dir,
+    monitor_list_file,
+    portfolio_overrides,
+    enable_overlay: Optional[bool],
+    exit_confirm_days: int,
+    entry_filter_variants,
+):
+    eval_cfg = config.get("evaluation", {})
+    entry_strategies, exit_strategies = _resolve_entry_exit_strategies(args, eval_cfg)
+    evaluator = _build_evaluator(
+        args=args,
+        config=config,
+        output_dir=output_dir,
+        monitor_list_file=monitor_list_file,
+        portfolio_overrides=portfolio_overrides,
+        enable_overlay=enable_overlay,
+        exit_confirm_days=exit_confirm_days,
+        entry_filter_variants=entry_filter_variants,
+    )
+
+    _log_step(
+        "walk-forward: 开始预计算全量 period 面板 "
+        f"(periods={len(base_periods)})"
+    )
+    results_df = evaluator.run_evaluation(
+        periods=base_periods,
+        entry_strategies=entry_strategies,
+        exit_strategies=exit_strategies,
+    )
+    if results_df.empty:
+        return entry_strategies, exit_strategies, pd.DataFrame(), pd.DataFrame()
+
+    trades_df = evaluator._create_trade_results_dataframe().copy()
+    print(
+        "📦 Walk-forward 全量 period 面板已生成: "
+        f"rows={len(results_df)}, trades={len(trades_df)}"
+    )
+    return entry_strategies, exit_strategies, results_df.copy(), trades_df
+
+
+def _resolve_walk_forward_mode(args) -> str:
+    mode = str(getattr(args, "mode", "annual") or "annual")
+    if mode not in {"annual", "quarterly"}:
+        raise ValueError(f"walk-forward 不支持的 mode: {mode}")
+    return mode
+
+
+def _build_walk_forward_base_periods(
+    walk_forward_mode: str,
+    years: List[int],
+) -> List[Tuple[str, str, str]]:
+    if walk_forward_mode == "annual":
+        return create_annual_periods(years)
+    if walk_forward_mode == "quarterly":
+        return create_quarterly_periods(years)
+    raise ValueError(f"walk-forward 不支持的 mode: {walk_forward_mode}")
+
+
+def _resolve_walk_forward_min_train_periods(
+    walk_forward_mode: str,
+    min_train_years: int,
+) -> int:
+    if walk_forward_mode == "quarterly":
+        return min_train_years * 4
+    return min_train_years
+
+
+def _format_walk_forward_train_label(
+    train_periods: List[Tuple[str, str, str]],
+    walk_forward_mode: str,
+) -> str:
+    if not train_periods:
+        return ""
+
+    start_label = str(train_periods[0][0])
+    end_label = str(train_periods[-1][0])
+    if start_label == end_label:
+        return start_label
+    if walk_forward_mode == "quarterly":
+        return f"{start_label} -> {end_label}"
+    return f"{start_label}-{end_label}"
+
+
+def _build_walk_forward_windows(
+    periods: List[Tuple[str, str, str]],
+    min_train_periods: int,
+    walk_forward_mode: str,
+):
     windows = []
-    for idx in range(min_train_years, len(years)):
-        train_years = years[:idx]
-        test_year = years[idx]
+    for idx in range(min_train_periods, len(periods)):
+        train_periods = periods[:idx]
+        test_period = periods[idx]
+        test_label, test_start, test_end = test_period
         windows.append(
             {
                 "window_index": len(windows) + 1,
-                "train_years": train_years,
-                "train_label": f"{train_years[0]}-{train_years[-1]}",
-                "test_year": test_year,
+                "train_periods": train_periods,
+                "train_label": _format_walk_forward_train_label(
+                    train_periods,
+                    walk_forward_mode,
+                ),
+                "test_period": test_period,
+                "test_period_label": str(test_label),
+                "test_period_start": str(test_start),
+                "test_period_end": str(test_end),
+                "test_year": int(str(test_start)[:4]),
             }
         )
     return windows
+
+
+def _insert_walk_forward_window_columns(
+    df: pd.DataFrame,
+    window,
+) -> pd.DataFrame:
+    window_df = df.copy()
+    window_df.insert(0, "window_index", window["window_index"])
+    window_df.insert(1, "train_label", window["train_label"])
+    window_df.insert(2, "test_period", window["test_period_label"])
+    window_df.insert(3, "test_year", window["test_year"])
+    return window_df
+
+
+def _walk_forward_period_section_label(walk_forward_mode: str) -> str:
+    if walk_forward_mode == "quarterly":
+        return "测试季度"
+    return "测试年"
 
 
 def _df_to_markdown(df: pd.DataFrame) -> str:
@@ -1495,11 +1637,444 @@ def _candidate_match_mask(
     return mask
 
 
+def _walk_forward_candidate_columns(df: pd.DataFrame) -> List[str]:
+    candidate_columns = [
+        "entry_strategy",
+        "exit_strategy",
+        "entry_filter",
+        "ranking_strategy",
+    ]
+    return [column for column in candidate_columns if column in df.columns]
+
+
+def _build_walk_forward_candidate_summary_df(
+    oos_panel_df: pd.DataFrame,
+    selection_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if oos_panel_df.empty:
+        return pd.DataFrame()
+
+    candidate_columns = _walk_forward_candidate_columns(oos_panel_df)
+    if not candidate_columns:
+        return pd.DataFrame()
+
+    summary_df = (
+        oos_panel_df.groupby(candidate_columns, dropna=False)
+        .agg(
+            oos_fold_count=("window_index", "nunique"),
+            mean_oos_return=("return_pct", "mean"),
+            mean_oos_alpha=("alpha", "mean"),
+            avg_oos_mdd=("max_drawdown_pct", "mean"),
+            worst_oos_year_alpha=("alpha", "min"),
+            oos_positive_alpha_ratio=(
+                "alpha",
+                lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean()),
+            ),
+        )
+        .reset_index()
+    )
+
+    selection_key_map = {
+        "entry_strategy": "selected_entry_strategy",
+        "exit_strategy": "selected_exit_strategy",
+        "entry_filter": "selected_entry_filter",
+        "ranking_strategy": "selected_ranking_strategy",
+    }
+    selection_group_cols = [
+        selection_key_map[column]
+        for column in candidate_columns
+        if selection_key_map[column] in selection_df.columns
+    ]
+    selected_period_column = "test_period" if "test_period" in selection_df.columns else "test_year"
+    if not selection_df.empty and selection_group_cols:
+        selection_counts_df = (
+            selection_df.groupby(selection_group_cols, dropna=False)
+            .agg(
+                selected_windows=("window_index", "count"),
+                selected_test_periods=(selected_period_column, lambda s: ", ".join(map(str, s))),
+            )
+            .reset_index()
+            .rename(columns={selection_key_map[column]: column for column in candidate_columns})
+        )
+        summary_df = summary_df.merge(
+            selection_counts_df,
+            on=candidate_columns,
+            how="left",
+        )
+
+    best_rows: List[Dict[str, Any]] = []
+    for _, window_df in oos_panel_df.groupby("window_index", sort=True):
+        alpha_series = pd.to_numeric(window_df["alpha"], errors="coerce")
+        if alpha_series.notna().any():
+            best_idx = alpha_series.idxmax()
+        else:
+            return_series = pd.to_numeric(window_df["return_pct"], errors="coerce")
+            if not return_series.notna().any():
+                continue
+            best_idx = return_series.idxmax()
+
+        best_row = window_df.loc[best_idx]
+        best_rows.append({column: best_row.get(column) for column in candidate_columns})
+
+    if best_rows:
+        best_count_df = (
+            pd.DataFrame(best_rows)
+            .groupby(candidate_columns, dropna=False)
+            .size()
+            .rename("actual_oos_best_windows")
+            .reset_index()
+        )
+        summary_df = summary_df.merge(best_count_df, on=candidate_columns, how="left")
+
+    if "window_index" in oos_panel_df.columns:
+        window_index_series = pd.to_numeric(oos_panel_df["window_index"], errors="coerce")
+        if window_index_series.notna().any():
+            recent_window_index = int(window_index_series.max())
+            recent_df = oos_panel_df.loc[window_index_series == recent_window_index].copy()
+            recent_period_column = "test_period" if "test_period" in recent_df.columns else "period"
+            recent_summary_df = (
+                recent_df.groupby(candidate_columns, dropna=False)
+                .agg(
+                    recent_test_period=(recent_period_column, "first"),
+                    recent_oos_return=("return_pct", "mean"),
+                    recent_oos_alpha=("alpha", "mean"),
+                )
+                .reset_index()
+            )
+            summary_df = summary_df.merge(
+                recent_summary_df,
+                on=candidate_columns,
+                how="left",
+            )
+
+    for column in ["selected_windows", "actual_oos_best_windows"]:
+        if column in summary_df.columns:
+            summary_df[column] = (
+                pd.to_numeric(summary_df[column], errors="coerce").fillna(0).astype(int)
+            )
+    if "selected_test_periods" in summary_df.columns:
+        summary_df["selected_test_periods"] = summary_df["selected_test_periods"].fillna("-")
+
+    return summary_df.sort_values(
+        ["selected_windows", "actual_oos_best_windows", "mean_oos_alpha", "avg_oos_mdd"],
+        ascending=[False, False, False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def _build_walk_forward_window_diagnostic_df(
+    selection_df: pd.DataFrame,
+    oos_panel_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if selection_df.empty or oos_panel_df.empty:
+        return pd.DataFrame()
+
+    candidate_columns = _walk_forward_candidate_columns(oos_panel_df)
+    selection_key_map = {
+        "entry_strategy": "selected_entry_strategy",
+        "exit_strategy": "selected_exit_strategy",
+        "entry_filter": "selected_entry_filter",
+        "ranking_strategy": "selected_ranking_strategy",
+    }
+
+    rows: List[Dict[str, Any]] = []
+    ordered_selection_df = selection_df.sort_values("window_index", kind="mergesort")
+    for _, selection_row in ordered_selection_df.iterrows():
+        window_index = selection_row.get("window_index")
+        window_df = oos_panel_df.loc[oos_panel_df["window_index"] == window_index].copy()
+        if window_df.empty:
+            continue
+
+        selected_candidate = pd.Series(
+            {
+                column: selection_row.get(selection_key_map[column])
+                for column in candidate_columns
+            }
+        )
+        selected_mask = _candidate_match_mask(window_df, selected_candidate, candidate_columns)
+        selected_rows = window_df.loc[selected_mask]
+        selected_oos_row = selected_rows.iloc[0] if not selected_rows.empty else None
+
+        alpha_series = pd.to_numeric(window_df["alpha"], errors="coerce")
+        if alpha_series.notna().any():
+            best_idx = alpha_series.idxmax()
+        else:
+            return_series = pd.to_numeric(window_df["return_pct"], errors="coerce")
+            if not return_series.notna().any():
+                continue
+            best_idx = return_series.idxmax()
+        best_oos_row = window_df.loc[best_idx]
+
+        selected_alpha = (
+            _coerce_float(selected_oos_row.get("alpha")) if selected_oos_row is not None else None
+        )
+        selected_return = (
+            _coerce_float(selected_oos_row.get("return_pct")) if selected_oos_row is not None else None
+        )
+        best_alpha = _coerce_float(best_oos_row.get("alpha"))
+        best_return = _coerce_float(best_oos_row.get("return_pct"))
+
+        rows.append(
+            {
+                "window_index": int(window_index),
+                "train_label": selection_row.get("train_label"),
+                "test_period": selection_row.get("test_period", selection_row.get("test_year")),
+                "test_year": selection_row.get("test_year"),
+                "selected_entry_strategy": selection_row.get("selected_entry_strategy"),
+                "selected_alpha": selected_alpha,
+                "selected_return": selected_return,
+                "best_actual_entry_strategy": best_oos_row.get("entry_strategy"),
+                "best_actual_alpha": best_alpha,
+                "best_actual_return": best_return,
+                "alpha_regret": (
+                    best_alpha - selected_alpha
+                    if best_alpha is not None and selected_alpha is not None
+                    else None
+                ),
+                "return_regret": (
+                    best_return - selected_return
+                    if best_return is not None and selected_return is not None
+                    else None
+                ),
+                "selected_is_actual_oos_best": (
+                    "是"
+                    if selected_oos_row is not None
+                    and str(selection_row.get("selected_entry_strategy", ""))
+                    == str(best_oos_row.get("entry_strategy", ""))
+                    else "否"
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _format_walk_forward_prs_view(final_prs_df: pd.DataFrame) -> pd.DataFrame:
+    prs_cols = ["rank", "entry_strategy", "exit_strategy"]
+    if "ranking_strategy" in final_prs_df.columns:
+        prs_cols.append("ranking_strategy")
+    prs_cols.extend(
+        [
+            "entry_filter",
+            "final_prs_score",
+            "mean_oos_alpha",
+            "oos_positive_alpha_ratio",
+            "avg_oos_mdd",
+            "worst_oos_year_alpha",
+            "train_oos_alpha_gap",
+            "recent_oos_health",
+        ]
+    )
+    prs_view = final_prs_df[prs_cols].head(10).copy()
+    for col in ["mean_oos_alpha", "avg_oos_mdd", "worst_oos_year_alpha"]:
+        prs_view[col] = pd.to_numeric(prs_view[col], errors="coerce").map(
+            lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
+        )
+    prs_view["final_prs_score"] = pd.to_numeric(
+        prs_view["final_prs_score"], errors="coerce"
+    ).map(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
+    prs_view["train_oos_alpha_gap"] = pd.to_numeric(
+        prs_view["train_oos_alpha_gap"], errors="coerce"
+    ).map(lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A")
+    for col in ["oos_positive_alpha_ratio", "recent_oos_health"]:
+        prs_view[col] = pd.to_numeric(prs_view[col], errors="coerce").map(
+            lambda v: f"{v:.1%}" if pd.notna(v) else "N/A"
+        )
+    return prs_view
+
+
+def _write_walk_forward_final_review_report(
+    output_file: Path,
+    output_dir: str,
+    walk_forward_mode: str,
+    years: List[int],
+    min_train_years: int,
+    ranking_mode: str,
+    buy_fill_mode: str,
+    selection_df: pd.DataFrame,
+    selection_freq_df: pd.DataFrame,
+    oos_df: pd.DataFrame,
+    oos_panel_df: pd.DataFrame,
+    regime_df: pd.DataFrame,
+    final_prs_df: pd.DataFrame,
+    oos_raw_path: Optional[str],
+    oos_trades_path: Optional[str],
+) -> None:
+    sector_by_ticker = _load_sector_by_ticker()
+    selected_oos_raw_df, selected_oos_trades_df = _prepare_review_frames(
+        oos_raw_path,
+        oos_trades_path,
+        sector_by_ticker,
+    )
+    candidate_summary_df = _build_walk_forward_candidate_summary_df(oos_panel_df, selection_df)
+    window_diag_df = _build_walk_forward_window_diagnostic_df(selection_df, oos_panel_df)
+    period_section_label = _walk_forward_period_section_label(walk_forward_mode)
+
+    lines = [
+        "# Anchored Walk-Forward 整合最终报告",
+        "",
+        f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"评估模式：{walk_forward_mode}",
+        f"评估年份：{', '.join(map(str, years))}",
+        f"最少训练年份数：{min_train_years}",
+        f"训练排序模式：{ranking_mode}",
+        f"买入成交模式：{buy_fill_mode}",
+        f"输出目录：{output_dir}",
+        f"OOS原始结果：{Path(oos_raw_path).name if oos_raw_path else '-'}",
+        f"OOS交易明细：{Path(oos_trades_path).name if oos_trades_path else '-'}",
+        "",
+        "## 说明",
+        "",
+        "- 本报告面向 anchored walk-forward：训练窗逐步扩展，下一个 period 作为 OOS 测试。",
+        "- 详细交易/退出/行业分析仅针对每个窗口最终被选中的 OOS 策略。",
+        "- 候选对比与窗口诊断使用 OOS panel，全量纳入同窗所有候选策略。",
+        "- 同窗最佳策略默认按 OOS Alpha 比较；若 Alpha 缺失，则退回 OOS Return。",
+        "",
+    ]
+
+    if not selection_freq_df.empty:
+        dominant_row = selection_freq_df.iloc[0]
+        lines.extend(
+            [
+                "## 快速结论",
+                "",
+                f"- 训练窗口最常选中：{dominant_row.get('selected_entry_strategy', '-')}（{_format_count(dominant_row.get('selected_windows', 0))} 个窗口）",
+                f"- Final PRS 第一名：{final_prs_df.iloc[0]['entry_strategy'] if not final_prs_df.empty else '-'}",
+                f"- OOS 窗口数：{_format_count(oos_df['period'].nunique()) if not oos_df.empty and 'period' in oos_df.columns else '0'}",
+                "",
+            ]
+        )
+
+    if not selection_df.empty:
+        selection_view = selection_df.copy()
+        if "train_selection_score" in selection_view.columns:
+            selection_view["train_selection_score"] = pd.to_numeric(
+                selection_view["train_selection_score"], errors="coerce"
+            ).map(lambda v: f"{v:.4f}" if pd.notna(v) else "N/A")
+        lines.extend([
+            "## 窗口选择路径",
+            "",
+            _df_to_markdown(selection_view),
+            "",
+        ])
+
+    if not selection_freq_df.empty:
+        lines.extend([
+            "## 选择频率",
+            "",
+            _df_to_markdown(selection_freq_df),
+            "",
+        ])
+
+    if not candidate_summary_df.empty:
+        candidate_view = candidate_summary_df.copy()
+        for col in [
+            "mean_oos_return",
+            "mean_oos_alpha",
+            "avg_oos_mdd",
+            "worst_oos_year_alpha",
+            "recent_oos_return",
+            "recent_oos_alpha",
+        ]:
+            if col in candidate_view.columns:
+                candidate_view[col] = pd.to_numeric(candidate_view[col], errors="coerce").map(
+                    lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
+                )
+        if "oos_positive_alpha_ratio" in candidate_view.columns:
+            candidate_view["oos_positive_alpha_ratio"] = pd.to_numeric(
+                candidate_view["oos_positive_alpha_ratio"], errors="coerce"
+            ).map(lambda v: f"{v:.1%}" if pd.notna(v) else "N/A")
+        lines.extend([
+            "## 候选策略 OOS 聚合对比",
+            "",
+            _df_to_markdown(candidate_view),
+            "",
+        ])
+
+    if not window_diag_df.empty:
+        diag_view = window_diag_df.copy()
+        for col in [
+            "selected_alpha",
+            "selected_return",
+            "best_actual_alpha",
+            "best_actual_return",
+            "alpha_regret",
+            "return_regret",
+        ]:
+            diag_view[col] = pd.to_numeric(diag_view[col], errors="coerce").map(
+                lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
+            )
+        lines.extend([
+            "## 选中策略 vs 同窗实际最佳",
+            "",
+            _df_to_markdown(diag_view),
+            "",
+        ])
+
+    if not selected_oos_raw_df.empty:
+        lines.extend([
+            "## 已选策略 OOS 总览",
+            "",
+            _markdown_table_from_rows(
+                _build_period_overview_rows(selected_oos_raw_df, selected_oos_trades_df, period_section_label),
+                [
+                    period_section_label,
+                    "市场环境",
+                    "净收益(JPY)",
+                    "收益率",
+                    "超额收益Alpha",
+                    "夏普比率",
+                    "最大回撤",
+                    "交易数",
+                    "退出动作数",
+                    "胜率",
+                    "总盈利(JPY)",
+                    "总亏损(JPY)",
+                ],
+            ),
+            "",
+        ])
+        _append_period_detail_sections(
+            lines,
+            selected_oos_raw_df,
+            selected_oos_trades_df,
+            period_section_label,
+        )
+
+    if not final_prs_df.empty:
+        lines.extend([
+            "## Final PRS 排名",
+            "",
+            _df_to_markdown(_format_walk_forward_prs_view(final_prs_df)),
+            "",
+        ])
+
+    if not regime_df.empty:
+        regime_view = regime_df.copy()
+        for col in ["avg_return_pct", "avg_alpha_pct", "worst_test_return_pct", "avg_max_drawdown_pct"]:
+            regime_view[col] = pd.to_numeric(regime_view[col], errors="coerce").map(
+                lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
+            )
+        regime_view["positive_alpha_ratio"] = pd.to_numeric(
+            regime_view["positive_alpha_ratio"], errors="coerce"
+        ).map(lambda v: f"{v:.1%}" if pd.notna(v) else "N/A")
+        lines.extend([
+            "## OOS 市场环境汇总",
+            "",
+            _df_to_markdown(regime_view),
+            "",
+        ])
+
+    output_file.write_text("\n".join(lines), encoding="utf-8")
+
+
 def _write_walk_forward_report(
     output_file: Path,
+    walk_forward_mode: str,
     ranking_mode: str,
     years: List[int],
     min_train_years: int,
+    buy_fill_mode: str,
     selection_df: pd.DataFrame,
     selection_freq_df: pd.DataFrame,
     oos_df: pd.DataFrame,
@@ -1509,10 +2084,12 @@ def _write_walk_forward_report(
     lines = [
         "# Anchored Walk-Forward Evaluation",
         "",
+        f"- Mode: {walk_forward_mode}",
         f"- Years: {', '.join(map(str, years))}",
         f"- Minimum train years: {min_train_years}",
         f"- Ranking mode: {ranking_mode}",
-        "- Selection protocol: expanding annual train window, next-year out-of-sample test, report only test windows.",
+        f"- Buy fill mode: {buy_fill_mode}",
+        "- Selection protocol: expanding train window, next-period out-of-sample test, report only test windows.",
         "",
     ]
 
@@ -1520,7 +2097,7 @@ def _write_walk_forward_report(
         selection_cols = [
             "window_index",
             "train_label",
-            "test_year",
+            "test_period",
             "selected_entry_strategy",
             "selected_exit_strategy",
         ]
@@ -1661,6 +2238,8 @@ def _run_walk_forward_once(
     args,
     config,
     years,
+    walk_forward_mode,
+    base_periods,
     min_train_years,
     entry_filter_variants,
     output_dir,
@@ -1682,8 +2261,32 @@ def _run_walk_forward_once(
     )
     _log_step(f"walk-forward: overlay={'on' if use_overlay else 'off'}")
 
-    entry_strategies, exit_strategies = _resolve_entry_exit_strategies(args, eval_cfg)
-    windows = _build_walk_forward_windows(years, min_train_years)
+    entry_strategies, exit_strategies, base_results_df, base_trade_df = _precompute_walk_forward_panel(
+        args=args,
+        config=config,
+        base_periods=base_periods,
+        output_dir=output_dir,
+        monitor_list_file=monitor_list_file,
+        portfolio_overrides=portfolio_overrides,
+        enable_overlay=enable_overlay,
+        exit_confirm_days=exit_confirm_days,
+        entry_filter_variants=entry_filter_variants,
+    )
+    if base_results_df.empty:
+        print("⚠️ Walk-forward 全量 period 面板为空，终止")
+        return None
+
+    results_panel_df = base_results_df.copy()
+    results_panel_df["_wf_period_key"] = results_panel_df["period"].astype(str)
+    trade_panel_df = base_trade_df.copy()
+    if not trade_panel_df.empty:
+        trade_panel_df["_wf_period_key"] = trade_panel_df["period"].astype(str)
+
+    min_train_periods = _resolve_walk_forward_min_train_periods(
+        walk_forward_mode,
+        min_train_years,
+    )
+    windows = _build_walk_forward_windows(base_periods, min_train_periods, walk_forward_mode)
     out_dir = Path(output_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -1694,46 +2297,32 @@ def _run_walk_forward_once(
     oos_trade_frames = []
 
     print(f"🧷 Exit确认天数: {exit_confirm_days}")
+    print(f"🗓️ Walk-forward粒度: {walk_forward_mode}")
     print(f"🪟 Walk-forward窗口数: {len(windows)}")
 
     for window in windows:
-        train_periods = create_annual_periods(window["train_years"])
-        test_periods = create_annual_periods([window["test_year"]])
+        train_periods = list(window["train_periods"])
+        train_period_labels = {str(label) for label, _, _ in train_periods}
         print(
-            f"\n[WF {window['window_index']}/{len(windows)}] 训练 {window['train_label']} -> 测试 {window['test_year']}",
+            f"\n[WF {window['window_index']}/{len(windows)}] 训练 {window['train_label']} -> 测试 {window['test_period_label']}",
             flush=True,
         )
 
-        train_evaluator = _build_evaluator(
-            args=args,
-            config=config,
-            output_dir=output_dir,
-            monitor_list_file=monitor_list_file,
-            portfolio_overrides=portfolio_overrides,
-            enable_overlay=enable_overlay,
-            exit_confirm_days=exit_confirm_days,
-            entry_filter_variants=entry_filter_variants,
-        )
-        train_df = train_evaluator.run_evaluation(
-            periods=train_periods,
-            entry_strategies=entry_strategies,
-            exit_strategies=exit_strategies,
-        )
+        train_df = results_panel_df.loc[
+            results_panel_df["_wf_period_key"].isin(train_period_labels)
+        ].drop(columns=["_wf_period_key"]).copy()
         if train_df.empty:
             print("⚠️ 训练结果为空，跳过该窗口")
             continue
 
         train_summary_df = summarize_prs_train_metrics(train_df)
 
-        train_rank_df, score_col = _select_rank_df(train_evaluator, ranking_mode)
+        train_rank_df, score_col = _select_rank_df(train_df, ranking_mode)
         if train_rank_df.empty:
             print("⚠️ 训练排名为空，跳过该窗口")
             continue
 
-        train_rank_df = train_rank_df.copy()
-        train_rank_df.insert(0, "window_index", window["window_index"])
-        train_rank_df.insert(1, "train_label", window["train_label"])
-        train_rank_df.insert(2, "test_year", window["test_year"])
+        train_rank_df = _insert_walk_forward_window_columns(train_rank_df, window)
         train_rank_frames.append(train_rank_df)
 
         selected = train_rank_df.iloc[0]
@@ -1742,6 +2331,7 @@ def _run_walk_forward_once(
             {
                 "window_index": window["window_index"],
                 "train_label": window["train_label"],
+                "test_period": window["test_period_label"],
                 "test_year": window["test_year"],
                 "selected_entry_strategy": selected["entry_strategy"],
                 "selected_exit_strategy": selected["exit_strategy"],
@@ -1760,21 +2350,9 @@ def _run_walk_forward_once(
             flush=True,
         )
 
-        test_evaluator = _build_evaluator(
-            args=args,
-            config=config,
-            output_dir=output_dir,
-            monitor_list_file=monitor_list_file,
-            portfolio_overrides=portfolio_overrides,
-            enable_overlay=enable_overlay,
-            exit_confirm_days=exit_confirm_days,
-            entry_filter_variants=entry_filter_variants,
-        )
-        test_df = test_evaluator.run_evaluation(
-            periods=test_periods,
-            entry_strategies=entry_strategies,
-            exit_strategies=exit_strategies,
-        )
+        test_df = results_panel_df.loc[
+            results_panel_df["_wf_period_key"] == window["test_period_label"]
+        ].drop(columns=["_wf_period_key"]).copy()
         if test_df.empty:
             print("⚠️ 测试结果为空，跳过该窗口")
             continue
@@ -1785,10 +2363,7 @@ def _run_walk_forward_once(
             if column in train_rank_df.columns and column in train_summary_df.columns
         ]
 
-        test_panel_df = test_df.copy()
-        test_panel_df.insert(0, "window_index", window["window_index"])
-        test_panel_df.insert(1, "train_label", window["train_label"])
-        test_panel_df.insert(2, "test_year", window["test_year"])
+        test_panel_df = _insert_walk_forward_window_columns(test_df, window)
         test_panel_df = test_panel_df.merge(
             train_summary_df,
             on=candidate_cols,
@@ -1819,12 +2394,11 @@ def _run_walk_forward_once(
         if not winner_test_df.empty:
             oos_frames.append(winner_test_df)
 
-        trade_df = test_evaluator._create_trade_results_dataframe()
-        if not trade_df.empty:
-            trade_df = trade_df.copy()
-            trade_df.insert(0, "window_index", window["window_index"])
-            trade_df.insert(1, "train_label", window["train_label"])
-            trade_df.insert(2, "test_year", window["test_year"])
+        if not trade_panel_df.empty:
+            trade_df = trade_panel_df.loc[
+                trade_panel_df["_wf_period_key"] == window["test_period_label"]
+            ].drop(columns=["_wf_period_key"]).copy()
+            trade_df = _insert_walk_forward_window_columns(trade_df, window)
             trade_df["train_score_metric"] = score_col
             trade_df["train_selection_score"] = selected.get(score_col)
             trade_mask = _candidate_match_mask(trade_df, selected, candidate_cols)
@@ -1851,8 +2425,8 @@ def _run_walk_forward_once(
                 dropna=False,
             )
             .agg(
-                selected_windows=("test_year", "count"),
-                test_years=("test_year", lambda s: ", ".join(map(str, s))),
+                selected_windows=("test_period", "count"),
+                test_periods=("test_period", lambda s: ", ".join(map(str, s))),
             )
             .reset_index()
             .sort_values(
@@ -1903,9 +2477,11 @@ def _run_walk_forward_once(
     report_file = out_dir / f"{prefix}_report_{timestamp}.md"
     _write_walk_forward_report(
         output_file=report_file,
+        walk_forward_mode=walk_forward_mode,
         ranking_mode=ranking_mode,
         years=years,
         min_train_years=min_train_years,
+        buy_fill_mode=getattr(args, "buy_fill_mode", "next_open"),
         selection_df=selection_df,
         selection_freq_df=selection_freq_df,
         oos_df=oos_df,
@@ -1914,6 +2490,26 @@ def _run_walk_forward_once(
     )
     files["report"] = str(report_file)
 
+    final_review_file = out_dir / f"{prefix}_final_review_{timestamp}.md"
+    _write_walk_forward_final_review_report(
+        output_file=final_review_file,
+        output_dir=str(out_dir),
+        walk_forward_mode=walk_forward_mode,
+        years=years,
+        min_train_years=min_train_years,
+        ranking_mode=ranking_mode,
+        buy_fill_mode=getattr(args, "buy_fill_mode", "next_open"),
+        selection_df=selection_df,
+        selection_freq_df=selection_freq_df,
+        oos_df=oos_df,
+        oos_panel_df=oos_panel_df,
+        regime_df=regime_df,
+        final_prs_df=final_prs_df,
+        oos_raw_path=str(oos_raw_file),
+        oos_trades_path=str(trades_file),
+    )
+    files["final_review"] = str(final_review_file)
+
     print(f"✅ Walk-forward 选择结果已保存: {selection_file}")
     print(f"✅ Walk-forward 训练排名已保存: {train_rank_file}")
     print(f"✅ Walk-forward 测试结果已保存: {oos_raw_file}")
@@ -1921,6 +2517,7 @@ def _run_walk_forward_once(
     print(f"✅ Walk-forward 市场环境结果已保存: {regime_file}")
     print(f"✅ Walk-forward Final PRS已保存: {final_prs_file}")
     print(f"✅ Walk-forward 报告已保存: {report_file}")
+    print(f"✅ Walk-forward 中文整合最终报告已保存: {final_review_file}")
 
     return files
 
@@ -2317,7 +2914,7 @@ def cmd_walk_forward_evaluate(args):
         resolved = _prepare_walk_forward_inputs(args, config)
         if resolved is None:
             return
-        entry_filter_variants, years, universe_variants = resolved
+        entry_filter_variants, years, base_periods, universe_variants = resolved
     except ValueError as e:
         print(f"❌ 错误: {e}")
         return
@@ -2327,6 +2924,7 @@ def cmd_walk_forward_evaluate(args):
     )
     ranking_mode = _resolve_ranking_mode(config, args)
     effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
+    walk_forward_mode = _resolve_walk_forward_mode(args)
     min_train_years = max(1, int(args.min_train_years))
 
     contexts = []
@@ -2369,6 +2967,8 @@ def cmd_walk_forward_evaluate(args):
             args=args,
             config=config,
             years=years,
+            walk_forward_mode=walk_forward_mode,
+            base_periods=base_periods,
             min_train_years=min_train_years,
             entry_filter_variants=entry_filter_variants,
             output_dir=output_dir,
@@ -2400,6 +3000,8 @@ def cmd_walk_forward_evaluate(args):
         print(f"  🧾 OOS交易明细: {files['oos_trades']}")
         print(f"  🔁 选择频率: {files['selection_frequency']}")
         print(f"  📝 综合报告: {files['report']}")
+        if files.get("final_review"):
+            print(f"  📘 中文整合最终报告: {files['final_review']}")
     print(f"{'=' * 80}\n")
 
 

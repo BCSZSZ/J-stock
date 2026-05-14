@@ -11,11 +11,14 @@ type EvaluationCommand =
   | "walk-forward-evaluate";
 type EvaluationMode = "annual" | "quarterly" | "monthly" | "custom";
 type EntryFilterMode = "off" | "single" | "grid" | "auto";
+type BuyFillMode = "next_open" | "next_close";
 
 interface EvaluationDefaults {
   command: string;
   mode: string;
   override_strategies: boolean;
+  buy_fill_mode: string;
+  buy_fill_modes?: string[];
   entry_strategies: string[];
   exit_strategies: string[];
   ranking_mode: string;
@@ -41,6 +44,7 @@ interface EvaluationOptionsResponse {
   entry_filter_modes: string[];
   entry_filter_names: string[];
   overlay_modes: string[];
+  buy_fill_modes: string[];
   ranking_modes: string[];
   position_profiles: string[];
   production: {
@@ -116,6 +120,16 @@ function parseOptionalInt(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function isBuyFillMode(value: string): value is BuyFillMode {
+  return value === "next_open" || value === "next_close";
+}
+
+function formatBuyFillModeLabel(mode: BuyFillMode): string {
+  return mode === "next_open"
+    ? "next_open (次日开盘成交)"
+    : "next_close (次日收盘成交)";
+}
+
 export default function Evaluation() {
   const queryClient = useQueryClient();
   const options = useQuery<EvaluationOptionsResponse>({
@@ -123,6 +137,9 @@ export default function Evaluation() {
     queryFn: api.evalOptions,
   });
   const [command, setCommand] = useState<EvaluationCommand>("evaluate");
+  const [selectedBuyFillModes, setSelectedBuyFillModes] = useState<
+    BuyFillMode[]
+  >(["next_open"]);
   const [selectedEntry, setSelectedEntry] = useState<string[]>([]);
   const [selectedExit, setSelectedExit] = useState<string[]>([]);
   const [mode, setMode] = useState<EvaluationMode>("annual");
@@ -139,9 +156,6 @@ export default function Evaluation() {
     "off",
   ]);
   const [rankingMode, setRankingMode] = useState("prs_train");
-  const [selectedRankingStrategies, setSelectedRankingStrategies] = useState<
-    string[]
-  >([]);
   const [minTrainYears, setMinTrainYears] = useState("2");
   const [positionFile, setPositionFile] = useState("");
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
@@ -166,6 +180,9 @@ export default function Evaluation() {
   const isPosEvaluation = command === "pos-evaluation";
   const showMonths = !isWalkForward && mode === "monthly";
   const showCustomPeriods = !isWalkForward && mode === "custom";
+  const modeOptions = (options.data?.modes ?? []).filter(
+    (item) => !isWalkForward || item === "annual" || item === "quarterly",
+  );
   const showFilterNames =
     entryFilterMode === "single" ||
     entryFilterMode === "grid" ||
@@ -174,13 +191,31 @@ export default function Evaluation() {
   const hasMultipleRankingModes = rankingModeOptions.length > 1;
   const productionEntry = options.data?.production.entry_strategy ?? "";
   const productionExit = options.data?.production.exit_strategy ?? "";
+  const productionRankingStrategy =
+    options.data?.production.ranking_strategy ?? "";
   const productionUniverse = options.data?.production.monitor_list_file ?? "";
+  const buyFillModeOptions = (options.data?.buy_fill_modes ?? [
+    "next_open",
+    "next_close",
+  ]).filter(isBuyFillMode);
 
   useEffect(() => {
     if (!options.data || initializedFromOptions) return;
 
     const defaults = options.data.defaults;
     setCommand((defaults.command as EvaluationCommand) ?? "evaluate");
+    const defaultBuyFillModes = (defaults.buy_fill_modes ?? []).filter(
+      isBuyFillMode,
+    );
+    setSelectedBuyFillModes(
+      defaultBuyFillModes.length > 0
+        ? defaultBuyFillModes
+        : [
+            isBuyFillMode(defaults.buy_fill_mode)
+              ? defaults.buy_fill_mode
+              : "next_open",
+          ],
+    );
     setSelectedEntry(defaults.entry_strategies ?? []);
     setSelectedExit(defaults.exit_strategies ?? []);
     setMode((defaults.mode as EvaluationMode) ?? "annual");
@@ -197,7 +232,6 @@ export default function Evaluation() {
     setEnableOverlay(Boolean(defaults.enable_overlay));
     setSelectedOverlayModes(defaults.overlay_modes ?? ["off"]);
     setRankingMode(defaults.ranking_mode ?? "prs_train");
-    setSelectedRankingStrategies(defaults.ranking_strategies ?? []);
     setMinTrainYears(String(defaults.min_train_years ?? 2));
     setPositionFile(defaults.position_file ?? "");
     setSelectedProfiles(defaults.profile_names ?? []);
@@ -210,9 +244,21 @@ export default function Evaluation() {
     }
   }, [entryFilterMode, selectedFilterNames]);
 
+  useEffect(() => {
+    if (isWalkForward && mode !== "annual" && mode !== "quarterly") {
+      setMode("annual");
+    }
+  }, [isWalkForward, mode]);
+
   async function handleRun() {
+    if (selectedBuyFillModes.length === 0) {
+      return;
+    }
+
     const payload: Record<string, unknown> = {
       command,
+      mode,
+      buy_fill_modes: selectedBuyFillModes,
       override_strategies: overrideStrategies,
       entry_strategies:
         overrideStrategies && selectedEntry.length > 0 ? selectedEntry : undefined,
@@ -227,16 +273,11 @@ export default function Evaluation() {
           : undefined,
       verbose,
       ranking_mode: rankingMode || undefined,
-      ranking_strategies:
-        selectedRankingStrategies.length > 0
-          ? selectedRankingStrategies
-          : undefined,
     };
 
     if (isWalkForward) {
       payload.min_train_years = parseOptionalInt(minTrainYears) ?? 2;
     } else {
-      payload.mode = mode;
       if (showMonths) {
         payload.months = parseIntegerList(months);
       }
@@ -259,10 +300,15 @@ export default function Evaluation() {
       `Run ${command}`,
       [
         `Command: ${command}`,
-        isWalkForward ? `Min Train Years: ${payload.min_train_years}` : `Mode: ${mode}`,
-          `Entry: ${overrideStrategies && selectedEntry.length > 0 ? selectedEntry.join(", ") : productionEntry}`,
-          `Exit: ${overrideStrategies && selectedExit.length > 0 ? selectedExit.join(", ") : productionExit}`,
-          `Universe: ${productionUniverse || "(production monitor list)"}`,
+        `Buy Fill Modes: ${selectedBuyFillModes.join(", ")}`,
+        `Execution: one full run per selected fill mode`,
+        isWalkForward
+          ? `Mode: ${mode} | Initial Train Years: ${payload.min_train_years}`
+          : `Mode: ${mode}`,
+        `Entry: ${overrideStrategies && selectedEntry.length > 0 ? selectedEntry.join(", ") : productionEntry}`,
+        `Exit: ${overrideStrategies && selectedExit.length > 0 ? selectedExit.join(", ") : productionExit}`,
+        `Signal Ranking Strategy: ${productionRankingStrategy || "(config default)"}`,
+        `Universe: ${productionUniverse || "(production monitor list)"}`,
         `Output Root: ${resolvedOutputDir ?? "(config default)"}`,
         "Output Layout: YYYYMMDD/<entry+exit+timestamp>/...",
       ].join("\n"),
@@ -277,10 +323,10 @@ export default function Evaluation() {
     setViewResult(data);
   }
 
-  function toggleSelection(
-    list: string[],
-    setter: (v: string[]) => void,
-    name: string,
+  function toggleSelection<T extends string>(
+    list: T[],
+    setter: (v: T[]) => void,
+    name: T,
     single = false,
   ) {
     if (single) {
@@ -326,20 +372,54 @@ export default function Evaluation() {
             </select>
           </div>
 
-          {!isWalkForward && (
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">Mode</label>
-              <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value as EvaluationMode)}
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-              >
-                {(options.data?.modes ?? []).map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Mode</label>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as EvaluationMode)}
+              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+            >
+              {modeOptions.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+            {isWalkForward && mode === "quarterly" && (
+              <p className="mt-2 text-xs text-gray-500">
+                Years define the covered year range. Quarterly walk-forward expands quarter by quarter within those years, current year uses only completed quarters, and Initial Train Years still sets the starting training span in years.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">
+              Buy Fill Modes ({selectedBuyFillModes.length} selected)
+            </label>
+            <p className="mb-2 text-xs text-gray-500">
+              Select one or both. The run will execute the full evaluation set for each selected fill mode.
+            </p>
+            <CheckboxList
+              options={buyFillModeOptions}
+              selected={selectedBuyFillModes}
+              onToggle={(name) => {
+                if (!isBuyFillMode(name)) return;
+                toggleSelection(
+                  selectedBuyFillModes,
+                  setSelectedBuyFillModes,
+                  name,
+                );
+              }}
+            />
+            {selectedBuyFillModes.length === 0 && (
+              <p className="mt-2 text-xs text-red-400">
+                Select at least one fill mode to run evaluation.
+              </p>
+            )}
+            {selectedBuyFillModes.length > 0 && (
+              <p className="mt-2 text-xs text-gray-500">
+                Active: {selectedBuyFillModes.map(formatBuyFillModeLabel).join(", ")}
+              </p>
+            )}
+          </div>
 
           <div>
             <label className="text-xs text-gray-500 block mb-1">
@@ -384,13 +464,16 @@ export default function Evaluation() {
           {isWalkForward && (
             <div>
               <label className="text-xs text-gray-500 block mb-1">
-                Min Train Years
+                Initial Train Years
               </label>
               <input
                 value={minTrainYears}
                 onChange={(e) => setMinTrainYears(e.target.value)}
                 className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
               />
+              <p className="mt-2 text-xs text-gray-500">
+                The initial anchored training span, measured in whole years. In quarterly mode, `2` means the first 8 quarters are used for training.
+              </p>
             </div>
           )}
 
@@ -408,7 +491,7 @@ export default function Evaluation() {
 
           <div>
             <label className="text-xs text-gray-500 block mb-1">
-              Production Strategies
+              Production Defaults
             </label>
             <div className="space-y-2 rounded border border-gray-800 bg-gray-950/40 px-3 py-3 text-sm text-gray-300">
               <div>
@@ -418,6 +501,10 @@ export default function Evaluation() {
               <div>
                 <div className="text-xs uppercase tracking-wide text-gray-500">Exit Strategy</div>
                 <div className="mt-1 break-all">{productionExit || "Not configured"}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Signal Ranking Strategy</div>
+                <div className="mt-1 break-all">{productionRankingStrategy || "Not configured"}</div>
               </div>
             </div>
           </div>
@@ -499,21 +586,16 @@ export default function Evaluation() {
             </div>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">
-              Ranking Strategies ({selectedRankingStrategies.length} selected)
-            </label>
-            <CheckboxList
-              options={options.data?.ranking_strategies ?? []}
-              selected={selectedRankingStrategies}
-              onToggle={(name) =>
-                toggleSelection(
-                  selectedRankingStrategies,
-                  setSelectedRankingStrategies,
-                  name,
-                )
-              }
-            />
+          <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3 text-sm text-gray-300">
+            <div className="text-xs uppercase tracking-wide text-gray-500">
+              Signal Ranking Strategy
+            </div>
+            <div className="mt-1 text-white">
+              {productionRankingStrategy || "Not configured"}
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              Web UI keeps signal ranking fixed to the production default. Only the train ranking mode remains configurable here.
+            </div>
           </div>
 
           <div>
@@ -630,7 +712,7 @@ export default function Evaluation() {
 
           <button
             onClick={handleRun}
-            disabled={exec.running}
+            disabled={exec.running || selectedBuyFillModes.length === 0}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm w-full"
           >
             Run {command}

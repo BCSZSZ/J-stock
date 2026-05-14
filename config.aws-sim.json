@@ -25,7 +25,7 @@
     "default": 100
   },
   "default_strategies": {
-    "entry": "MACDPreCross2BarEntry",
+    "entry": "MACDPreCross3BarEntry",
     "exit": "MVXW_N5_R3p35_T1p45_D21_B20p0"
   },
   "capacity_regime": {
@@ -77,7 +77,7 @@
   },
   "evaluation": {
     "output_dir": "output/aws_sim/strategy_evaluation",
-    "default_entry_strategies": ["MACDCrossoverStrategy"],
+    "default_entry_strategies": ["MACDPreCross3BarEntry"],
     "default_exit_strategies": ["MVX_N9_R3p6_T1p7_D18_B20p0"],
     "exit_confirmation_days": 1,
     "capacity_regime_mode": "off",
@@ -133,7 +133,7 @@
         "id": "group_main",
         "name": "主策略组",
         "initial_capital": 8000000,
-        "entry_strategy": "MACDPreCross2BarEntry",
+        "entry_strategy": "MACDPreCross3BarEntry",
         "exit_strategy": "MVXW_N5_R3p35_T1p45_D21_B20p0"
       }
     ]

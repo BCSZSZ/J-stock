@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
+
 import pandas as pd
 
 from src.client.jquants_client import JQuantsV2Client
@@ -22,6 +23,8 @@ class BenchmarkManager:
     - Local caching in data/benchmarks/
     - Consistent with stock data pipeline
     """
+
+    _topix_data_cache: dict[str, tuple[float, pd.DataFrame]] = {}
     
     def __init__(self, client: JQuantsV2Client, data_root: str = './data'):
         """
@@ -145,9 +148,16 @@ class BenchmarkManager:
         if not output_path.exists():
             logger.warning("TOPIX data not found. Run fetch_and_update_topix() first.")
             return None
+
+        cache_key = str(output_path.resolve())
+        file_mtime = output_path.stat().st_mtime
+        cached = self._topix_data_cache.get(cache_key)
+        if cached is not None and cached[0] == file_mtime:
+            return cached[1]
         
         df = pd.read_parquet(output_path)
         df['Date'] = pd.to_datetime(df['Date'])
+        self._topix_data_cache[cache_key] = (file_mtime, df)
         
         logger.info(f"Loaded TOPIX data: {len(df)} records ({df['Date'].min().date()} to {df['Date'].max().date()})")
         

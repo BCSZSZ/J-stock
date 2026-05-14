@@ -57,6 +57,7 @@ class PortfolioBacktestEngine:
         entry_filter_config: Optional[Dict] = None,
         buy_rank_buffer: int = 2,
         signal_ranker: Optional[Union["DefaultSignalRanker", object]] = None,
+        buy_fill_mode: str = "next_open",
     ):
         """
         Args:
@@ -72,6 +73,7 @@ class PortfolioBacktestEngine:
             entry_filter_config: 入场二级过滤配置（可选）
             buy_rank_buffer: 买入排序额外缓冲数量（TopN+buffer）
             signal_ranker: 排序策略实例（优先于 signal_ranking_method）
+            buy_fill_mode: 买入成交模式（next_open 或 next_close）
         """
         self.starting_capital = starting_capital
         self.max_positions = max_positions
@@ -85,6 +87,12 @@ class PortfolioBacktestEngine:
         self.preloaded_cache = preloaded_cache
         self.entry_filter = EntrySecondaryFilter.from_dict(entry_filter_config)
         self.buy_rank_buffer = max(0, int(buy_rank_buffer))
+        normalized_buy_fill_mode = str(buy_fill_mode or "next_open").strip().lower()
+        if normalized_buy_fill_mode not in {"next_open", "next_close"}:
+            raise ValueError(
+                f"Unsupported buy_fill_mode: {buy_fill_mode}. Expected next_open or next_close."
+            )
+        self.buy_fill_mode = normalized_buy_fill_mode
 
         # 创建信号排序器: 优先使用实例，否则按旧字符串方式
         if signal_ranker is not None:
@@ -197,6 +205,7 @@ class PortfolioBacktestEngine:
             executed_sells = []
             current_prices = self._get_current_prices(all_data, current_date)
             market_data_today_cache: Dict[str, Optional[MarketData]] = {}
+            portfolio_total_value_cache: Optional[float] = None
 
             def get_market_data_for_today(target_ticker: str) -> Optional[MarketData]:
                 if target_ticker not in market_data_today_cache:
@@ -205,9 +214,21 @@ class PortfolioBacktestEngine:
                     )
                 return market_data_today_cache[target_ticker]
 
+            def get_portfolio_total_value() -> float:
+                nonlocal portfolio_total_value_cache
+                if portfolio_total_value_cache is None:
+                    portfolio_total_value_cache = portfolio.get_total_value(
+                        current_prices
+                    )
+                return portfolio_total_value_cache
+
+            def invalidate_portfolio_total_value() -> None:
+                nonlocal portfolio_total_value_cache
+                portfolio_total_value_cache = None
+
             overlay_decision = None
             if self.overlay_manager:
-                total_value = portfolio.get_total_value(current_prices)
+                total_value = get_portfolio_total_value()
                 overlay_context = OverlayContext(
                     current_date=current_date,
                     portfolio_cash=portfolio.cash,
@@ -289,6 +310,7 @@ class PortfolioBacktestEngine:
                     )
 
                     if proceeds is not None:
+                        invalidate_portfolio_total_value()
                         position_quantity_after_exit = max(position.quantity, 0)
                         exit_is_full_exit = position_quantity_after_exit == 0
 
@@ -335,7 +357,7 @@ class PortfolioBacktestEngine:
             # ================================================================
             # STEP 2: 执行待执行的买入订单
             # ================================================================
-            observed_total_value = portfolio.get_total_value(current_prices)
+            observed_total_value = get_portfolio_total_value()
             day_capacity_snapshot = None
             if capacity_mode_enabled(self.capacity_regime_mode, self.capacity_regime):
                 day_capacity_snapshot = resolve_capacity_tier(
@@ -404,8 +426,8 @@ class PortfolioBacktestEngine:
                         if portfolio.has_position(ticker):
                             continue
 
-                        # 获取买入价格（明天开盘价）
-                        entry_price = self._get_next_open_price(
+                        # 获取买入价格（默认明天开盘价，可配置为明天收盘价）
+                        entry_price = self._get_buy_fill_price(
                             all_data[ticker], current_date
                         )
 
@@ -417,7 +439,7 @@ class PortfolioBacktestEngine:
                             overlay_decision
                             and overlay_decision.target_exposure is not None
                         ):
-                            total_value = portfolio.get_total_value(current_prices)
+                            total_value = get_portfolio_total_value()
                             invested = total_value - portfolio.cash
                             max_invested = (
                                 total_value * overlay_decision.target_exposure
@@ -514,6 +536,7 @@ class PortfolioBacktestEngine:
 
                             # 添加到组合
                             if portfolio.add_position(position):
+                                invalidate_portfolio_total_value()
                                 score_display = buy_signal.metadata.get("score", "N/A")
                                 executed_buys.append(
                                     f"[BUY] {current_date.date()} {ticker}: {shares:,} shares @ {entry_price:,.2f}JPY "
@@ -588,9 +611,8 @@ class PortfolioBacktestEngine:
                         sell_confirmation_streaks[ticker] = 0
 
             # 清理已不在持仓中的确认计数
-            active_tickers = set(portfolio.positions.keys())
             for tracked_ticker in list(sell_confirmation_streaks.keys()):
-                if tracked_ticker not in active_tickers:
+                if tracked_ticker not in positions:
                     del sell_confirmation_streaks[tracked_ticker]
 
             if show_signal_details and (buy_signals_today or sell_signals_today):
@@ -642,7 +664,7 @@ class PortfolioBacktestEngine:
             # ================================================================
             # STEP 5: 记录每日资产
             # ================================================================
-            total_value = portfolio.get_total_value(current_prices)
+            total_value = get_portfolio_total_value()
             daily_equity[current_date] = total_value
             equity_history_values.append(total_value)
 
@@ -833,10 +855,28 @@ class PortfolioBacktestEngine:
             prices[ticker] = float(df.iat[row_pos, close_col_pos])
         return prices
 
+    def _get_buy_fill_price(
+        self, data: Dict, current_date: pd.Timestamp
+    ) -> Optional[float]:
+        """获取当前执行日的买入成交价（开盘或收盘）。"""
+        df = data["features"]
+        pos_map = data.get("date_pos_map") or {}
+        row_pos = pos_map.get(current_date)
+        if row_pos is None:
+            return None
+        column_pos = (
+            data.get("open_col_pos")
+            if self.buy_fill_mode == "next_open"
+            else data.get("close_col_pos")
+        )
+        if column_pos is None:
+            return None
+        return float(df.iat[row_pos, column_pos])
+
     def _get_next_open_price(
         self, data: Dict, current_date: pd.Timestamp
     ) -> Optional[float]:
-        """获取下一个交易日的开盘价"""
+        """兼容旧接口：获取当前执行日的开盘价。"""
         df = data["features"]
         pos_map = data.get("date_pos_map") or {}
         row_pos = pos_map.get(current_date)
@@ -922,11 +962,20 @@ class PortfolioBacktestEngine:
         return series.to_numpy(dtype="datetime64[ns]")
 
     def _resolve_data_requirements(self, entry_strategy, exit_strategy) -> tuple[bool, bool, bool]:
+        from src.utils.strategy_loader import (
+            entry_strategy_uses_only_feature_data,
+            exit_strategy_uses_only_feature_data,
+        )
+
         entry_module = getattr(entry_strategy.__class__, "__module__", "")
         exit_module = getattr(exit_strategy.__class__, "__module__", "")
 
-        entry_feature_only = entry_module.endswith("entry.macd_crossover")
-        exit_feature_only = exit_module.endswith("exit.multiview_grid_exit")
+        entry_feature_only = entry_strategy_uses_only_feature_data(
+            module_path=entry_module
+        )
+        exit_feature_only = exit_strategy_uses_only_feature_data(
+            module_path=exit_module
+        )
 
         if entry_feature_only and exit_feature_only:
             return False, False, False

@@ -11,7 +11,7 @@ import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import time
 from collections import defaultdict
 
@@ -62,6 +62,7 @@ class AnnualStrategyResult:
     capacity_cash_drag_jpy: float = 0.0
     exit_confirmation_days: int = 1
     ranking_strategy: str = "default"
+    buy_fill_mode: str = "next_open"
 
 
 TRADE_EXPORT_COLUMNS = [
@@ -75,6 +76,7 @@ TRADE_EXPORT_COLUMNS = [
     "entry_filter",
     "ranking_strategy",
     "exit_confirmation_days",
+    "buy_fill_mode",
     "ticker",
     "entry_date",
     "entry_price",
@@ -218,6 +220,266 @@ class MarketRegime:
             return MarketRegime.EXTREME_BULL
 
 
+def _minmax_normalize_series(series: pd.Series, higher_is_better: bool) -> pd.Series:
+    s = pd.to_numeric(series, errors="coerce").fillna(0.0)
+    s_min = float(s.min())
+    s_max = float(s.max())
+    span = s_max - s_min
+    if span <= 1e-12:
+        return pd.Series([0.5] * len(s), index=s.index)
+    if higher_is_better:
+        return (s - s_min) / span
+    return (s_max - s) / span
+
+
+def rank_target20_goal_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    key_cols = candidate_key_columns(df)
+    rows = []
+
+    for key, combo_df in df.groupby(key_cols):
+        combo_df = combo_df.copy()
+        returns = pd.to_numeric(combo_df["return_pct"], errors="coerce").fillna(0.0)
+        topix = pd.to_numeric(combo_df["topix_return_pct"], errors="coerce")
+        mdd = pd.to_numeric(combo_df["max_drawdown_pct"], errors="coerce").fillna(0.0)
+
+        period_count = int(len(combo_df))
+        hit20_rate = float((returns >= 20.0).mean()) if period_count > 0 else 0.0
+        shortfall_mean = (
+            float((20.0 - returns).clip(lower=0.0).mean()) if period_count > 0 else 20.0
+        )
+        loss_period_rate = float((returns < 0.0).mean()) if period_count > 0 else 1.0
+        worst_period_return = float(returns.min()) if period_count > 0 else -999.0
+        mean_return = float(returns.mean()) if period_count > 0 else 0.0
+        avg_mdd = float(mdd.mean()) if period_count > 0 else 99.0
+
+        soft_hit20_score = (
+            float((returns / 20.0).clip(lower=0.0, upper=1.0).mean())
+            if period_count > 0
+            else 0.0
+        )
+        mean_return_component = min(1.0, max(0.0, mean_return / 30.0))
+        no_loss_component = 1.0 - loss_period_rate
+
+        bull_mask = topix.notna() & (topix >= 0.0)
+        bear_mask = topix.notna() & (topix < 0.0)
+        bull_count = int(bull_mask.sum())
+        bear_count = int(bear_mask.sum())
+
+        bull_loss_rate = (
+            float(((returns < 0.0) & bull_mask).sum()) / bull_count
+            if bull_count > 0
+            else 0.0
+        )
+        bear_hit20_rate = (
+            float(((returns >= 20.0) & bear_mask).sum()) / bear_count
+            if bear_count > 0
+            else 0.0
+        )
+
+        w_u, w_m, w_p = 0.42, 0.38, 0.20
+        base_score = 100.0 * (
+            w_u * soft_hit20_score
+            + w_m * mean_return_component
+            + w_p * no_loss_component
+        )
+
+        if worst_period_return >= 0.0:
+            penalty_worst = 0.0
+        else:
+            penalty_worst = min(30.0, abs(worst_period_return) * 2.0)
+
+        penalty_loss_ratio = min(
+            10.0, max(0.0, loss_period_rate - 0.20) * 40.0
+        )
+        penalty_bull_loss = min(25.0, bull_loss_rate * 100.0)
+        penalty_avg_mdd = min(8.0, max(0.0, avg_mdd - 12.0) * 0.5)
+        bonus_bear = 0.0
+
+        risk_penalty_total = (
+            penalty_worst
+            + penalty_loss_ratio
+            + penalty_bull_loss
+            + penalty_avg_mdd
+        )
+        final_score = max(0.0, min(100.0, base_score + bonus_bear - risk_penalty_total))
+
+        row = {
+            "period_count": period_count,
+            "hit20_rate": hit20_rate,
+            "soft_hit20_score": soft_hit20_score,
+            "shortfall_mean": shortfall_mean,
+            "loss_period_rate": loss_period_rate,
+            "bull_loss_rate": bull_loss_rate,
+            "bear_hit20_rate": bear_hit20_rate,
+            "worst_period_return": worst_period_return,
+            "avg_mdd": avg_mdd,
+            "mean_return": mean_return,
+            "mean_return_component": mean_return_component,
+            "no_loss_component": no_loss_component,
+            "base_score": base_score,
+            "bonus_bear": bonus_bear,
+            "penalty_worst": penalty_worst,
+            "penalty_loss_ratio": penalty_loss_ratio,
+            "penalty_bull_loss": penalty_bull_loss,
+            "penalty_avg_mdd": penalty_avg_mdd,
+            "risk_penalty_total": risk_penalty_total,
+            "target20_score": final_score,
+        }
+        row.update(dict(zip(key_cols, key)))
+        rows.append(row)
+
+    rank_df = pd.DataFrame(rows)
+    if rank_df.empty:
+        return rank_df
+
+    rank_df = rank_df.sort_values(
+        [
+            "target20_score",
+            "soft_hit20_score",
+            "mean_return",
+            "hit20_rate",
+            "loss_period_rate",
+            "worst_period_return",
+        ],
+        ascending=[False, False, False, False, True, False],
+    ).reset_index(drop=True)
+    rank_df.insert(0, "rank", range(1, len(rank_df) + 1))
+    return rank_df
+
+
+def rank_legacy_goal_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    working = df.copy()
+    working["market_regime"] = working["topix_return_pct"].apply(MarketRegime.classify)
+
+    key_cols = candidate_key_columns(working)
+    strategy_performance = {}
+    for regime in working["market_regime"].unique():
+        regime_df = working[working["market_regime"] == regime].copy()
+        has_alpha = (
+            regime_df["alpha"].notna().any()
+            and regime_df["topix_return_pct"].notna().any()
+        )
+        if has_alpha and regime_df["alpha"].sum() != 0:
+            regime_df["legacy_rank"] = regime_df["alpha"].rank(ascending=False)
+        else:
+            regime_df["legacy_rank"] = regime_df["return_pct"].rank(ascending=False)
+
+        for _, row in regime_df.iterrows():
+            key = tuple(row[col] for col in key_cols)
+            if key not in strategy_performance:
+                strategy_performance[key] = []
+            strategy_performance[key].append(float(row["legacy_rank"]))
+
+    rows = []
+    for key, ranks in strategy_performance.items():
+        combo_mask = pd.Series(True, index=working.index)
+        for index, column in enumerate(key_cols):
+            combo_mask &= working[column] == key[index]
+        combo_df = working[combo_mask]
+        row = {
+            "avg_rank": float(sum(ranks) / len(ranks)) if ranks else 999.0,
+            "mean_return": float(combo_df["return_pct"].mean()) if not combo_df.empty else 0.0,
+            "mean_alpha": float(combo_df["alpha"].mean()) if not combo_df.empty else 0.0,
+            "mean_sharpe": float(combo_df["sharpe_ratio"].mean()) if not combo_df.empty else 0.0,
+            "mean_win_rate": float(combo_df["win_rate_pct"].mean()) if not combo_df.empty else 0.0,
+        }
+        row.update(dict(zip(key_cols, key)))
+        rows.append(row)
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+
+    out = out.sort_values(["avg_rank", "mean_return"], ascending=[True, False]).reset_index(drop=True)
+    out.insert(0, "rank", range(1, len(out) + 1))
+    return out
+
+
+def rank_risk60_profit40_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    key_cols = candidate_key_columns(df)
+    grouped = (
+        df.groupby(key_cols)
+        .agg(
+            avg_return=("return_pct", "mean"),
+            avg_alpha=("alpha", "mean"),
+            avg_mdd=("max_drawdown_pct", "mean"),
+            worst_year_return=("return_pct", "min"),
+            period_count=("period", "nunique"),
+            positive_alpha_ratio=("alpha", lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean())),
+        )
+        .reset_index()
+    )
+
+    grouped["avg_alpha"] = pd.to_numeric(grouped["avg_alpha"], errors="coerce").fillna(0.0)
+    grouped["positive_alpha_ratio"] = pd.to_numeric(
+        grouped["positive_alpha_ratio"], errors="coerce"
+    ).fillna(0.0)
+
+    grouped["mdd_inverse_norm"] = _minmax_normalize_series(grouped["avg_mdd"], higher_is_better=False)
+    grouped["worst_year_return_norm"] = _minmax_normalize_series(
+        grouped["worst_year_return"], higher_is_better=True
+    )
+    grouped["avg_alpha_norm"] = _minmax_normalize_series(grouped["avg_alpha"], higher_is_better=True)
+    grouped["positive_alpha_ratio_norm"] = _minmax_normalize_series(
+        grouped["positive_alpha_ratio"], higher_is_better=True
+    )
+
+    grouped["risk60_profit40_score"] = (
+        grouped["mdd_inverse_norm"] * 0.35
+        + grouped["worst_year_return_norm"] * 0.25
+        + grouped["avg_alpha_norm"] * 0.25
+        + grouped["positive_alpha_ratio_norm"] * 0.15
+    )
+
+    grouped = grouped.sort_values(
+        ["risk60_profit40_score", "avg_alpha"],
+        ascending=[False, False],
+    ).reset_index(drop=True)
+    grouped.insert(0, "rank", range(1, len(grouped) + 1))
+    return grouped
+
+
+def rank_prs_train_df(
+    df: pd.DataFrame,
+    complexity_penalty_resolver: Optional[Callable[[str, str], float]] = None,
+) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    resolver = complexity_penalty_resolver or get_strategy_complexity_penalty
+    train_summary_df = summarize_prs_train_metrics(df)
+    return apply_prs_train_score(
+        train_summary_df,
+        complexity_penalty_resolver=resolver,
+    )
+
+
+def select_rank_df_for_mode(
+    df: pd.DataFrame,
+    ranking_mode: str,
+    complexity_penalty_resolver: Optional[Callable[[str, str], float]] = None,
+) -> Tuple[pd.DataFrame, str]:
+    if ranking_mode == "legacy":
+        return rank_legacy_goal_df(df), "avg_rank"
+    if ranking_mode == "risk60_profit40":
+        return rank_risk60_profit40_df(df), "risk60_profit40_score"
+    if ranking_mode == "prs_train":
+        return rank_prs_train_df(
+            df,
+            complexity_penalty_resolver=complexity_penalty_resolver,
+        ), "prs_train_score"
+    return rank_target20_goal_df(df), "target20_score"
+
+
 class StrategyEvaluator:
     """
     策略综合评价器
@@ -246,6 +508,7 @@ class StrategyEvaluator:
         portfolio_overrides: Optional[Dict] = None,
         use_cache: bool = True,
         ranking_strategies: Optional[List[str]] = None,
+        buy_fill_mode: str = "next_open",
     ):
         """
         Initialize strategy evaluator.
@@ -264,9 +527,12 @@ class StrategyEvaluator:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.results: List[AnnualStrategyResult] = []
         self.trade_results: List[Dict[str, Any]] = []
+        self._results_df_cache: Optional[pd.DataFrame] = None
+        self._trade_results_df_cache: Optional[pd.DataFrame] = None
         self.verbose = verbose  # 详细输出模式
         self.use_cache = use_cache  # Data cache flag
         self.exit_confirmation_days = max(1, int(exit_confirmation_days))
+        self.buy_fill_mode = str(buy_fill_mode or "next_open").strip().lower()
         self.monitor_list_file = monitor_list_file
         self.entry_filter_config = entry_filter_config or {}
         self.entry_filter_variants = self._normalize_entry_filter_variants(
@@ -421,6 +687,7 @@ class StrategyEvaluator:
         periods: List[Tuple[str, str, str]],
         entry_strategies: List[str] = None,
         exit_strategies: List[str] = None,
+        preloaded_cache_override=None,
     ) -> pd.DataFrame:
         """
         执行批量策略评估（并行优化版本）
@@ -439,6 +706,8 @@ class StrategyEvaluator:
 
         self.results = []
         self.trade_results = []
+        self._results_df_cache = None
+        self._trade_results_df_cache = None
 
         # 默认使用全部策略
         if entry_strategies is None:
@@ -497,20 +766,27 @@ class StrategyEvaluator:
         print(f"{'=' * 80}\n")
 
         # Step 1: Preload data cache (if enabled)
-        preloaded_cache = None
-        if self.use_cache:
+        preloaded_cache = preloaded_cache_override
+        if preloaded_cache is not None:
+            memory_dict = preloaded_cache.get_memory_usage()
+            total_mb = sum(memory_dict.values())
+            print(f"📦 复用预加载数据缓存: {len(tickers)}只股票, {total_mb:.2f} MB\n")
+            _log_step(f"evaluator: 复用外部数据缓存 ({total_mb:.2f} MB)")
+        elif self.use_cache:
             _log_step("evaluator: 开始预加载数据缓存")
             phase_started = _phase_timer_start()
             print("📦 预加载数据缓存...")
             try:
-                from src.backtest.data_cache import BacktestDataCache
+                preloaded_cache = self._prepare_preloaded_cache(
+                    tickers=tickers,
+                    periods=periods,
+                    entry_strategies=entry_strategies,
+                    exit_strategies=exit_strategies,
+                )
 
-                preloaded_cache = BacktestDataCache(data_root=self.data_root)
-
-                # 计算所需的日期范围
-                min_date = min(p[1] for p in periods)  # Earliest start_date
-                max_date = max(p[2] for p in periods)  # Latest end_date
-
+                memory_dict = preloaded_cache.get_memory_usage()
+                total_mb = sum(memory_dict.values())
+                print(f"✅ 缓存加载完成: {len(tickers)}只股票, {total_mb:.2f} MB\n")
                 include_trades, include_financials, include_metadata = (
                     self._resolve_aux_preload_flags(
                         entry_strategies=entry_strategies,
@@ -519,20 +795,6 @@ class StrategyEvaluator:
                         exit_mapping=EXIT_STRATEGIES,
                     )
                 )
-
-                preloaded_cache.preload_tickers(
-                    tickers=tickers,
-                    start_date=min_date,
-                    end_date=max_date,
-                    optimize_memory=True,
-                    include_trades=include_trades,
-                    include_financials=include_financials,
-                    include_metadata=include_metadata,
-                )
-
-                memory_dict = preloaded_cache.get_memory_usage()
-                total_mb = sum(memory_dict.values())
-                print(f"✅ 缓存加载完成: {len(tickers)}只股票, {total_mb:.2f} MB\n")
                 print(
                     "   缓存内容: "
                     f"trades={'on' if include_trades else 'off'}, "
@@ -625,6 +887,7 @@ class StrategyEvaluator:
                 )
 
                 self.results.append(result)
+                self._results_df_cache = None
                 success_count += 1
 
                 if self.verbose:
@@ -730,6 +993,40 @@ class StrategyEvaluator:
 
         return self._create_results_dataframe()
 
+    def _prepare_preloaded_cache(
+        self,
+        tickers: List[str],
+        periods: List[Tuple[str, str, str]],
+        entry_strategies: List[str],
+        exit_strategies: List[str],
+    ):
+        from src.backtest.data_cache import BacktestDataCache
+        from src.utils.strategy_loader import ENTRY_STRATEGIES, EXIT_STRATEGIES
+
+        preloaded_cache = BacktestDataCache(data_root=self.data_root)
+
+        min_date = min(p[1] for p in periods)
+        max_date = max(p[2] for p in periods)
+        include_trades, include_financials, include_metadata = (
+            self._resolve_aux_preload_flags(
+                entry_strategies=entry_strategies,
+                exit_strategies=exit_strategies,
+                entry_mapping=ENTRY_STRATEGIES,
+                exit_mapping=EXIT_STRATEGIES,
+            )
+        )
+
+        preloaded_cache.preload_tickers(
+            tickers=tickers,
+            start_date=min_date,
+            end_date=max_date,
+            optimize_memory=True,
+            include_trades=include_trades,
+            include_financials=include_financials,
+            include_metadata=include_metadata,
+        )
+        return preloaded_cache
+
     @staticmethod
     def _resolve_aux_preload_flags(
         entry_strategies: List[str],
@@ -742,15 +1039,22 @@ class StrategyEvaluator:
         selected strategy modules.
         """
 
+        from src.utils.strategy_loader import (
+            entry_strategy_uses_only_feature_data,
+            exit_strategy_uses_only_feature_data,
+        )
+
         def _entry_feature_only(name: str) -> bool:
-            path = entry_mapping.get(name, "")
-            return path.endswith("entry.macd_crossover.MACDCrossoverStrategy") or (
-                "entry.macd_precross_momentum_entry" in path
+            return entry_strategy_uses_only_feature_data(
+                strategy_name=name,
+                module_path=entry_mapping.get(name, ""),
             )
 
         def _exit_feature_only(name: str) -> bool:
-            path = exit_mapping.get(name, "")
-            return "exit.multiview_grid_exit" in path
+            return exit_strategy_uses_only_feature_data(
+                strategy_name=name,
+                module_path=exit_mapping.get(name, ""),
+            )
 
         if entry_strategies and exit_strategies:
             all_feature_only = all(_entry_feature_only(e) for e in entry_strategies) and all(
@@ -822,6 +1126,7 @@ class StrategyEvaluator:
             preloaded_cache=preloaded_cache,  # Pass cache to engine
             entry_filter_config=entry_filter_config,
             signal_ranker=ranker,
+            buy_fill_mode=self.buy_fill_mode,
         )
         self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 
@@ -890,6 +1195,7 @@ class StrategyEvaluator:
             capacity_cash_drag_jpy=result.capacity_cash_drag_jpy,
             exit_confirmation_days=self.exit_confirmation_days,
             ranking_strategy=ranking_strategy,
+            buy_fill_mode=self.buy_fill_mode,
         )
 
     def _get_topix_return(self, start_date: str, end_date: str) -> Optional[float]:
@@ -985,7 +1291,11 @@ class StrategyEvaluator:
         if not self.results:
             return pd.DataFrame()
 
-        return pd.DataFrame([asdict(r) for r in self.results])
+        if self._results_df_cache is not None:
+            return self._results_df_cache
+
+        self._results_df_cache = pd.DataFrame([asdict(r) for r in self.results])
+        return self._results_df_cache
 
     @staticmethod
     def _safe_json_dumps(value: Any) -> str:
@@ -1012,6 +1322,7 @@ class StrategyEvaluator:
         ranking_strategy: str,
     ) -> None:
         market_regime = MarketRegime.classify(topix_return)
+        self._trade_results_df_cache = None
 
         for trade in getattr(result, "trades", []) or []:
             entry_metadata = getattr(trade, "entry_metadata", {}) or {}
@@ -1048,6 +1359,7 @@ class StrategyEvaluator:
                     "entry_filter": entry_filter_name,
                     "ranking_strategy": ranking_strategy,
                     "exit_confirmation_days": self.exit_confirmation_days,
+                    "buy_fill_mode": self.buy_fill_mode,
                     "ticker": getattr(trade, "ticker", None),
                     "entry_date": getattr(trade, "entry_date", None),
                     "entry_price": getattr(trade, "entry_price", None),
@@ -1201,11 +1513,15 @@ class StrategyEvaluator:
         if not self.trade_results:
             return pd.DataFrame(columns=TRADE_EXPORT_COLUMNS)
 
+        if self._trade_results_df_cache is not None:
+            return self._trade_results_df_cache
+
         trade_df = pd.DataFrame(self.trade_results)
         for col in TRADE_EXPORT_COLUMNS:
             if col not in trade_df.columns:
                 trade_df[col] = pd.NA
-        return trade_df[TRADE_EXPORT_COLUMNS]
+        self._trade_results_df_cache = trade_df[TRADE_EXPORT_COLUMNS]
+        return self._trade_results_df_cache
 
     @staticmethod
     def _coerce_full_exit_flags(values: pd.Series) -> pd.Series:
@@ -1754,283 +2070,21 @@ class StrategyEvaluator:
         return results
 
     def rank_by_target20_goal(self) -> pd.DataFrame:
-        """
-        Balanced target20 ranking with continuous-hit utility + mean return + stability.
-
-        Core idea:
-        - Replace binary hit20 with continuous utility U: clip(return/20, 0, 1)
-        - Keep mean return M as a separate dimension
-        - Keep no-loss ratio P as a stability anchor
-                - Apply risk guardrails with deduction terms (worst year / loss ratio /
-                    bull-market losses / average drawdown); no bear-market bonus.
-
-        Returns:
-            DataFrame with one row per strategy combo and quantitative ranking metrics.
-        """
-        df = self._create_results_dataframe()
-        if df.empty:
-            return pd.DataFrame()
-
-        key_cols = candidate_key_columns(df)
-        rows = []
-
-        for key, combo_df in df.groupby(key_cols):
-            combo_df = combo_df.copy()
-            returns = pd.to_numeric(combo_df["return_pct"], errors="coerce").fillna(0.0)
-            topix = pd.to_numeric(combo_df["topix_return_pct"], errors="coerce")
-            mdd = pd.to_numeric(combo_df["max_drawdown_pct"], errors="coerce").fillna(0.0)
-
-            period_count = int(len(combo_df))
-            hit20_rate = float((returns >= 20.0).mean()) if period_count > 0 else 0.0
-            shortfall_mean = (
-                float((20.0 - returns).clip(lower=0.0).mean()) if period_count > 0 else 20.0
-            )
-            loss_period_rate = float((returns < 0.0).mean()) if period_count > 0 else 1.0
-            worst_period_return = float(returns.min()) if period_count > 0 else -999.0
-            mean_return = float(returns.mean()) if period_count > 0 else 0.0
-            avg_mdd = float(mdd.mean()) if period_count > 0 else 99.0
-
-            # Continuous hit utility: 20% reaches full score, lower positive returns
-            # still get partial credit, non-positive gets no credit.
-            soft_hit20_score = (
-                float((returns / 20.0).clip(lower=0.0, upper=1.0).mean())
-                if period_count > 0
-                else 0.0
-            )
-
-            # Mean-return component normalized to [0,1] using 30% as saturation point.
-            mean_return_component = min(1.0, max(0.0, mean_return / 30.0))
-
-            # Stability component: fewer losing periods is better.
-            no_loss_component = 1.0 - loss_period_rate
-
-            bull_mask = topix.notna() & (topix >= 0.0)
-            bear_mask = topix.notna() & (topix < 0.0)
-            bull_count = int(bull_mask.sum())
-            bear_count = int(bear_mask.sum())
-
-            bull_loss_rate = (
-                float(((returns < 0.0) & bull_mask).sum()) / bull_count
-                if bull_count > 0
-                else 0.0
-            )
-            bear_hit20_rate = (
-                float(((returns >= 20.0) & bear_mask).sum()) / bear_count
-                if bear_count > 0
-                else 0.0
-            )
-
-            # Balanced UMP weights (U/M/P): emphasize target-consistency while
-            # preserving return level discrimination.
-            w_u, w_m, w_p = 0.42, 0.38, 0.20
-            base_score = 100.0 * (
-                w_u * soft_hit20_score
-                + w_m * mean_return_component
-                + w_p * no_loss_component
-            )
-
-            # Risk guardrails (deduction-based)
-            # Worst period penalty: starts once worst period is below 0%.
-            if worst_period_return >= 0.0:
-                penalty_worst = 0.0
-            else:
-                penalty_worst = min(30.0, abs(worst_period_return) * 2.0)
-
-            # Loss-ratio penalty: starts above 20% losing periods.
-            penalty_loss_ratio = min(
-                10.0, max(0.0, loss_period_rate - 0.20) * 40.0
-            )
-
-            # Bull-loss penalty: any losing period in bull market is penalized,
-            # and the penalty ramps up aggressively.
-            penalty_bull_loss = min(25.0, bull_loss_rate * 100.0)
-
-            # Drawdown penalty: starts above 12% average drawdown.
-            penalty_avg_mdd = min(8.0, max(0.0, avg_mdd - 12.0) * 0.5)
-
-            # Bear-market bonus is intentionally disabled.
-            bonus_bear = 0.0
-
-            risk_penalty_total = (
-                penalty_worst
-                + penalty_loss_ratio
-                + penalty_bull_loss
-                + penalty_avg_mdd
-            )
-
-            final_score = max(
-                0.0,
-                min(100.0, base_score + bonus_bear - risk_penalty_total),
-            )
-
-            row = {
-                "period_count": period_count,
-                "hit20_rate": hit20_rate,
-                "soft_hit20_score": soft_hit20_score,
-                "shortfall_mean": shortfall_mean,
-                "loss_period_rate": loss_period_rate,
-                "bull_loss_rate": bull_loss_rate,
-                "bear_hit20_rate": bear_hit20_rate,
-                "worst_period_return": worst_period_return,
-                "avg_mdd": avg_mdd,
-                "mean_return": mean_return,
-                "mean_return_component": mean_return_component,
-                "no_loss_component": no_loss_component,
-                "base_score": base_score,
-                "bonus_bear": bonus_bear,
-                "penalty_worst": penalty_worst,
-                "penalty_loss_ratio": penalty_loss_ratio,
-                "penalty_bull_loss": penalty_bull_loss,
-                "penalty_avg_mdd": penalty_avg_mdd,
-                "risk_penalty_total": risk_penalty_total,
-                "target20_score": final_score,
-            }
-            row.update(dict(zip(key_cols, key)))
-            rows.append(row)
-
-        rank_df = pd.DataFrame(rows)
-        if rank_df.empty:
-            return rank_df
-
-        rank_df = rank_df.sort_values(
-            [
-                "target20_score",
-                "soft_hit20_score",
-                "mean_return",
-                "hit20_rate",
-                "loss_period_rate",
-                "worst_period_return",
-            ],
-            ascending=[False, False, False, False, True, False],
-        ).reset_index(drop=True)
-        rank_df.insert(0, "rank", range(1, len(rank_df) + 1))
-        return rank_df
+        return rank_target20_goal_df(self._create_results_dataframe())
 
     def rank_by_legacy_goal(self) -> pd.DataFrame:
-        """Legacy all-weather ranking based on cross-regime average rank."""
-        df = self._create_results_dataframe()
-        if df.empty:
-            return pd.DataFrame()
-
-        df = df.copy()
-        df["market_regime"] = df["topix_return_pct"].apply(MarketRegime.classify)
-
-        key_cols = candidate_key_columns(df)
-        strategy_performance = {}
-        for regime in df["market_regime"].unique():
-            regime_df = df[df["market_regime"] == regime].copy()
-            has_alpha = (
-                regime_df["alpha"].notna().any()
-                and regime_df["topix_return_pct"].notna().any()
-            )
-            if has_alpha and regime_df["alpha"].sum() != 0:
-                regime_df["legacy_rank"] = regime_df["alpha"].rank(ascending=False)
-            else:
-                regime_df["legacy_rank"] = regime_df["return_pct"].rank(ascending=False)
-
-            for _, row in regime_df.iterrows():
-                key = tuple(row[col] for col in key_cols)
-                if key not in strategy_performance:
-                    strategy_performance[key] = []
-                strategy_performance[key].append(float(row["legacy_rank"]))
-
-        rows = []
-        for key, ranks in strategy_performance.items():
-            combo_mask = pd.Series(True, index=df.index)
-            for index, column in enumerate(key_cols):
-                combo_mask &= df[column] == key[index]
-            combo_df = df[combo_mask]
-            row = {
-                "avg_rank": float(sum(ranks) / len(ranks)) if ranks else 999.0,
-                "mean_return": float(combo_df["return_pct"].mean()) if not combo_df.empty else 0.0,
-                "mean_alpha": float(combo_df["alpha"].mean()) if not combo_df.empty else 0.0,
-                "mean_sharpe": float(combo_df["sharpe_ratio"].mean()) if not combo_df.empty else 0.0,
-                "mean_win_rate": float(combo_df["win_rate_pct"].mean()) if not combo_df.empty else 0.0,
-            }
-            row.update(dict(zip(key_cols, key)))
-            rows.append(row)
-
-        out = pd.DataFrame(rows)
-        if out.empty:
-            return out
-
-        out = out.sort_values(["avg_rank", "mean_return"], ascending=[True, False]).reset_index(drop=True)
-        out.insert(0, "rank", range(1, len(out) + 1))
-        return out
+        return rank_legacy_goal_df(self._create_results_dataframe())
 
     @staticmethod
     def _minmax_normalize_series(series: pd.Series, higher_is_better: bool) -> pd.Series:
-        s = pd.to_numeric(series, errors="coerce").fillna(0.0)
-        s_min = float(s.min())
-        s_max = float(s.max())
-        span = s_max - s_min
-        if span <= 1e-12:
-            return pd.Series([0.5] * len(s), index=s.index)
-        if higher_is_better:
-            return (s - s_min) / span
-        return (s_max - s) / span
+        return _minmax_normalize_series(series, higher_is_better)
 
     def rank_by_risk60_profit40(self) -> pd.DataFrame:
-        """
-        risk60_profit40_v2 scoring (same metric design as tools/score_strategy_ranking.py):
-        - Risk 60%: avg_mdd 35% + worst_year_return 25%
-        - Profit 40%: avg_alpha 25% + positive_alpha_ratio 15%
-        """
-        df = self._create_results_dataframe()
-        if df.empty:
-            return pd.DataFrame()
-
-        key_cols = candidate_key_columns(df)
-        grouped = (
-            df.groupby(key_cols)
-            .agg(
-                avg_return=("return_pct", "mean"),
-                avg_alpha=("alpha", "mean"),
-                avg_mdd=("max_drawdown_pct", "mean"),
-                worst_year_return=("return_pct", "min"),
-                period_count=("period", "nunique"),
-                positive_alpha_ratio=("alpha", lambda s: float((pd.to_numeric(s, errors="coerce") > 0).mean())),
-            )
-            .reset_index()
-        )
-
-        grouped["avg_alpha"] = pd.to_numeric(grouped["avg_alpha"], errors="coerce").fillna(0.0)
-        grouped["positive_alpha_ratio"] = pd.to_numeric(
-            grouped["positive_alpha_ratio"], errors="coerce"
-        ).fillna(0.0)
-
-        grouped["mdd_inverse_norm"] = self._minmax_normalize_series(grouped["avg_mdd"], higher_is_better=False)
-        grouped["worst_year_return_norm"] = self._minmax_normalize_series(
-            grouped["worst_year_return"], higher_is_better=True
-        )
-        grouped["avg_alpha_norm"] = self._minmax_normalize_series(grouped["avg_alpha"], higher_is_better=True)
-        grouped["positive_alpha_ratio_norm"] = self._minmax_normalize_series(
-            grouped["positive_alpha_ratio"], higher_is_better=True
-        )
-
-        grouped["risk60_profit40_score"] = (
-            grouped["mdd_inverse_norm"] * 0.35
-            + grouped["worst_year_return_norm"] * 0.25
-            + grouped["avg_alpha_norm"] * 0.25
-            + grouped["positive_alpha_ratio_norm"] * 0.15
-        )
-
-        grouped = grouped.sort_values(
-            ["risk60_profit40_score", "avg_alpha"],
-            ascending=[False, False],
-        ).reset_index(drop=True)
-        grouped.insert(0, "rank", range(1, len(grouped) + 1))
-        return grouped
+        return rank_risk60_profit40_df(self._create_results_dataframe())
 
     def rank_by_prs_train(self) -> pd.DataFrame:
-        """Train-only Production Robustness Score for candidate selection."""
-        df = self._create_results_dataframe()
-        if df.empty:
-            return pd.DataFrame()
-
-        train_summary_df = summarize_prs_train_metrics(df)
-        return apply_prs_train_score(
-            train_summary_df,
+        return rank_prs_train_df(
+            self._create_results_dataframe(),
             complexity_penalty_resolver=get_strategy_complexity_penalty,
         )
 
@@ -2451,9 +2505,19 @@ def create_quarterly_periods(years: List[int]) -> List[Tuple[str, str, str]]:
         ("Q3", "07-01", "09-30"),
         ("Q4", "10-01", "12-31"),
     ]
+    today = datetime.now()
+    current_year = today.year
+    completed_quarters_in_current_year = max(0, (today.month - 1) // 3)
 
     for year in years:
-        for q_label, start, end in quarters:
+        if year > current_year:
+            continue
+
+        quarter_limit = len(quarters)
+        if year == current_year:
+            quarter_limit = completed_quarters_in_current_year
+
+        for q_label, start, end in quarters[:quarter_limit]:
             periods.append((f"{year}-{q_label}", f"{year}-{start}", f"{year}-{end}"))
 
     return periods

@@ -93,6 +93,8 @@ class StockDataManager:
     - metadata/: Earnings dates, sector info (JSON)
     """
 
+    _metadata_file_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
+
     def __init__(self, api_key: str = None, data_root: str = "./data"):
         """
         Initialize the Stock Data Manager with Data Lake structure.
@@ -448,8 +450,17 @@ class StockDataManager:
         if not metadata_path.exists():
             return {}
         try:
+            cache_key = str(metadata_path.resolve())
+            file_mtime = metadata_path.stat().st_mtime
+            cached = self._metadata_file_cache.get(cache_key)
+            if cached is not None and cached[0] == file_mtime:
+                return dict(cached[1])
+
             with open(metadata_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                metadata = json.load(f)
+
+            self._metadata_file_cache[cache_key] = (file_mtime, dict(metadata))
+            return metadata
         except Exception as e:
             logger.warning(f"[{ticker}] Failed to load metadata: {e}")
             return {}
@@ -459,6 +470,9 @@ class StockDataManager:
         try:
             with open(metadata_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, ensure_ascii=True, indent=2)
+            cache_key = str(metadata_path.resolve())
+            file_mtime = metadata_path.stat().st_mtime
+            self._metadata_file_cache[cache_key] = (file_mtime, dict(metadata))
         except Exception as e:
             logger.warning(f"[{ticker}] Failed to save metadata: {e}")
 

@@ -105,6 +105,31 @@ EXIT_STRATEGIES = {
 
 
 STRATEGY_COMPLEXITY_OVERRIDES: Dict[Tuple[str, str], StrategyComplexity] = {}
+STRATEGY_CLASS_CACHE: Dict[Tuple[str, str], type] = {}
+
+
+def entry_strategy_uses_only_feature_data(
+    strategy_name: str | None = None,
+    module_path: str | None = None,
+) -> bool:
+    """Return True when the entry strategy only needs feature columns."""
+    path = module_path or ENTRY_STRATEGIES.get(strategy_name or "", "")
+    if not path:
+        return False
+    return path.endswith("entry.macd_crossover.MACDCrossoverStrategy") or (
+        "entry.macd_precross_momentum_entry" in path
+    )
+
+
+def exit_strategy_uses_only_feature_data(
+    strategy_name: str | None = None,
+    module_path: str | None = None,
+) -> bool:
+    """Return True when the exit strategy only needs feature columns."""
+    path = module_path or EXIT_STRATEGIES.get(strategy_name or "", "")
+    if not path:
+        return False
+    return "exit.multiview_grid_exit" in path
 
 try:
     from src.analysis.strategies.exit.multiview_grid_exit import (
@@ -177,10 +202,17 @@ def load_strategy_class(strategy_name: str, strategy_type: str = "entry"):
             f"Unknown {strategy_type} strategy '{strategy_name}'. Available: {available}"
         )
 
+    cache_key = (strategy_type, strategy_name)
+    cached_class = STRATEGY_CLASS_CACHE.get(cache_key)
+    if cached_class is not None:
+        return cached_class
+
     # 动态导入
     module_path, class_name = mapping[strategy_name].rsplit(".", 1)
     module = __import__(module_path, fromlist=[class_name])
-    return getattr(module, class_name)
+    strategy_class = getattr(module, class_name)
+    STRATEGY_CLASS_CACHE[cache_key] = strategy_class
+    return strategy_class
 
 
 def create_strategy_instance(

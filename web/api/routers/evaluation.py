@@ -25,6 +25,7 @@ EVALUATION_MODES = ["annual", "quarterly", "monthly", "custom"]
 ENTRY_FILTER_MODES = ["off", "single", "grid", "auto"]
 RANKING_MODES = ["prs_train"]
 OVERLAY_MODES = ["off", "on"]
+BUY_FILL_MODES = ["next_open", "next_close"]
 
 
 def _resolve_local_path(path_value: str | None) -> Path | None:
@@ -97,6 +98,45 @@ def _append_multi_flag(args: list[str], flag: str, values: list[str] | list[int]
     args.extend(normalized)
 
 
+def _resolve_production_ranking_strategy(raw_config: dict[str, Any]) -> str:
+    production_cfg = raw_config.get("production", {})
+    if "signal_ranking_strategy" not in production_cfg:
+        return "momentum"
+
+    configured_value = production_cfg.get("signal_ranking_strategy")
+    if configured_value is None:
+        return ""
+    return str(configured_value).strip()
+
+
+def _resolve_requested_buy_fill_modes(req: EvaluationRunRequest) -> list[str]:
+    requested_modes = req.buy_fill_modes or [req.buy_fill_mode]
+    resolved: list[str] = []
+    for mode in requested_modes:
+        normalized = str(mode).strip()
+        if normalized and normalized not in resolved:
+            resolved.append(normalized)
+    return resolved or [req.buy_fill_mode]
+
+
+def _resolve_effective_ranking_strategies(
+    req: EvaluationRunRequest,
+    production_ranking_strategy: str,
+) -> list[str] | None:
+    if req.ranking_strategies:
+        normalized = [
+            str(strategy).strip()
+            for strategy in req.ranking_strategies
+            if str(strategy).strip()
+        ]
+        return normalized or None
+
+    default_strategy = str(production_ranking_strategy or "").strip()
+    if not default_strategy:
+        return None
+    return [default_strategy]
+
+
 def _resolve_production_strategy_defaults(prod_cfg) -> tuple[str, str]:
     strategy_groups = getattr(prod_cfg, "strategy_groups", None) or []
     preferred_group = None
@@ -126,17 +166,29 @@ def _resolve_production_strategy_defaults(prod_cfg) -> tuple[str, str]:
     )
 
 
-def _build_cli_args(req: EvaluationRunRequest) -> list[str]:
+def _build_cli_args(
+    req: EvaluationRunRequest,
+    buy_fill_mode: str | None = None,
+) -> list[str]:
     if req.command not in COMMANDS:
         raise HTTPException(status_code=400, detail=f"Unsupported command: {req.command}")
 
     prod_cfg = get_production_config()
+    raw_config = get_config_manager().raw_config
     production_entry, production_exit = _resolve_production_strategy_defaults(prod_cfg)
+    production_ranking_strategy = _resolve_production_ranking_strategy(raw_config)
 
     args = [req.command]
 
-    if req.command in {"evaluate", "pos-evaluation"}:
+    if req.command in {"evaluate", "pos-evaluation", "walk-forward-evaluate"}:
+        if req.command == "walk-forward-evaluate" and req.mode not in {"annual", "quarterly"}:
+            raise HTTPException(
+                status_code=400,
+                detail="walk-forward-evaluate only supports annual or quarterly mode.",
+            )
         args.extend(["--mode", req.mode])
+
+    args.extend(["--buy-fill-mode", buy_fill_mode or req.buy_fill_mode])
 
     if req.years:
         _append_multi_flag(args, "--years", req.years)
@@ -190,7 +242,11 @@ def _build_cli_args(req: EvaluationRunRequest) -> list[str]:
     if req.ranking_mode:
         args.extend(["--ranking-mode", req.ranking_mode])
 
-    _append_multi_flag(args, "--ranking-strategies", req.ranking_strategies)
+    _append_multi_flag(
+        args,
+        "--ranking-strategies",
+        _resolve_effective_ranking_strategies(req, production_ranking_strategy),
+    )
 
     if req.command == "pos-evaluation":
         if req.position_file:
@@ -211,13 +267,12 @@ def get_options() -> dict[str, object]:
     raw_config = cm.raw_config
     eval_cfg = raw_config.get("evaluation", {})
     prod_cfg = get_production_config()
-    prod_raw_cfg = raw_config.get("production", {})
     default_position_file, default_profile_names, position_profiles = _load_position_profiles(
         raw_config
     )
 
     production_entry, production_exit = _resolve_production_strategy_defaults(prod_cfg)
-    default_ranking_strategy = prod_raw_cfg.get("signal_ranking_strategy")
+    default_ranking_strategy = _resolve_production_ranking_strategy(raw_config)
     default_universe_file = getattr(prod_cfg, "monitor_list_file", None)
     return {
         "commands": COMMANDS,
@@ -228,6 +283,7 @@ def get_options() -> dict[str, object]:
         "entry_filter_modes": ENTRY_FILTER_MODES,
         "entry_filter_names": _load_entry_filter_names(raw_config),
         "overlay_modes": OVERLAY_MODES,
+        "buy_fill_modes": BUY_FILL_MODES,
         "ranking_modes": RANKING_MODES,
         "position_profiles": position_profiles,
         "production": {
@@ -250,6 +306,8 @@ def get_options() -> dict[str, object]:
             "entry_filter_names": [],
             "enable_overlay": False,
             "overlay_modes": ["off"],
+            "buy_fill_mode": "next_open",
+            "buy_fill_modes": ["next_open"],
             "exit_confirm_days": eval_cfg.get("exit_confirmation_days"),
             "output_dir": str(eval_cfg.get("output_dir", "strategy_evaluation")),
             "universe_files": (
@@ -265,24 +323,54 @@ def get_options() -> dict[str, object]:
 @router.post("/run")
 async def run_evaluation(req: EvaluationRunRequest) -> StreamingResponse:
     root = get_project_root()
-    args = _build_cli_args(req)
+    requested_buy_fill_modes = _resolve_requested_buy_fill_modes(req)
 
     async def event_stream():  # type: ignore[return]
         q: Queue[str | None] = Queue()
 
+        def _emit_line(text: str) -> None:
+            q.put(f"data: {json.dumps({'line': text})}\n\n")
+
         def _reader() -> None:
-            proc = subprocess.Popen(
-                ["uv", "run", "python", "main.py", *args],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                cwd=str(root),
-            )
-            assert proc.stdout is not None
-            for raw_line in proc.stdout:
-                text = raw_line.decode("utf-8", errors="replace").rstrip("\n")
-                q.put(f"data: {json.dumps({'line': text})}\n\n")
-            code = proc.wait()
-            q.put(f"data: {json.dumps({'done': True, 'exit_code': code})}\n\n")
+            final_code = 0
+            total_modes = len(requested_buy_fill_modes)
+
+            if total_modes > 1:
+                _emit_line(
+                    f"Running {total_modes} buy fill mode batches: {', '.join(requested_buy_fill_modes)}"
+                )
+
+            for index, buy_fill_mode in enumerate(requested_buy_fill_modes, start=1):
+                if total_modes > 1:
+                    _emit_line("=" * 80)
+                    _emit_line(
+                        f"[buy-fill {index}/{total_modes}] Starting full run for {buy_fill_mode}"
+                    )
+                    _emit_line("=" * 80)
+
+                args = _build_cli_args(req, buy_fill_mode=buy_fill_mode)
+                proc = subprocess.Popen(
+                    ["uv", "run", "python", "main.py", *args],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    cwd=str(root),
+                )
+                assert proc.stdout is not None
+                for raw_line in proc.stdout:
+                    text = raw_line.decode("utf-8", errors="replace").rstrip("\n")
+                    _emit_line(text)
+
+                code = proc.wait()
+                if code != 0 and final_code == 0:
+                    final_code = code
+
+                if total_modes > 1:
+                    status = "OK" if code == 0 else f"FAILED ({code})"
+                    _emit_line(
+                        f"[buy-fill {index}/{total_modes}] Completed {buy_fill_mode}: {status}"
+                    )
+
+            q.put(f"data: {json.dumps({'done': True, 'exit_code': final_code})}\n\n")
             q.put(None)  # sentinel
 
         t = threading.Thread(target=_reader, daemon=True)

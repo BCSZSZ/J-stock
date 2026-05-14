@@ -159,6 +159,7 @@ export const api = {
       entry_filter_modes: string[];
       entry_filter_names: string[];
       overlay_modes: string[];
+      buy_fill_modes: string[];
       ranking_modes: string[];
       position_profiles: string[];
       production: {
@@ -171,6 +172,8 @@ export const api = {
         command: string;
         mode: string;
         override_strategies: boolean;
+        buy_fill_mode: string;
+        buy_fill_modes?: string[];
         entry_strategies: string[];
         exit_strategies: string[];
         ranking_mode: string;

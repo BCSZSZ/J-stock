@@ -41,6 +41,12 @@ def _cmd_walk_forward_evaluate(args):
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
+        "--buy-fill-mode",
+        choices=["next_open", "next_close"],
+        default="next_open",
+        help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
+    )
+    parser.add_argument(
         "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
     )
     parser.add_argument(
@@ -129,6 +135,18 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach arguments for anchored walk-forward evaluation."""
+    parser.add_argument(
+        "--buy-fill-mode",
+        choices=["next_open", "next_close"],
+        default="next_open",
+        help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["annual", "quarterly"],
+        default="annual",
+        help="walk-forward 模式: annual=按年滚动, quarterly=按季度滚动（最少训练年份数仍按年解释）",
+    )
     parser.add_argument(
         "--years",
         nargs="+",

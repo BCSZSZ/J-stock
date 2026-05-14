@@ -123,6 +123,8 @@ class EvaluationRunRequest(BaseModel):
     command: Literal["evaluate", "pos-evaluation", "walk-forward-evaluate"] = (
         "evaluate"
     )
+    buy_fill_mode: Literal["next_open", "next_close"] = "next_open"
+    buy_fill_modes: list[Literal["next_open", "next_close"]] | None = None
     override_strategies: bool = False
     entry_strategies: list[str] | None = None
     exit_strategies: list[str] | None = None
