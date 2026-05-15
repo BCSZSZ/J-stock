@@ -201,6 +201,169 @@ def test_write_annual_continuous_stability_rank_writes_csv_and_report(tmp_path):
     assert Path(files["continuous_stability_report"]).exists()
 
 
+def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_path):
+    segmented_path = tmp_path / "segmented.csv"
+    trades_path = tmp_path / "trades.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "period": "2021",
+                "start_date": "2021-01-01",
+                "end_date": "2021-12-31",
+                "entry_strategy": "EntryA",
+                "exit_strategy": "ExitA",
+                "entry_filter": "off",
+                "exit_confirmation_days": 1,
+                "buy_fill_mode": "next_open",
+                "return_pct": 10.0,
+                "topix_return_pct": 5.0,
+                "alpha": 5.0,
+                "sharpe_ratio": 1.2,
+                "max_drawdown_pct": 5.0,
+                "num_trades": 8,
+                "win_rate_pct": 50.0,
+                "avg_gain_pct": 4.0,
+                "avg_loss_pct": -2.0,
+            },
+            {
+                "period": "2022",
+                "start_date": "2022-01-01",
+                "end_date": "2022-12-31",
+                "entry_strategy": "EntryA",
+                "exit_strategy": "ExitA",
+                "entry_filter": "off",
+                "exit_confirmation_days": 1,
+                "buy_fill_mode": "next_open",
+                "return_pct": 20.0,
+                "topix_return_pct": 6.0,
+                "alpha": 14.0,
+                "sharpe_ratio": 1.4,
+                "max_drawdown_pct": 7.0,
+                "num_trades": 10,
+                "win_rate_pct": 70.0,
+                "avg_gain_pct": 5.0,
+                "avg_loss_pct": -2.5,
+            },
+            {
+                "period": "2021",
+                "start_date": "2021-01-01",
+                "end_date": "2021-12-31",
+                "entry_strategy": "EntryB",
+                "exit_strategy": "ExitB",
+                "entry_filter": "strict",
+                "exit_confirmation_days": 2,
+                "buy_fill_mode": "next_open",
+                "return_pct": 30.0,
+                "topix_return_pct": 5.0,
+                "alpha": 25.0,
+                "sharpe_ratio": 1.8,
+                "max_drawdown_pct": 9.0,
+                "num_trades": 6,
+                "win_rate_pct": 80.0,
+                "avg_gain_pct": 6.0,
+                "avg_loss_pct": -3.0,
+            },
+            {
+                "period": "2022",
+                "start_date": "2022-01-01",
+                "end_date": "2022-12-31",
+                "entry_strategy": "EntryB",
+                "exit_strategy": "ExitB",
+                "entry_filter": "strict",
+                "exit_confirmation_days": 2,
+                "buy_fill_mode": "next_open",
+                "return_pct": 50.0,
+                "topix_return_pct": 6.0,
+                "alpha": 44.0,
+                "sharpe_ratio": 2.0,
+                "max_drawdown_pct": 11.0,
+                "num_trades": 7,
+                "win_rate_pct": 60.0,
+                "avg_gain_pct": 7.0,
+                "avg_loss_pct": -3.5,
+            },
+        ]
+    ).to_csv(segmented_path, index=False)
+
+    pd.DataFrame(
+        [
+            {
+                "period": "2021",
+                "entry_strategy": "EntryA",
+                "exit_strategy": "ExitA",
+                "entry_filter": "off",
+                "exit_confirmation_days": 1,
+                "buy_fill_mode": "next_open",
+                "return_jpy": 1000.0,
+                "exit_urgency": "P_TP1",
+                "ticker": "1332",
+            },
+            {
+                "period": "2022",
+                "entry_strategy": "EntryA",
+                "exit_strategy": "ExitA",
+                "entry_filter": "off",
+                "exit_confirmation_days": 1,
+                "buy_fill_mode": "next_open",
+                "return_jpy": 1500.0,
+                "exit_urgency": "P_TP2",
+                "ticker": "1332",
+            },
+            {
+                "period": "2021",
+                "entry_strategy": "EntryB",
+                "exit_strategy": "ExitB",
+                "entry_filter": "strict",
+                "exit_confirmation_days": 2,
+                "buy_fill_mode": "next_open",
+                "return_jpy": 2000.0,
+                "exit_urgency": "P_TP1",
+                "ticker": "1332",
+            },
+            {
+                "period": "2022",
+                "entry_strategy": "EntryB",
+                "exit_strategy": "ExitB",
+                "entry_filter": "strict",
+                "exit_confirmation_days": 2,
+                "buy_fill_mode": "next_open",
+                "return_jpy": 2500.0,
+                "exit_urgency": "P_TP2",
+                "ticker": "1332",
+            },
+        ]
+    ).to_csv(trades_path, index=False)
+
+    bundle = evaluate_cli.EvaluationOutputBundle(
+        segmented={
+            "raw": str(segmented_path),
+            "trades": str(trades_path),
+        }
+    )
+
+    report_path = evaluate_cli._write_localized_final_review_report(
+        args=SimpleNamespace(mode="annual"),
+        output_dir=str(tmp_path),
+        prefix="annual_eval",
+        bundle=bundle,
+    )
+
+    assert report_path is not None
+    report_text = Path(report_path).read_text(encoding="utf-8")
+
+    assert "## 全策略组合年度总览" in report_text
+    assert "### 全策略组合 × 年度收益率" in report_text
+    assert "### 全策略组合 × 年度胜率" in report_text
+    assert "### 全策略组合 × 年度最大回撤" in report_text
+    assert "| 入场策略 | 出场策略 | 入场过滤器 | 出场确认天数 | 买入成交模式 | 2021 | 2022 | 全期间平均收益率 |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | 10.00% | 20.00% | 15.00% |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | 50.00% | 70.00% | 60.00% |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | 5.00% | 7.00% | 6.00% |" in report_text
+    assert report_text.index("## 全策略组合年度总览") < report_text.index("## 策略组合 1")
+    assert "### 年度总览" in report_text
+
+
 def test_precross_entries_use_feature_only_preload_flags():
     include_trades, include_financials, include_metadata = (
         StrategyEvaluator._resolve_aux_preload_flags(

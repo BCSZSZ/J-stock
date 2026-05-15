@@ -919,6 +919,103 @@ def _build_combo_mask(
     return mask
 
 
+def _review_period_order(raw_df: pd.DataFrame) -> List[str]:
+    if raw_df.empty or "period" not in raw_df.columns:
+        return []
+
+    ordering_df = raw_df[["period"]].copy()
+    ordering_df["period"] = ordering_df["period"].astype(str)
+
+    if "start_date" in raw_df.columns:
+        ordering_df["start_date"] = pd.to_datetime(raw_df["start_date"], errors="coerce")
+        ordering_df = ordering_df.sort_values(["start_date", "period"], kind="mergesort")
+    else:
+        ordering_df = ordering_df.sort_values(["period"], kind="mergesort")
+
+    return _dedupe_preserve_order(ordering_df["period"].tolist())
+
+
+def _review_combo_column_label(column: str) -> str:
+    labels = {
+        "entry_strategy": "入场策略",
+        "exit_strategy": "出场策略",
+        "entry_filter": "入场过滤器",
+        "exit_confirmation_days": "出场确认天数",
+        "buy_fill_mode": "买入成交模式",
+    }
+    return labels.get(column, column)
+
+
+def _format_review_combo_value(column: str, value: object) -> str:
+    if column == "exit_confirmation_days":
+        return _format_count(value)
+
+    if value is None or pd.isna(value):
+        return "-"
+
+    text = str(value).strip()
+    if not text:
+        return "off" if column == "entry_filter" else "-"
+    return text
+
+
+def _build_review_metric_matrix_rows(
+    segmented_raw_df: pd.DataFrame,
+    combo_df: pd.DataFrame,
+    combo_columns: List[str],
+    metric_column: str,
+    average_label: str,
+) -> Tuple[List[Dict[str, str]], List[str]]:
+    display_combo_columns = [_review_combo_column_label(column) for column in combo_columns]
+
+    if segmented_raw_df.empty or not combo_columns or metric_column not in segmented_raw_df.columns:
+        return [], [*display_combo_columns, average_label]
+
+    period_order = _review_period_order(segmented_raw_df)
+    if not period_order:
+        return [], [*display_combo_columns, average_label]
+
+    metric_df = segmented_raw_df[combo_columns + ["period", metric_column]].copy()
+    metric_df["period"] = metric_df["period"].astype(str)
+    metric_df[metric_column] = pd.to_numeric(metric_df[metric_column], errors="coerce")
+
+    metric_pivot = (
+        metric_df.pivot_table(
+            index=combo_columns,
+            columns="period",
+            values=metric_column,
+            aggfunc="first",
+        )
+        .reset_index()
+    )
+
+    base_combo_df = combo_df[combo_columns].drop_duplicates().copy()
+    merged_df = base_combo_df.merge(metric_pivot, on=combo_columns, how="left")
+
+    for period in period_order:
+        if period not in merged_df.columns:
+            merged_df[period] = pd.NA
+
+    merged_df[average_label] = (
+        merged_df[period_order].apply(pd.to_numeric, errors="coerce").mean(axis=1)
+    )
+
+    rows: List[Dict[str, str]] = []
+    for _, row in merged_df.iterrows():
+        display_row: Dict[str, str] = {}
+        for column in combo_columns:
+            display_row[_review_combo_column_label(column)] = _format_review_combo_value(
+                column,
+                row.get(column),
+            )
+        for period in period_order:
+            display_row[period] = _format_pct(row.get(period))
+        display_row[average_label] = _format_pct(row.get(average_label))
+        rows.append(display_row)
+
+    return rows, [*display_combo_columns, *period_order, average_label]
+
+
 def _summarize_trade_slice(trades_subset: pd.DataFrame) -> Dict[str, float]:
     if trades_subset.empty or "return_jpy" not in trades_subset.columns:
         return {
@@ -1249,6 +1346,47 @@ def _write_localized_final_review_report(
         "- 33业种映射来自 data/jpx_final_list.csv，无法映射的代码记为“未分类”。",
         "",
     ]
+
+    if mode == "annual":
+        return_rows, return_columns = _build_review_metric_matrix_rows(
+            segmented_raw_df=segmented_raw_df,
+            combo_df=combo_df,
+            combo_columns=combo_columns,
+            metric_column="return_pct",
+            average_label="全期间平均收益率",
+        )
+        win_rate_rows, win_rate_columns = _build_review_metric_matrix_rows(
+            segmented_raw_df=segmented_raw_df,
+            combo_df=combo_df,
+            combo_columns=combo_columns,
+            metric_column="win_rate_pct",
+            average_label="全期间平均胜率",
+        )
+        max_drawdown_rows, max_drawdown_columns = _build_review_metric_matrix_rows(
+            segmented_raw_df=segmented_raw_df,
+            combo_df=combo_df,
+            combo_columns=combo_columns,
+            metric_column="max_drawdown_pct",
+            average_label="全期间平均最大回撤",
+        )
+        lines.extend(
+            [
+                "## 全策略组合年度总览",
+                "",
+                "### 全策略组合 × 年度收益率",
+                "",
+                _markdown_table_from_rows(return_rows, return_columns),
+                "",
+                "### 全策略组合 × 年度胜率",
+                "",
+                _markdown_table_from_rows(win_rate_rows, win_rate_columns),
+                "",
+                "### 全策略组合 × 年度最大回撤",
+                "",
+                _markdown_table_from_rows(max_drawdown_rows, max_drawdown_columns),
+                "",
+            ]
+        )
 
     for index, combo_row in combo_df.iterrows():
         segmented_combo_raw = segmented_raw_df.loc[
