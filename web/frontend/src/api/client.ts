@@ -160,6 +160,7 @@ export const api = {
       entry_filter_names: string[];
       overlay_modes: string[];
       buy_fill_modes: string[];
+      capacity_regime_modes: string[];
       ranking_modes: string[];
       position_profiles: string[];
       production: {
@@ -183,6 +184,7 @@ export const api = {
         enable_overlay: boolean;
         overlay_modes: string[];
         exit_confirm_days: number | null;
+        capacity_regime_mode: string;
         output_dir: string;
         universe_files: string[];
         position_file: string;

@@ -4,6 +4,7 @@ const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: "📊" },
   { to: "/production", label: "Production", icon: "🚀" },
   { to: "/evaluation", label: "Evaluation", icon: "📈" },
+  { to: "/evaluation-insight", label: "Evaluation Insight", icon: "🧾" },
   { to: "/portfolio", label: "Portfolio", icon: "💼" },
   { to: "/trade-history", label: "Trade History", icon: "📋" },
   { to: "/signals", label: "Signals", icon: "📡" },

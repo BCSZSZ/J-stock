@@ -125,6 +125,7 @@ class EvaluationRunRequest(BaseModel):
     )
     buy_fill_mode: Literal["next_open", "next_close"] = "next_open"
     buy_fill_modes: list[Literal["next_open", "next_close"]] | None = None
+    capacity_regime_mode: Literal["off", "enforce"] | None = None
     override_strategies: bool = False
     entry_strategies: list[str] | None = None
     exit_strategies: list[str] | None = None

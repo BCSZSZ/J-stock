@@ -26,6 +26,7 @@ ENTRY_FILTER_MODES = ["off", "single", "grid", "auto"]
 RANKING_MODES = ["prs_train"]
 OVERLAY_MODES = ["off", "on"]
 BUY_FILL_MODES = ["next_open", "next_close"]
+CAPACITY_REGIME_MODES = ["off", "enforce"]
 
 
 def _resolve_local_path(path_value: str | None) -> Path | None:
@@ -190,6 +191,9 @@ def _build_cli_args(
 
     args.extend(["--buy-fill-mode", buy_fill_mode or req.buy_fill_mode])
 
+    if req.capacity_regime_mode:
+        args.extend(["--capacity-regime-mode", req.capacity_regime_mode])
+
     if req.years:
         _append_multi_flag(args, "--years", req.years)
 
@@ -284,6 +288,7 @@ def get_options() -> dict[str, object]:
         "entry_filter_names": _load_entry_filter_names(raw_config),
         "overlay_modes": OVERLAY_MODES,
         "buy_fill_modes": BUY_FILL_MODES,
+        "capacity_regime_modes": CAPACITY_REGIME_MODES,
         "ranking_modes": RANKING_MODES,
         "position_profiles": position_profiles,
         "production": {
@@ -308,6 +313,7 @@ def get_options() -> dict[str, object]:
             "overlay_modes": ["off"],
             "buy_fill_mode": "next_open",
             "buy_fill_modes": ["next_open"],
+            "capacity_regime_mode": str(eval_cfg.get("capacity_regime_mode", "off")),
             "exit_confirm_days": eval_cfg.get("exit_confirmation_days"),
             "output_dir": str(eval_cfg.get("output_dir", "strategy_evaluation")),
             "universe_files": (

@@ -47,6 +47,12 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
     )
     parser.add_argument(
+        "--capacity-regime-mode",
+        choices=["off", "enforce"],
+        default=None,
+        help="evaluation资金容量分层模式: off=关闭, enforce=按资金tier启用动态仓位与流动性约束",
+    )
+    parser.add_argument(
         "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
     )
     parser.add_argument(
@@ -140,6 +146,12 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         choices=["next_open", "next_close"],
         default="next_open",
         help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
+    )
+    parser.add_argument(
+        "--capacity-regime-mode",
+        choices=["off", "enforce"],
+        default=None,
+        help="evaluation资金容量分层模式: off=关闭, enforce=按资金tier启用动态仓位与流动性约束",
     )
     parser.add_argument(
         "--mode",

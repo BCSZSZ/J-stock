@@ -12,6 +12,7 @@ type EvaluationCommand =
 type EvaluationMode = "annual" | "quarterly" | "monthly" | "custom";
 type EntryFilterMode = "off" | "single" | "grid" | "auto";
 type BuyFillMode = "next_open" | "next_close";
+type CapacityRegimeMode = "off" | "enforce";
 
 interface EvaluationDefaults {
   command: string;
@@ -27,6 +28,7 @@ interface EvaluationDefaults {
   entry_filter_names: string[];
   enable_overlay: boolean;
   overlay_modes: string[];
+  capacity_regime_mode: string;
   exit_confirm_days: number | null;
   output_dir: string;
   universe_files: string[];
@@ -45,6 +47,7 @@ interface EvaluationOptionsResponse {
   entry_filter_names: string[];
   overlay_modes: string[];
   buy_fill_modes: string[];
+  capacity_regime_modes: string[];
   ranking_modes: string[];
   position_profiles: string[];
   production: {
@@ -242,6 +245,10 @@ function isBuyFillMode(value: string): value is BuyFillMode {
   return value === "next_open" || value === "next_close";
 }
 
+function isCapacityRegimeMode(value: string): value is CapacityRegimeMode {
+  return value === "off" || value === "enforce";
+}
+
 function formatBuyFillModeLabel(mode: BuyFillMode): string {
   return mode === "next_open"
     ? "next_open (次日开盘成交)"
@@ -273,6 +280,8 @@ export default function Evaluation() {
   const [selectedOverlayModes, setSelectedOverlayModes] = useState<string[]>([
     "off",
   ]);
+  const [capacityRegimeMode, setCapacityRegimeMode] =
+    useState<CapacityRegimeMode>("off");
   const [rankingMode, setRankingMode] = useState("prs_train");
   const [minTrainYears, setMinTrainYears] = useState("2");
   const [positionFile, setPositionFile] = useState("");
@@ -316,6 +325,9 @@ export default function Evaluation() {
     "next_open",
     "next_close",
   ]).filter(isBuyFillMode);
+  const capacityRegimeModeOptions = (
+    options.data?.capacity_regime_modes ?? ["off", "enforce"]
+  ).filter(isCapacityRegimeMode);
 
   useEffect(() => {
     if (!options.data || initializedFromOptions) return;
@@ -349,6 +361,11 @@ export default function Evaluation() {
     setSelectedFilterNames(defaults.entry_filter_names ?? []);
     setEnableOverlay(Boolean(defaults.enable_overlay));
     setSelectedOverlayModes(defaults.overlay_modes ?? ["off"]);
+    setCapacityRegimeMode(
+      isCapacityRegimeMode(defaults.capacity_regime_mode)
+        ? defaults.capacity_regime_mode
+        : "off",
+    );
     setRankingMode(defaults.ranking_mode ?? "prs_train");
     setMinTrainYears(String(defaults.min_train_years ?? 2));
     setPositionFile(defaults.position_file ?? "");
@@ -377,6 +394,7 @@ export default function Evaluation() {
       command,
       mode,
       buy_fill_modes: selectedBuyFillModes,
+      capacity_regime_mode: capacityRegimeMode,
       override_strategies: overrideStrategies,
       entry_strategies:
         overrideStrategies && selectedEntry.length > 0 ? selectedEntry : undefined,
@@ -420,6 +438,7 @@ export default function Evaluation() {
         `Command: ${command}`,
         `Buy Fill Modes: ${selectedBuyFillModes.join(", ")}`,
         `Execution: one full run per selected fill mode`,
+        `Capacity Regime Mode: ${capacityRegimeMode}`,
         isWalkForward
           ? `Mode: ${mode} | Initial Train Years: ${payload.min_train_years}`
           : `Mode: ${mode}`,
@@ -700,6 +719,28 @@ export default function Evaluation() {
                 className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">
+              Capacity Regime Mode
+            </label>
+            <select
+              value={capacityRegimeMode}
+              onChange={(e) =>
+                setCapacityRegimeMode(e.target.value as CapacityRegimeMode)
+              }
+              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+            >
+              {capacityRegimeModeOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-gray-500">
+              off uses fixed portfolio limits from the selected profile or config. enforce enables tier-based position and liquidity constraints during evaluation.
+            </p>
           </div>
 
           <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3 text-sm text-gray-300">

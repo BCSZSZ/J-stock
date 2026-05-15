@@ -17,7 +17,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from src.config.capacity import parse_capacity_regime
+from src.config.capacity import parse_capacity_regime, parse_evaluation_capacity_mode
 from src.config.service import load_config
 from src.config.runtime import CONFIG_ENV_VAR, GDRIVE_DEFAULT_CONFIG_FILE, get_config_file_path
 from src.evaluation.scoring import apply_prs_train_score, candidate_key_columns, positive_ratio, robust_inverse_norm, robust_norm, summarize_prs_train_metrics
@@ -509,6 +509,7 @@ class StrategyEvaluator:
         use_cache: bool = True,
         ranking_strategies: Optional[List[str]] = None,
         buy_fill_mode: str = "next_open",
+        capacity_regime_mode_override: Optional[str] = None,
     ):
         """
         Initialize strategy evaluator.
@@ -541,6 +542,11 @@ class StrategyEvaluator:
         self.portfolio_overrides = portfolio_overrides or {}
         self.overlay_config = overlay_config or {}
         self.ranking_strategies = ranking_strategies or ["default"]
+        self.capacity_regime_mode_override = (
+            str(parse_evaluation_capacity_mode(capacity_regime_mode_override))
+            if capacity_regime_mode_override is not None
+            else None
+        )
 
         self.overlay_manager = OverlayManager.from_config(
             self.overlay_config,
@@ -596,6 +602,9 @@ class StrategyEvaluator:
         return self._starting_capital_cache
 
     def _get_capacity_regime_mode(self) -> str:
+        if self.capacity_regime_mode_override is not None:
+            return self.capacity_regime_mode_override
+
         if self._capacity_mode_cache is not None:
             return self._capacity_mode_cache
 

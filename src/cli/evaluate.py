@@ -493,6 +493,7 @@ def _build_evaluator(
         verbose=args.verbose,
         exit_confirmation_days=exit_confirm_days,
         buy_fill_mode=getattr(args, "buy_fill_mode", "next_open"),
+        capacity_regime_mode_override=getattr(args, "capacity_regime_mode", None),
         overlay_config=overlay_config,
         entry_filter_config=config.get("evaluation", {}).get("filters", {}).get(
             "default", {}
