@@ -12,7 +12,7 @@ from datetime import datetime
 
 from ..analysis.signals import MarketData, SignalAction
 from ..data.stock_data_manager import StockDataManager
-from ..utils.strategy_loader import load_entry_strategy
+from ..utils.strategy_loader import load_entry_strategy, load_strategy_pair
 from ..data.market_data_builder import MarketDataBuilder
 from ..signal_generator import generate_signal_v2
 
@@ -82,9 +82,18 @@ class ComprehensiveEvaluator:
         self.strategies = {}
         for cfg in strategies_config:
             strategy_name = cfg.get('name')
+            strategy_key = cfg.get('key', strategy_name)
+            exit_strategy_name = cfg.get('exit_name')
             if strategy_name:
                 try:
-                    self.strategies[strategy_name] = load_entry_strategy(strategy_name)
+                    if exit_strategy_name:
+                        entry_strategy, _ = load_strategy_pair(
+                            strategy_name,
+                            exit_strategy_name,
+                        )
+                    else:
+                        entry_strategy = load_entry_strategy(strategy_name)
+                    self.strategies[strategy_key] = entry_strategy
                 except Exception as e:
                     print(f"Warning: Failed to load strategy {strategy_name}: {e}")
     

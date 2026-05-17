@@ -127,8 +127,9 @@ def cmd_portfolio(args):
                     f"\n[{i}/{len(strategy_combinations)}] {entry_name} × {exit_name}"
                 )
 
-            entry_strategy = load_entry_strategy(entry_name)
-            exit_strategy = load_exit_strategy(exit_name)
+            from src.utils.strategy_loader import load_strategy_pair
+
+            entry_strategy, exit_strategy = load_strategy_pair(entry_name, exit_name)
 
             overlay_manager = OverlayManager.from_config(config)
             engine = PortfolioBacktestEngine(

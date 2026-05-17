@@ -30,6 +30,20 @@ def _peak_at_window_start(macd_hist: pd.Series, window: int) -> pd.Series:
     return same_negative_segment & start_value.eq(segment_cummin)
 
 
+def _calc_bias_pct_and_reference(latest_row: pd.Series) -> tuple[float, str] | tuple[None, None]:
+    sma_col = "SMA_25" if "SMA_25" in latest_row.index else "SMA_20"
+    if sma_col not in latest_row.index:
+        return None, None
+
+    sma = pd.to_numeric(latest_row.get(sma_col), errors="coerce")
+    close = pd.to_numeric(latest_row.get("Close"), errors="coerce")
+    if pd.isna(sma) or sma == 0 or pd.isna(close):
+        return None, None
+
+    bias_pct = float((close - sma) / sma * 100.0)
+    return bias_pct, sma_col
+
+
 def build_precross_momentum_flags(
     df: pd.DataFrame,
     hist_rise_days: int = 3,
@@ -42,6 +56,7 @@ def build_precross_momentum_flags(
     max_gap_above_ema20_pct: float | None = None,
     max_return_5d: float | None = None,
     min_adx_14: float | None = None,
+    max_bias_pct: float | None = None,
 ) -> pd.DataFrame:
     close = pd.to_numeric(df["Close"], errors="coerce")
     macd_hist = pd.to_numeric(df["MACD_Hist"], errors="coerce")
@@ -50,6 +65,8 @@ def build_precross_momentum_flags(
     ema20 = pd.to_numeric(df["EMA_20"], errors="coerce") if "EMA_20" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
     return_5d = pd.to_numeric(df["Return_5d"], errors="coerce") if "Return_5d" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
     adx_14 = pd.to_numeric(df["ADX_14"], errors="coerce") if "ADX_14" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
+    sma_col = "SMA_25" if "SMA_25" in df.columns else "SMA_20"
+    sma = pd.to_numeric(df[sma_col], errors="coerce") if sma_col in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
 
     hist_rising = _rising_for_window(macd_hist, max(2, int(hist_rise_days))).fillna(False)
     price_rising = _rising_for_window(close, max(2, int(price_rise_days))).fillna(False)
@@ -95,6 +112,12 @@ def build_precross_momentum_flags(
     else:
         adx_ok = adx_14.ge(float(min_adx_14)).fillna(False)
 
+    bias_pct = ((close / sma.replace(0, np.nan)) - 1.0) * 100.0
+    if max_bias_pct is None:
+        bias_ok = pd.Series(True, index=df.index, dtype="boolean")
+    else:
+        bias_ok = bias_pct.le(float(max_bias_pct)) | bias_pct.isna()
+
     volume_ratio = pd.Series(np.nan, index=df.index, dtype=float)
     if "Volume" in df.columns and "Volume_SMA_20" in df.columns:
         volume = pd.to_numeric(df["Volume"], errors="coerce")
@@ -118,6 +141,8 @@ def build_precross_momentum_flags(
             "return_5d_ok": return_5d_ok,
             "adx_14": adx_14,
             "adx_ok": adx_ok,
+            "bias_pct": bias_pct,
+            "bias_ok": bias_ok,
             "volume_ratio": volume_ratio,
         },
         index=df.index,
@@ -139,6 +164,7 @@ def build_precross_momentum_flags(
             "gap_above_ema20_ok",
             "return_5d_ok",
             "adx_ok",
+            "bias_ok",
         ]
     ].all(axis=1)
     return flags
@@ -157,6 +183,7 @@ def _latest_precross_momentum_flags(
     max_gap_above_ema20_pct: float | None = None,
     max_return_5d: float | None = None,
     min_adx_14: float | None = None,
+    max_bias_pct: float | None = None,
 ) -> dict:
     hist_window = max(2, int(hist_rise_days))
     price_window = max(2, int(price_rise_days))
@@ -257,6 +284,12 @@ def _latest_precross_momentum_flags(
     else:
         adx_ok = bool(pd.notna(adx_14) and float(adx_14) >= float(min_adx_14))
 
+    bias_pct, bias_reference = _calc_bias_pct_and_reference(df.iloc[-1])
+    if max_bias_pct is None:
+        bias_ok = True
+    else:
+        bias_ok = bool(bias_pct is None or float(bias_pct) <= float(max_bias_pct))
+
     volume_ratio = np.nan
     if "Volume" in df.columns and "Volume_SMA_20" in df.columns:
         volume = pd.to_numeric(df["Volume"], errors="coerce").iloc[-1]
@@ -278,6 +311,7 @@ def _latest_precross_momentum_flags(
             gap_above_ema20_ok,
             return_5d_ok,
             adx_ok,
+            bias_ok,
         ]
     )
 
@@ -297,6 +331,9 @@ def _latest_precross_momentum_flags(
         "return_5d_ok": return_5d_ok,
         "adx_14": adx_14,
         "adx_ok": adx_ok,
+        "bias_pct": bias_pct,
+        "bias_ok": bias_ok,
+        "bias_reference": bias_reference,
         "volume_ratio": volume_ratio,
         "peak_ok": peak_ok,
         "signal": signal,
@@ -325,6 +362,9 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         max_gap_above_ema20_pct: float | None = None,
         max_return_5d: float | None = None,
         min_adx_14: float | None = None,
+        max_bias_pct: float | None = None,
+        follow_exit_bias_pct: bool = False,
+        fallback_bias_pct: float = 15.0,
         min_confidence: float = 0.6,
     ):
         super().__init__(strategy_name="MACDPreCrossMomentumEntry")
@@ -349,7 +389,39 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         )
         self.max_return_5d = None if max_return_5d is None else float(max_return_5d)
         self.min_adx_14 = None if min_adx_14 is None else float(min_adx_14)
+        self.max_bias_pct = None if max_bias_pct is None else float(max_bias_pct)
+        self.follow_exit_bias_pct = bool(follow_exit_bias_pct)
+        self.fallback_bias_pct = float(fallback_bias_pct)
+        if self.follow_exit_bias_pct and self.max_bias_pct is None:
+            self.max_bias_pct = self.fallback_bias_pct
+        self.bias_threshold_source = (
+            "fallback"
+            if self.follow_exit_bias_pct
+            else ("fixed" if self.max_bias_pct is not None else None)
+        )
+        self.bound_exit_strategy_name = None
         self.min_confidence = float(min_confidence)
+
+    def bind_exit_bias_threshold(self, exit_strategy: object | None) -> None:
+        if not self.follow_exit_bias_pct:
+            return
+
+        threshold = getattr(exit_strategy, "bias_exit_threshold_pct", None)
+        if threshold is None:
+            self.max_bias_pct = self.fallback_bias_pct
+            self.bias_threshold_source = "fallback"
+        else:
+            self.max_bias_pct = float(threshold)
+            self.bias_threshold_source = "exit"
+
+        if exit_strategy is None:
+            self.bound_exit_strategy_name = None
+        else:
+            self.bound_exit_strategy_name = getattr(
+                exit_strategy,
+                "strategy_name",
+                exit_strategy.__class__.__name__,
+            )
 
     def generate_entry_signal(self, market_data: MarketData) -> TradingSignal:
         df = market_data.df_features
@@ -384,6 +456,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             max_gap_above_ema20_pct=self.max_gap_above_ema20_pct,
             max_return_5d=self.max_return_5d,
             min_adx_14=self.min_adx_14,
+            max_bias_pct=self.max_bias_pct,
         )
         latest = df.iloc[-1]
 
@@ -400,6 +473,11 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             "max_gap_above_ema20_pct": self.max_gap_above_ema20_pct,
             "max_return_5d": self.max_return_5d,
             "min_adx_14": self.min_adx_14,
+            "max_bias_pct": self.max_bias_pct,
+            "follow_exit_bias_pct": self.follow_exit_bias_pct,
+            "fallback_bias_pct": self.fallback_bias_pct,
+            "bias_threshold_source": self.bias_threshold_source,
+            "bound_exit_strategy_name": self.bound_exit_strategy_name,
             "macd_hist": float(pd.to_numeric(latest.get("MACD_Hist"), errors="coerce")),
             "macd_hist_prev": float(pd.to_numeric(df.iloc[-2].get("MACD_Hist"), errors="coerce")),
             "macd": float(pd.to_numeric(latest.get("MACD"), errors="coerce")),
@@ -413,6 +491,8 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             "gap_above_ema20_pct": float(pd.to_numeric(latest_flags.get("gap_above_ema20_pct"), errors="coerce")),
             "return_5d": float(pd.to_numeric(latest_flags.get("return_5d"), errors="coerce")),
             "adx_14": float(pd.to_numeric(latest_flags.get("adx_14"), errors="coerce")),
+            "bias_pct": float(pd.to_numeric(latest_flags.get("bias_pct"), errors="coerce")),
+            "bias_reference": latest_flags.get("bias_reference"),
             "volume_ratio": float(pd.to_numeric(latest_flags.get("volume_ratio"), errors="coerce")),
         }
 
@@ -438,6 +518,15 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
                 reasons.append("Return_5d is too high")
             if self.min_adx_14 is not None and not bool(latest_flags["adx_ok"]):
                 reasons.append("ADX_14 is too low")
+            if self.max_bias_pct is not None and not bool(latest_flags["bias_ok"]):
+                bias_pct = pd.to_numeric(latest_flags.get("bias_pct"), errors="coerce")
+                bias_reference = latest_flags.get("bias_reference") or "SMA"
+                if pd.notna(bias_pct):
+                    reasons.append(
+                        f"Bias overheat {float(bias_pct):.2f}% > {self.max_bias_pct:.2f}% vs {bias_reference}"
+                    )
+                else:
+                    reasons.append("Bias overheat filter blocked entry")
             if not reasons:
                 reasons.append("No pre-cross momentum setup")
             return TradingSignal(
@@ -465,6 +554,8 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             reasons.append(f"Return_5d <= {self.max_return_5d:.2f}")
         if self.min_adx_14 is not None:
             reasons.append(f"ADX_14 >= {self.min_adx_14:.1f}")
+        if self.max_bias_pct is not None:
+            reasons.append(f"Bias <= {self.max_bias_pct:.2f}%")
 
         hist_abs_norm = pd.to_numeric(latest_flags.get("hist_abs_norm"), errors="coerce")
         if pd.notna(hist_abs_norm) and hist_abs_norm <= 0.010:
@@ -509,6 +600,24 @@ class MACDPreCross2BarEntry(MACDPreCrossMomentumEntry):
             price_rise_days=2,
         )
         self.strategy_name = "MACDPreCross2BarEntry"
+
+
+class MACDPreCross2BarMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
+    """2-bar pre-cross entry with a 20% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            max_bias_pct=20.0,
+        )
+        self.strategy_name = "MACDPreCross2BarMaxBiasPct20Entry"
 
 
 class MACDPreCross2BarRet5d008Entry(MACDPreCrossMomentumEntry):
@@ -639,6 +748,25 @@ class MACDPreCrossHist2BarEntry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACDPreCrossHist2BarEntry"
 
 
+class MACDPreCrossHist2BarMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
+    """2-bar histogram-only pre-cross entry with a 20% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            max_bias_pct=20.0,
+        )
+        self.strategy_name = "MACDPreCrossHist2BarMaxBiasPct20Entry"
+
+
 class MACDHist2BarAnySignEntry(MACDPreCrossMomentumEntry):
     """2-bar MACD histogram rising only, without requiring the latest bar below zero."""
 
@@ -656,6 +784,127 @@ class MACDHist2BarAnySignEntry(MACDPreCrossMomentumEntry):
             require_hist_below_zero=False,
         )
         self.strategy_name = "MACDHist2BarAnySignEntry"
+
+
+class MACDHist2BarAnySignMaxBiasPct15Entry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram rising only, but block buys when price is too extended above SMA."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+            max_bias_pct=15.0,
+        )
+        self.strategy_name = "MACDHist2BarAnySignMaxBiasPct15Entry"
+
+
+class MACDHist2BarAnySignMaxBiasPct10Entry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram rising only, with a 10% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+            max_bias_pct=10.0,
+        )
+        self.strategy_name = "MACDHist2BarAnySignMaxBiasPct10Entry"
+
+
+class MACDHist2BarAnySignMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram rising only, with a 20% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+            max_bias_pct=20.0,
+        )
+        self.strategy_name = "MACDHist2BarAnySignMaxBiasPct20Entry"
+
+
+class MACDHist2BarAnySignMaxBiasPct25Entry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram rising only, with a 25% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+            max_bias_pct=25.0,
+        )
+        self.strategy_name = "MACDHist2BarAnySignMaxBiasPct25Entry"
+
+
+class MACDHist2BarAnySignMaxBiasPct30Entry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram rising only, with a 30% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+            max_bias_pct=30.0,
+        )
+        self.strategy_name = "MACDHist2BarAnySignMaxBiasPct30Entry"
+
+
+class MACDHist2BarAnySignFollowExitBiasEntry(MACDPreCrossMomentumEntry):
+    """2-bar MACD histogram rising only, using paired exit bias when available and 15% otherwise."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+            follow_exit_bias_pct=True,
+            fallback_bias_pct=15.0,
+        )
+        self.strategy_name = "MACDHist2BarAnySignFollowExitBiasEntry"
 
 
 class MACD2BarAnySignEntry(MACDPreCrossMomentumEntry):
@@ -676,6 +925,25 @@ class MACD2BarAnySignEntry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACD2BarAnySignEntry"
 
 
+class MACD2BarAnySignMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
+    """2-bar synchronized momentum entry, with a 20% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_hist_below_zero=False,
+            max_bias_pct=20.0,
+        )
+        self.strategy_name = "MACD2BarAnySignMaxBiasPct20Entry"
+
+
 class MACDPreCrossHist3BarEntry(MACDPreCrossMomentumEntry):
     """3-bar MACD histogram rising only (no price rising requirement)."""
 
@@ -692,6 +960,25 @@ class MACDPreCrossHist3BarEntry(MACDPreCrossMomentumEntry):
             require_price_rising=False,
         )
         self.strategy_name = "MACDPreCrossHist3BarEntry"
+
+
+class MACDPreCrossHist3BarMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
+    """3-bar histogram-only pre-cross entry with a 20% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=3,
+            price_rise_days=3,
+            require_price_rising=False,
+            max_bias_pct=20.0,
+        )
+        self.strategy_name = "MACDPreCrossHist3BarMaxBiasPct20Entry"
 
 
 class MACDHist3BarAnySignEntry(MACDPreCrossMomentumEntry):
@@ -713,6 +1000,26 @@ class MACDHist3BarAnySignEntry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACDHist3BarAnySignEntry"
 
 
+class MACDHist3BarAnySignMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
+    """3-bar MACD histogram rising only, with a 20% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=3,
+            price_rise_days=3,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+            max_bias_pct=20.0,
+        )
+        self.strategy_name = "MACDHist3BarAnySignMaxBiasPct20Entry"
+
+
 class MACDPreCross3BarEntry(MACDPreCrossMomentumEntry):
     """3-bar MACD histogram + price rising (synchronized momentum)."""
 
@@ -728,6 +1035,24 @@ class MACDPreCross3BarEntry(MACDPreCrossMomentumEntry):
             price_rise_days=3,
         )
         self.strategy_name = "MACDPreCross3BarEntry"
+
+
+class MACDPreCross3BarMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
+    """3-bar synchronized momentum entry with a 20% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=3,
+            price_rise_days=3,
+            max_bias_pct=20.0,
+        )
+        self.strategy_name = "MACDPreCross3BarMaxBiasPct20Entry"
 
 
 class MACD3BarAnySignEntry(MACDPreCrossMomentumEntry):
@@ -748,9 +1073,29 @@ class MACD3BarAnySignEntry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACD3BarAnySignEntry"
 
 
+class MACD3BarAnySignMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
+    """3-bar synchronized momentum entry without sign constraint, with a 20% bias-overheat cap."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=3,
+            price_rise_days=3,
+            require_hist_below_zero=False,
+            max_bias_pct=20.0,
+        )
+        self.strategy_name = "MACD3BarAnySignMaxBiasPct20Entry"
+
+
 __all__ = [
     "MACDPreCrossMomentumEntry",
     "MACDPreCross2BarEntry",
+    "MACDPreCross2BarMaxBiasPct20Entry",
     "MACDPreCross2BarRet5d008Entry",
     "MACDPreCross2BarMinHistDeltaNorm0005Entry",
     "MACDPreCross2BarMinHistDeltaNorm001Entry",
@@ -758,11 +1103,23 @@ __all__ = [
     "MACDPreCross2BarMinHistDeltaNorm002Entry",
     "MACDPreCross2BarLiteComboEntry",
     "MACDPreCrossHist2BarEntry",
+    "MACDPreCrossHist2BarMaxBiasPct20Entry",
     "MACDHist2BarAnySignEntry",
+    "MACDHist2BarAnySignMaxBiasPct10Entry",
+    "MACDHist2BarAnySignMaxBiasPct15Entry",
+    "MACDHist2BarAnySignMaxBiasPct20Entry",
+    "MACDHist2BarAnySignMaxBiasPct25Entry",
+    "MACDHist2BarAnySignMaxBiasPct30Entry",
+    "MACDHist2BarAnySignFollowExitBiasEntry",
     "MACD2BarAnySignEntry",
+    "MACD2BarAnySignMaxBiasPct20Entry",
     "MACDPreCrossHist3BarEntry",
+    "MACDPreCrossHist3BarMaxBiasPct20Entry",
     "MACDHist3BarAnySignEntry",
+    "MACDHist3BarAnySignMaxBiasPct20Entry",
     "MACDPreCross3BarEntry",
+    "MACDPreCross3BarMaxBiasPct20Entry",
     "MACD3BarAnySignEntry",
+    "MACD3BarAnySignMaxBiasPct20Entry",
     "build_precross_momentum_flags",
 ]

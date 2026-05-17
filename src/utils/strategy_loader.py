@@ -15,6 +15,7 @@ ENTRY_STRATEGIES = {
     "MACDCrossoverStrategy": "src.analysis.strategies.entry.macd_crossover.MACDCrossoverStrategy",
     "MACDPreCrossMomentumEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossMomentumEntry",
     "MACDPreCross2BarEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarEntry",
+    "MACDPreCross2BarMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarMaxBiasPct20Entry",
     "MACDPreCross2BarRet5d008Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarRet5d008Entry",
     "MACDPreCross2BarMinHistDeltaNorm0005Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarMinHistDeltaNorm0005Entry",
     "MACDPreCross2BarMinHistDeltaNorm001Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarMinHistDeltaNorm001Entry",
@@ -22,12 +23,24 @@ ENTRY_STRATEGIES = {
     "MACDPreCross2BarMinHistDeltaNorm002Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarMinHistDeltaNorm002Entry",
     "MACDPreCross2BarLiteComboEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross2BarLiteComboEntry",
     "MACDPreCrossHist2BarEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossHist2BarEntry",
+    "MACDPreCrossHist2BarMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossHist2BarMaxBiasPct20Entry",
     "MACDHist2BarAnySignEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignEntry",
+    "MACDHist2BarAnySignMaxBiasPct10Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignMaxBiasPct10Entry",
+    "MACDHist2BarAnySignMaxBiasPct15Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignMaxBiasPct15Entry",
+    "MACDHist2BarAnySignMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignMaxBiasPct20Entry",
+    "MACDHist2BarAnySignMaxBiasPct25Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignMaxBiasPct25Entry",
+    "MACDHist2BarAnySignMaxBiasPct30Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignMaxBiasPct30Entry",
+    "MACDHist2BarAnySignFollowExitBiasEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignFollowExitBiasEntry",
     "MACD2BarAnySignEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACD2BarAnySignEntry",
+    "MACD2BarAnySignMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACD2BarAnySignMaxBiasPct20Entry",
     "MACDPreCrossHist3BarEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossHist3BarEntry",
+    "MACDPreCrossHist3BarMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossHist3BarMaxBiasPct20Entry",
     "MACDHist3BarAnySignEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist3BarAnySignEntry",
+    "MACDHist3BarAnySignMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist3BarAnySignMaxBiasPct20Entry",
     "MACDPreCross3BarEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross3BarEntry",
+    "MACDPreCross3BarMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCross3BarMaxBiasPct20Entry",
     "MACD3BarAnySignEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACD3BarAnySignEntry",
+    "MACD3BarAnySignMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACD3BarAnySignMaxBiasPct20Entry",
     "MACDCrossoverShockFilterV1": "src.analysis.strategies.entry.macd_crossover_entry_variants.MACDCrossoverShockFilterV1",
     "MACDCrossoverShockOverheatFilterV2": "src.analysis.strategies.entry.macd_crossover_entry_variants.MACDCrossoverShockOverheatFilterV2",
     "MACDCrossoverFollowThroughFilterV3": "src.analysis.strategies.entry.macd_crossover_entry_variants.MACDCrossoverFollowThroughFilterV3",
@@ -238,6 +251,27 @@ def create_strategy_instance(
     return strategy_class(**params)
 
 
+def bind_entry_strategy_to_exit(entry_instance: object, exit_instance: object) -> object:
+    """Allow entry strategies to inherit or align thresholds from the paired exit."""
+    binder = getattr(entry_instance, "bind_exit_bias_threshold", None)
+    if callable(binder):
+        binder(exit_instance)
+    return entry_instance
+
+
+def load_strategy_pair(
+    entry_name: str,
+    exit_name: str,
+    entry_params: Dict[str, Any] = None,
+    exit_params: Dict[str, Any] = None,
+) -> Tuple[object, object]:
+    """Create a paired entry/exit strategy set and bind entry-side dynamic thresholds."""
+    exit_instance = create_strategy_instance(exit_name, "exit", exit_params)
+    entry_instance = create_strategy_instance(entry_name, "entry", entry_params)
+    bind_entry_strategy_to_exit(entry_instance, exit_instance)
+    return entry_instance, exit_instance
+
+
 def get_all_strategy_combinations() -> List[Tuple[str, str]]:
     """
     获取所有Entry×Exit策略组合
@@ -311,10 +345,7 @@ def parse_strategy_config(config: dict) -> Tuple[object, object]:
     if not entry_name or not exit_name:
         raise ValueError("Config must contain 'entry' and 'exit' strategy names")
 
-    entry_instance = create_strategy_instance(entry_name, "entry", entry_params)
-    exit_instance = create_strategy_instance(exit_name, "exit", exit_params)
-
-    return entry_instance, exit_instance
+    return load_strategy_pair(entry_name, exit_name, entry_params, exit_params)
 
 
 def get_available_strategies() -> Dict[str, List[str]]:

@@ -1096,15 +1096,13 @@ class StrategyEvaluator:
         """
         from src.backtest.portfolio_engine import PortfolioBacktestEngine
         from src.utils.strategy_loader import (
-            load_entry_strategy,
-            load_exit_strategy,
+            load_strategy_pair,
             load_ranking_strategy,
         )
 
         # 加載策略实例
         phase_started = time.perf_counter()
-        entry = load_entry_strategy(entry_strategy)
-        exit_inst = load_exit_strategy(exit_strategy)
+        entry, exit_inst = load_strategy_pair(entry_strategy, exit_strategy)
         ranker = load_ranking_strategy(ranking_strategy)
         self._timing_counters["task_strategy_load"] += time.perf_counter() - phase_started
 

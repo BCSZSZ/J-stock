@@ -10,11 +10,18 @@ from src.analysis.strategies.entry.macd_precross_momentum_entry import (
     MACDPreCross2BarMinHistDeltaNorm002Entry,
     MACDPreCross2BarRet5d008Entry,
     MACDPreCross3BarEntry,
+    MACDHist2BarAnySignEntry,
+    MACDHist2BarAnySignFollowExitBiasEntry,
+    MACDHist2BarAnySignMaxBiasPct15Entry,
     MACDPreCrossMomentumEntry,
     _latest_precross_momentum_flags,
     build_precross_momentum_flags,
 )
-from src.utils.strategy_loader import ENTRY_STRATEGIES, create_strategy_instance
+from src.utils.strategy_loader import (
+    ENTRY_STRATEGIES,
+    create_strategy_instance,
+    load_strategy_pair,
+)
 
 
 def _mk_market_data(df: pd.DataFrame) -> MarketData:
@@ -232,6 +239,98 @@ def test_lightweight_helper_filters_block_or_allow_as_expected():
     assert relaxed_sig.action == SignalAction.BUY
 
 
+def test_bias_overheat_filter_blocks_entry_but_legacy_variant_still_buys():
+    df = pd.DataFrame(
+        {
+            "Close": [100.0, 110.0],
+            "SMA_25": [90.0, 94.0],
+            "MACD_Hist": [-0.10, -0.02],
+            "MACD": [-0.30, -0.12],
+            "MACD_Signal": [-0.22, -0.10],
+        }
+    )
+    legacy = MACDHist2BarAnySignEntry()
+    blocked = MACDHist2BarAnySignMaxBiasPct15Entry()
+
+    legacy_sig = legacy.generate_entry_signal(_mk_market_data(df))
+    blocked_sig = blocked.generate_entry_signal(_mk_market_data(df))
+
+    assert legacy_sig.action == SignalAction.BUY
+    assert blocked_sig.action == SignalAction.HOLD
+    assert any("Bias overheat" in reason for reason in blocked_sig.reasons)
+    assert blocked_sig.metadata.get("bias_reference") == "SMA_25"
+    assert blocked_sig.metadata.get("max_bias_pct") == 15.0
+
+
+def test_bias_overheat_filter_falls_back_to_sma20_when_sma25_missing():
+    df = pd.DataFrame(
+        {
+            "Close": [100.0, 111.0],
+            "SMA_20": [95.0, 95.0],
+            "MACD_Hist": [-0.10, -0.02],
+            "MACD": [-0.30, -0.12],
+            "MACD_Signal": [-0.22, -0.10],
+        }
+    )
+    blocked = MACDHist2BarAnySignMaxBiasPct15Entry()
+
+    sig = blocked.generate_entry_signal(_mk_market_data(df))
+
+    assert sig.action == SignalAction.HOLD
+    assert sig.metadata.get("bias_reference") == "SMA_20"
+    assert sig.metadata.get("bias_pct") > 15.0
+
+
+def test_follow_exit_bias_variant_uses_exit_bias_threshold_when_available():
+    entry, exit_strategy = load_strategy_pair(
+        "MACDHist2BarAnySignFollowExitBiasEntry",
+        "MVXW_N3_R0p54_T1p3_D10_B20p0",
+    )
+
+    assert isinstance(entry, MACDHist2BarAnySignFollowExitBiasEntry)
+    assert entry.max_bias_pct == exit_strategy.bias_exit_threshold_pct == 20.0
+    assert entry.bias_threshold_source == "exit"
+    assert entry.bound_exit_strategy_name == "MVXW_N3_R0p54_T1p3_D10_B20p0"
+
+
+def test_follow_exit_bias_variant_falls_back_to_15_without_exit_bias():
+    entry, _ = load_strategy_pair(
+        "MACDHist2BarAnySignFollowExitBiasEntry",
+        "ATRExitStrategy",
+    )
+
+    assert isinstance(entry, MACDHist2BarAnySignFollowExitBiasEntry)
+    assert entry.max_bias_pct == 15.0
+    assert entry.bias_threshold_source == "fallback"
+
+
+def test_follow_exit_bias_variant_changes_buy_gate_with_paired_exit_threshold():
+    df = pd.DataFrame(
+        {
+            "Close": [100.0, 112.0],
+            "SMA_25": [95.0, 95.0],
+            "MACD_Hist": [-0.10, -0.02],
+            "MACD": [-0.30, -0.12],
+            "MACD_Signal": [-0.22, -0.10],
+        }
+    )
+    permissive_entry, _ = load_strategy_pair(
+        "MACDHist2BarAnySignFollowExitBiasEntry",
+        "MVXW_N3_R0p54_T1p3_D10_B20p0",
+    )
+    fallback_entry, _ = load_strategy_pair(
+        "MACDHist2BarAnySignFollowExitBiasEntry",
+        "ATRExitStrategy",
+    )
+
+    permissive_sig = permissive_entry.generate_entry_signal(_mk_market_data(df))
+    fallback_sig = fallback_entry.generate_entry_signal(_mk_market_data(df))
+
+    assert permissive_sig.action == SignalAction.BUY
+    assert fallback_sig.action == SignalAction.HOLD
+    assert fallback_sig.metadata.get("bias_threshold_source") == "fallback"
+
+
 def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     plain = MACDPreCross2BarEntry()
     three_bar = MACDPreCross3BarEntry()
@@ -241,6 +340,8 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     min_delta_0015 = MACDPreCross2BarMinHistDeltaNorm0015Entry()
     min_delta_002 = MACDPreCross2BarMinHistDeltaNorm002Entry()
     lite = MACDPreCross2BarLiteComboEntry()
+    max_bias = MACDHist2BarAnySignMaxBiasPct15Entry()
+    follow_exit_bias = MACDHist2BarAnySignFollowExitBiasEntry()
 
     assert plain.strategy_name == "MACDPreCross2BarEntry"
     assert plain.hist_rise_days == 2
@@ -270,10 +371,20 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     assert lite.min_adx_14 == 10.0
     assert lite.max_return_5d == 0.08
 
+    assert max_bias.strategy_name == "MACDHist2BarAnySignMaxBiasPct15Entry"
+    assert max_bias.max_bias_pct == 15.0
+    assert max_bias.require_hist_below_zero is False
+
+    assert follow_exit_bias.strategy_name == "MACDHist2BarAnySignFollowExitBiasEntry"
+    assert follow_exit_bias.max_bias_pct == 15.0
+    assert follow_exit_bias.follow_exit_bias_pct is True
+
     assert "MACDPreCross2BarMinHistDeltaNorm0005Entry" in ENTRY_STRATEGIES
     assert "MACDPreCross2BarMinHistDeltaNorm001Entry" in ENTRY_STRATEGIES
     assert "MACDPreCross2BarMinHistDeltaNorm0015Entry" in ENTRY_STRATEGIES
     assert "MACDPreCross2BarMinHistDeltaNorm002Entry" in ENTRY_STRATEGIES
+    assert "MACDHist2BarAnySignMaxBiasPct15Entry" in ENTRY_STRATEGIES
+    assert "MACDHist2BarAnySignFollowExitBiasEntry" in ENTRY_STRATEGIES
     assert create_strategy_instance(
         "MACDPreCross2BarMinHistDeltaNorm0005Entry", "entry"
     ) is not None
@@ -286,6 +397,60 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     assert create_strategy_instance(
         "MACDPreCross2BarMinHistDeltaNorm002Entry", "entry"
     ) is not None
+    assert create_strategy_instance(
+        "MACDHist2BarAnySignMaxBiasPct15Entry", "entry"
+    ) is not None
+    assert create_strategy_instance(
+        "MACDHist2BarAnySignFollowExitBiasEntry", "entry"
+    ) is not None
+
+
+def test_max_bias_pct20_variants_are_registered_with_expected_flags():
+    expected = {
+        "MACDPreCross2BarMaxBiasPct20Entry": (2, 2, True, True),
+        "MACDPreCrossHist2BarMaxBiasPct20Entry": (2, 2, False, True),
+        "MACDHist2BarAnySignMaxBiasPct20Entry": (2, 2, False, False),
+        "MACD2BarAnySignMaxBiasPct20Entry": (2, 2, True, False),
+        "MACDPreCross3BarMaxBiasPct20Entry": (3, 3, True, True),
+        "MACDPreCrossHist3BarMaxBiasPct20Entry": (3, 3, False, True),
+        "MACDHist3BarAnySignMaxBiasPct20Entry": (3, 3, False, False),
+        "MACD3BarAnySignMaxBiasPct20Entry": (3, 3, True, False),
+    }
+
+    for strategy_name, (
+        hist_rise_days,
+        price_rise_days,
+        require_price_rising,
+        require_hist_below_zero,
+    ) in expected.items():
+        assert strategy_name in ENTRY_STRATEGIES
+        strategy = create_strategy_instance(strategy_name, "entry")
+        assert strategy.strategy_name == strategy_name
+        assert strategy.hist_rise_days == hist_rise_days
+        assert strategy.price_rise_days == price_rise_days
+        assert strategy.require_price_rising is require_price_rising
+        assert strategy.require_hist_below_zero is require_hist_below_zero
+        assert strategy.max_bias_pct == 20.0
+
+
+def test_hist2bar_anysign_max_bias_family_is_registered_with_expected_thresholds():
+    expected = {
+        "MACDHist2BarAnySignMaxBiasPct10Entry": 10.0,
+        "MACDHist2BarAnySignMaxBiasPct15Entry": 15.0,
+        "MACDHist2BarAnySignMaxBiasPct20Entry": 20.0,
+        "MACDHist2BarAnySignMaxBiasPct25Entry": 25.0,
+        "MACDHist2BarAnySignMaxBiasPct30Entry": 30.0,
+    }
+
+    for strategy_name, max_bias_pct in expected.items():
+        assert strategy_name in ENTRY_STRATEGIES
+        strategy = create_strategy_instance(strategy_name, "entry")
+        assert strategy.strategy_name == strategy_name
+        assert strategy.hist_rise_days == 2
+        assert strategy.price_rise_days == 2
+        assert strategy.require_price_rising is False
+        assert strategy.require_hist_below_zero is False
+        assert strategy.max_bias_pct == max_bias_pct
 
 
 def test_min_hist_delta_norm_blocks_tiny_histogram_rise():
@@ -347,6 +512,7 @@ def test_latest_precross_flags_match_batch_flags_for_latest_row():
         max_gap_above_ema20_pct=5.0,
         max_return_5d=0.08,
         min_adx_14=10.0,
+        max_bias_pct=15.0,
     ).iloc[-1]
 
     latest_flags = _latest_precross_momentum_flags(
@@ -360,6 +526,7 @@ def test_latest_precross_flags_match_batch_flags_for_latest_row():
         max_gap_above_ema20_pct=5.0,
         max_return_5d=0.08,
         min_adx_14=10.0,
+        max_bias_pct=15.0,
     )
 
     for key in [
@@ -373,6 +540,7 @@ def test_latest_precross_flags_match_batch_flags_for_latest_row():
         "gap_above_ema20_ok",
         "return_5d_ok",
         "adx_ok",
+        "bias_ok",
         "peak_ok",
         "signal",
     ]:

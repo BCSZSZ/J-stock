@@ -85,19 +85,21 @@ def generate_trading_signal(
         metadata=data_manager.load_metadata(ticker)
     )
     
-    # 动态导入策略
-    entry_strategy_class = _load_entry_strategy(entry_strategy)
-    exit_strategy_class = _load_exit_strategy(exit_strategy)
-    
-    if not entry_strategy_class or not exit_strategy_class:
-        return None
-    
-    # 实例化策略
+    from src.utils.strategy_loader import load_strategy_pair
+
     entry_params = entry_params or {}
     exit_params = exit_params or {}
-    
-    entry_inst = entry_strategy_class(**entry_params)
-    exit_inst = exit_strategy_class(**exit_params)
+
+    try:
+        entry_inst, exit_inst = load_strategy_pair(
+            entry_strategy,
+            exit_strategy,
+            entry_params,
+            exit_params,
+        )
+    except Exception as exc:
+        print(f"❌ 错误: 策略加载失败: {exc}")
+        return None
     
     # 生成信号
     if position:

@@ -320,7 +320,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.production.state_manager import build_state_as_of
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
     from src.production.signal_generator import Signal
-    from src.utils.strategy_loader import load_entry_strategy, load_exit_strategy
+    from src.utils.strategy_loader import load_exit_strategy, load_strategy_pair
 
     load_dotenv()
     api_key = os.getenv("JQUANTS_API_KEY")
@@ -640,14 +640,28 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     all_signals = []
     groups = effective_state.get_all_groups()
     group_configs = {g["id"]: g for g in (prod_cfg.strategy_groups or [])}
-    entry_strategy_names = set()
+    group_entry_eval_keys: Dict[str, str] = {}
+    pair_configs: Dict[tuple[str, str], Dict[str, str]] = {}
     for group in groups:
         cfg = group_configs.get(group.id, {})
-        entry_strategy_names.add(
-            cfg.get("entry_strategy", prod_cfg.default_entry_strategy)
+        entry_strategy_name = cfg.get(
+            "entry_strategy", prod_cfg.default_entry_strategy
+        )
+        exit_strategy_name = cfg.get(
+            "exit_strategy", prod_cfg.default_exit_strategy
+        )
+        eval_key = f"{entry_strategy_name}__PAIR__{exit_strategy_name}"
+        group_entry_eval_keys[group.id] = eval_key
+        pair_configs.setdefault(
+            (entry_strategy_name, exit_strategy_name),
+            {
+                "name": entry_strategy_name,
+                "key": eval_key,
+                "exit_name": exit_strategy_name,
+            },
         )
 
-    strategies_config = [{"name": name} for name in sorted(entry_strategy_names)]
+    strategies_config = list(pair_configs.values())
     evaluator = ComprehensiveEvaluator(data_manager, strategies_config)
 
     abnormal_signal_tickers: List[AbnormalSignalTicker] = []
@@ -741,6 +755,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     def _build_buy_diagnostics_markdown(
         groups,
         group_cfg_map,
+        group_entry_eval_keys,
         evals,
         runtime_cfg,
     ) -> str:
@@ -761,6 +776,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             entry_strategy_name = cfg.get(
                 "entry_strategy", runtime_cfg.default_entry_strategy
             )
+            exit_strategy_name = cfg.get(
+                "exit_strategy", runtime_cfg.default_exit_strategy
+            )
+            entry_eval_key = group_entry_eval_keys.get(group.id, entry_strategy_name)
             current_tickers = {
                 pos.ticker for pos in group.positions if int(getattr(pos, "quantity", 0) or 0) > 0
             }
@@ -768,8 +787,17 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             strategy_inst = None
             strategy_threshold_desc = "N/A"
             try:
-                strategy_inst = load_entry_strategy(entry_strategy_name)
-                if hasattr(strategy_inst, "min_confidence"):
+                strategy_inst, _ = load_strategy_pair(
+                    entry_strategy_name,
+                    exit_strategy_name,
+                )
+                if getattr(strategy_inst, "max_bias_pct", None) is not None:
+                    source = getattr(strategy_inst, "bias_threshold_source", None)
+                    source_suffix = f" ({source})" if source else ""
+                    strategy_threshold_desc = (
+                        f"max_bias_pct={float(getattr(strategy_inst, 'max_bias_pct')):.2f}%{source_suffix}"
+                    )
+                elif hasattr(strategy_inst, "min_confidence"):
                     strategy_threshold_desc = (
                         f"min_confidence={float(getattr(strategy_inst, 'min_confidence')):.2f}"
                     )
@@ -784,7 +812,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             for ticker, eval_obj in evals.items():
                 if ticker in current_tickers:
                     continue
-                strategy_eval = eval_obj.evaluations.get(entry_strategy_name)
+                strategy_eval = eval_obj.evaluations.get(entry_eval_key)
                 if strategy_eval is None:
                     continue
                 candidates.append(strategy_eval)
@@ -1289,7 +1317,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         for ticker, eval_obj in comprehensive_evals.items():
             if ticker in current_tickers:
                 continue
-            strategy_eval = eval_obj.evaluations.get(entry_strategy_name)
+            entry_eval_key = group_entry_eval_keys.get(group.id, entry_strategy_name)
+            strategy_eval = eval_obj.evaluations.get(entry_eval_key)
             if not strategy_eval or strategy_eval.signal_action != "BUY":
                 continue
 
@@ -1619,6 +1648,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     report_md += "\n\n" + _build_buy_diagnostics_markdown(
         groups=groups,
         group_cfg_map=group_configs,
+        group_entry_eval_keys=group_entry_eval_keys,
         evals=comprehensive_evals,
         runtime_cfg=prod_cfg,
     )

@@ -23,7 +23,7 @@ from ..data.market_data_builder import MarketDataBuilder
 from ..data.stock_data_manager import StockDataManager
 from ..signal_generator import generate_signal_v2
 from ..utils.signal_sizing import extract_buy_size_multiplier
-from ..utils.strategy_loader import create_strategy_instance
+from ..utils.strategy_loader import create_strategy_instance, load_strategy_pair
 from .state_manager import ProductionState, StrategyGroupState
 
 
@@ -134,7 +134,7 @@ class SignalGenerator:
         self.state = state
 
         # Strategy cache (loaded on-demand)
-        self._strategy_cache: Dict[str, BaseEntryStrategy] = {}
+        self._strategy_cache: Dict[tuple[str, str], BaseEntryStrategy] = {}
         self._exit_strategy_cache: Dict[str, BaseExitStrategy] = {}
 
         # Load monitor list
@@ -164,6 +164,25 @@ class SignalGenerator:
         strategy = create_strategy_instance(strategy_name, strategy_type="exit")
         self._exit_strategy_cache[strategy_name] = strategy
         return strategy
+
+    def _load_strategy_pair(
+        self,
+        entry_strategy_name: str,
+        exit_strategy_name: str,
+    ) -> tuple[BaseEntryStrategy, BaseExitStrategy]:
+        pair_key = (entry_strategy_name, exit_strategy_name)
+        cached_entry = self._strategy_cache.get(pair_key)
+        cached_exit = self._exit_strategy_cache.get(exit_strategy_name)
+        if cached_entry is not None and cached_exit is not None:
+            return cached_entry, cached_exit
+
+        entry_strategy, exit_strategy = load_strategy_pair(
+            entry_strategy_name,
+            exit_strategy_name,
+        )
+        self._strategy_cache[pair_key] = entry_strategy
+        self._exit_strategy_cache[exit_strategy_name] = exit_strategy
+        return entry_strategy, exit_strategy
 
     def evaluate_all_groups(
         self, current_date: str, verbose: bool = False
@@ -231,8 +250,10 @@ class SignalGenerator:
         entry_strategy_name = group_config["entry_strategy"]
         exit_strategy_name = group_config["exit_strategy"]
 
-        entry_strategy = self._load_entry_strategy(entry_strategy_name)
-        exit_strategy = self._load_exit_strategy(exit_strategy_name)
+        entry_strategy, exit_strategy = self._load_strategy_pair(
+            entry_strategy_name,
+            exit_strategy_name,
+        )
 
         # 1. Evaluate EXIT signals for open positions
         for position in group.positions:
