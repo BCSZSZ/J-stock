@@ -33,35 +33,41 @@
 ### 前置条件
 
 - 在当前终端目录下使用相对调用，不写绝对项目路径
+- 下方每个命令块中，第一行为 `.venv/Scripts/python.exe` 版本，第二行为等价的 `uv run` 版本
 
 ### 标准 CLI（必须使用）
 
 ```powershell
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0
+uv run main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0
 ```
 
 `pos-evaluation` 与 `evaluate` 共享同一套时间段/策略/filter/universe 参数，仓位维度通过 `--position-file` 与 `--profile-name` 控制：
 
 ```powershell
 .venv/Scripts/python.exe main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --position-file evaluation-position.json
+uv run main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --position-file evaluation-position.json
 ```
 
 如需一次评估 overlay on/off 两种仓位结果：
 
 ```powershell
 .venv/Scripts/python.exe main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --position-file evaluation-position.json --overlay-modes off on
+uv run main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --position-file evaluation-position.json --overlay-modes off on
 ```
 
 如需在 evaluation 中**按需启用 overlay（默认关闭，仅用于 overlay 对比研究）**：
 
 ```powershell
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --enable-overlay
+uv run main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --enable-overlay
 ```
 
 5年双MVX对比（使用默认：overlay=off、filter=off、仓位=7x0.18、evaluation输出目录=G盘）：
 
 ```powershell
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
+uv run main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
 ```
 
 ### Entry Filter 层开关（evaluation）
@@ -82,15 +88,19 @@
 ```powershell
 # 默认filter=off时，无需显式传 --entry-filter-mode off
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
+uv run main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
 
 # 仅使用单一filter
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode single --entry-filter-name f01_base
+uv run main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode single --entry-filter-name f01_base
 
 # 使用所有filter网格（例如1*1*9）
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode grid
+uv run main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode grid
 
 # 仅查看可用filter
 .venv/Scripts/python.exe main.py evaluate --list-entry-filters
+uv run main.py evaluate --list-entry-filters
 ```
 
 ### 策略命名与注册规范（必须遵守）
@@ -111,6 +121,7 @@
 
 ```powershell
 .venv/Scripts/python.exe main.py universe-sector --score-model v2 --size-balance
+uv run main.py universe-sector --score-model v2 --size-balance
 ```
 
 ### 参数说明（必要）
@@ -125,6 +136,7 @@
 
 ```powershell
 .venv/Scripts/python.exe main.py universe-sector --score-model v2 --size-balance --no-fetch --resume
+uv run main.py universe-sector --score-model v2 --size-balance --no-fetch --resume
 ```
 
 ### 输出位置
@@ -148,10 +160,12 @@
 
 ```powershell
 .venv/Scripts/python.exe main.py production --daily
+uv run main.py production --daily
 ```
 
 ```powershell
 .venv/Scripts/python.exe main.py production --daily --no-fetch
+uv run main.py production --daily --no-fetch
 ```
 
 说明：production 流程已接入 overlay，并在日报 `Overlay Summary` 区块输出 overlay 指标与判断结果（默认主用 SectorBreadthOverlay；RegimeOverlay 为 deprecated 兼容项）。
@@ -160,10 +174,12 @@
 
 ```powershell
 .venv/Scripts/python.exe main.py production --input --manual --manual-file today.csv --yes
+uv run main.py production --input --manual --manual-file today.csv --yes
 ```
 
 ```powershell
 .venv/Scripts/python.exe main.py production --input --manual --manual-file today.csv --yes --aws-profile personal
+uv run main.py production --input --manual --manual-file today.csv --yes --aws-profile personal
 ```
 
 CSV 必填列（顺序）：
@@ -205,6 +221,10 @@ ticker,action,qty,price,date
 .venv/Scripts/python.exe tools/exit_breakdown.py `
   --trades-csv "<path-to-trades.csv>" `
   --exit-strategy MVXW_N5_R0p55_T1p3_D10_B20p0
+
+uv run tools/exit_breakdown.py `
+  --trades-csv "<path-to-trades.csv>" `
+  --exit-strategy MVXW_N5_R0p55_T1p3_D10_B20p0
 ```
 
 ### 常用参数
@@ -235,12 +255,14 @@ TOTAL          ...     100.0%     ...      ...          ...             ...     
 
 ```powershell
 .venv/Scripts/python.exe tools/dedup_raw_financials.py
+uv run tools/dedup_raw_financials.py
 ```
 
 ### 预检查（可选）
 
 ```powershell
 .venv/Scripts/python.exe tools/dedup_raw_financials.py --dry-run
+uv run tools/dedup_raw_financials.py --dry-run
 ```
 
 ### 完成判定
@@ -270,18 +292,21 @@ TOTAL          ...     100.0%     ...      ...          ...             ...     
 
 ```powershell
 .venv/Scripts/python.exe tools/config_sync.py pull
+uv run tools/config_sync.py pull
 ```
 
 仅同步 `config.json`（跳过 `otherconfig.json`）：
 
 ```powershell
 .venv/Scripts/python.exe tools/config_sync.py pull --no-otherconfig
+uv run tools/config_sync.py pull --no-otherconfig
 ```
 
 将本地覆盖到 G盘（危险操作，双确认）：
 
 ```powershell
 .venv/Scripts/python.exe tools/config_sync.py push
+uv run tools/config_sync.py push
 ```
 
 ## Task 6: G盘 state 迁移到 S3（一次性 + 日常）
@@ -305,10 +330,12 @@ aws s3 cp "G:/My Drive/AI-Stock-Sync/state/production_monitor_list.json" s3://bc
 
 ```powershell
 .venv/Scripts/python.exe tools/sync_ops_state_s3.py push --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops
+uv run tools/sync_ops_state_s3.py push --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops
 ```
 
 需要从 S3 拉回本地时：
 
 ```powershell
 .venv/Scripts/python.exe tools/sync_ops_state_s3.py pull --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops
+uv run tools/sync_ops_state_s3.py pull --ops-s3-prefix s3://bcszsz-ai-j-stock-bucket/prod/ops
 ```
