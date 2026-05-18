@@ -48,7 +48,7 @@ def _add_fill_buffer_arguments(parser: argparse.ArgumentParser) -> None:
         "--fill-buffer-pct",
         type=float,
         default=0.02,
-        help="成交价缓冲比例（默认: 0.02 = 2%）",
+        help="成交价缓冲比例（默认: 0.02 = 2%%）",
     )
 
 
