@@ -175,6 +175,8 @@ export const api = {
         override_strategies: boolean;
         buy_fill_mode: string;
         buy_fill_modes?: string[];
+        fill_buffer_enabled: boolean;
+        fill_buffer_pct: number;
         entry_strategies: string[];
         exit_strategies: string[];
         ranking_mode: string;

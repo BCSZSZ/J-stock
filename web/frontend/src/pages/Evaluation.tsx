@@ -20,6 +20,8 @@ interface EvaluationDefaults {
   override_strategies: boolean;
   buy_fill_mode: string;
   buy_fill_modes?: string[];
+  fill_buffer_enabled: boolean;
+  fill_buffer_pct: number;
   entry_strategies: string[];
   exit_strategies: string[];
   ranking_mode: string;
@@ -241,6 +243,13 @@ function parseOptionalInt(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseOptionalFloat(value: string): number | undefined {
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function isBuyFillMode(value: string): value is BuyFillMode {
   return value === "next_open" || value === "next_close";
 }
@@ -265,6 +274,8 @@ export default function Evaluation() {
   const [selectedBuyFillModes, setSelectedBuyFillModes] = useState<
     BuyFillMode[]
   >(["next_open"]);
+  const [fillBufferEnabled, setFillBufferEnabled] = useState(false);
+  const [fillBufferPct, setFillBufferPct] = useState("0.02");
   const [selectedEntry, setSelectedEntry] = useState<string[]>([]);
   const [selectedExit, setSelectedExit] = useState<string[]>([]);
   const [mode, setMode] = useState<EvaluationMode>("annual");
@@ -316,6 +327,11 @@ export default function Evaluation() {
     entryFilterMode === "auto";
   const rankingModeOptions = options.data?.ranking_modes ?? ["prs_train"];
   const hasMultipleRankingModes = rankingModeOptions.length > 1;
+  const parsedFillBufferPct = parseOptionalFloat(fillBufferPct);
+  const fillBufferPctInvalid =
+    parsedFillBufferPct === undefined ||
+    parsedFillBufferPct < 0 ||
+    parsedFillBufferPct >= 1;
   const productionEntry = options.data?.production.entry_strategy ?? "";
   const productionExit = options.data?.production.exit_strategy ?? "";
   const productionRankingStrategy =
@@ -346,6 +362,8 @@ export default function Evaluation() {
               : "next_open",
           ],
     );
+    setFillBufferEnabled(Boolean(defaults.fill_buffer_enabled));
+    setFillBufferPct(String(defaults.fill_buffer_pct ?? 0.02));
     setSelectedEntry(defaults.entry_strategies ?? []);
     setSelectedExit(defaults.exit_strategies ?? []);
     setMode((defaults.mode as EvaluationMode) ?? "annual");
@@ -389,11 +407,18 @@ export default function Evaluation() {
     if (selectedBuyFillModes.length === 0) {
       return;
     }
+    if (fillBufferPctInvalid) {
+      return;
+    }
+
+    const normalizedFillBufferPct = parsedFillBufferPct ?? 0.02;
 
     const payload: Record<string, unknown> = {
       command,
       mode,
       buy_fill_modes: selectedBuyFillModes,
+      fill_buffer_enabled: fillBufferEnabled,
+      fill_buffer_pct: normalizedFillBufferPct,
       capacity_regime_mode: capacityRegimeMode,
       override_strategies: overrideStrategies,
       entry_strategies:
@@ -437,6 +462,7 @@ export default function Evaluation() {
       [
         `Command: ${command}`,
         `Buy Fill Modes: ${selectedBuyFillModes.join(", ")}`,
+        `Fill Buffer: ${fillBufferEnabled ? `ON (${(normalizedFillBufferPct * 100).toFixed(2)}%)` : `OFF (${(normalizedFillBufferPct * 100).toFixed(2)}% configured)`}`,
         `Execution: one full run per selected fill mode`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
         isWalkForward
@@ -556,6 +582,36 @@ export default function Evaluation() {
                 Active: {selectedBuyFillModes.map(formatBuyFillModeLabel).join(", ")}
               </p>
             )}
+          </div>
+
+          <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input
+                type="checkbox"
+                checked={fillBufferEnabled}
+                onChange={(e) => setFillBufferEnabled(e.target.checked)}
+              />
+              Enable Fill Buffer
+            </label>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">
+                Fill Buffer Ratio
+              </label>
+              <input
+                value={fillBufferPct}
+                onChange={(e) => setFillBufferPct(e.target.value)}
+                placeholder="0.02"
+                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                Buy fills use raw price × (1 + buffer). Sell fills use raw price × (1 - buffer).
+              </p>
+              {fillBufferPctInvalid && (
+                <p className="mt-2 text-xs text-red-400">
+                  Enter a valid ratio between 0 and 1, for example 0.02.
+                </p>
+              )}
+            </div>
           </div>
 
           <div>
@@ -869,7 +925,11 @@ export default function Evaluation() {
 
           <button
             onClick={handleRun}
-            disabled={exec.running || selectedBuyFillModes.length === 0}
+            disabled={
+              exec.running ||
+              selectedBuyFillModes.length === 0 ||
+              fillBufferPctInvalid
+            }
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm w-full"
           >
             Run {command}

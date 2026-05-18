@@ -150,6 +150,31 @@ uv run main.py universe-sector --score-model v2 --size-balance --no-fetch --resu
 2. 若首次运行且用了 `--no-fetch`: 去掉 `--no-fetch` 重新执行。
 3. 若中断: 加 `--resume` 并保持相同 `--checkpoint`。
 
+## Task 2.5: 全量抓取（fetch --all）
+
+### 目标
+
+按当前 monitor list / fetch universe 配置，执行一次全量抓取。
+
+### 标准 CLI
+
+```powershell
+.venv/Scripts/python.exe main.py fetch --all
+uv run main.py fetch --all
+```
+
+### 常用变体
+
+```powershell
+.venv/Scripts/python.exe main.py fetch --all --recompute
+uv run main.py fetch --all --recompute
+```
+
+说明：
+
+- `--all` 会基于当前 production 配置中的 monitor list / fetch universe 执行批量抓取。
+- `--recompute` 仅重算特征层，不重新抓取远端原始数据。
+
 ## Task 3: 盘后生产任务（production --daily）
 
 ### 目标

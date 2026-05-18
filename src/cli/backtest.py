@@ -79,6 +79,11 @@ def cmd_backtest(args):
             print(f"   时间范围: {start_date} → {end_date}")
 
         print(f"   起始资金: ¥{capital:,}")
+        print(
+            "   成交价缓冲: "
+            f"{'开启' if args.fill_buffer_enabled else '关闭'} "
+            f"({float(args.fill_buffer_pct):.2%})"
+        )
         print("=" * 60)
 
         data_manager = StockDataManager()
@@ -107,6 +112,8 @@ def cmd_backtest(args):
                 end_date=end_date,
                 starting_capital_jpy=capital,
                 overlay_manager=overlay_manager,
+                fill_buffer_enabled=args.fill_buffer_enabled,
+                fill_buffer_pct=args.fill_buffer_pct,
             )
 
             results.append({

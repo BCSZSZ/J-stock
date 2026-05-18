@@ -17,6 +17,11 @@ from src.analysis.signals import TradingSignal, SignalAction, MarketData, Positi
 from src.signal_generator import generate_signal_v2
 from src.backtest.models import Trade, BacktestResult
 from src.backtest.lot_size_manager import LotSizeManager
+from src.backtest.fill_buffer import (
+    apply_buy_fill_buffer,
+    apply_sell_fill_buffer,
+    normalize_fill_buffer_pct,
+)
 from src.data.market_data_builder import MarketDataBuilder
 from src.overlays import OverlayContext, OverlayManager
 from src.backtest.metrics import (
@@ -49,7 +54,9 @@ class BacktestEngine:
         starting_capital_jpy: float = 5_000_000,  # ¥5M default
         buy_threshold: float = 65.0,               # Score >= 65 to buy
         data_root: str = './data',
-        overlay_manager: Optional[OverlayManager] = None
+        overlay_manager: Optional[OverlayManager] = None,
+        fill_buffer_enabled: bool = False,
+        fill_buffer_pct: float = 0.02,
     ):
         """
         Initialize backtest engine.
@@ -63,6 +70,8 @@ class BacktestEngine:
         self.buy_threshold = buy_threshold
         self.data_root = Path(data_root)
         self.overlay_manager = overlay_manager
+        self.fill_buffer_enabled = bool(fill_buffer_enabled)
+        self.fill_buffer_pct = normalize_fill_buffer_pct(fill_buffer_pct)
     
     def _load_data(self, ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
         """
@@ -224,7 +233,7 @@ class BacktestEngine:
                     pending_buy_signal = None
                 else:
                     # Execute BUY at today's open price (signal was generated yesterday)
-                    entry_price = current_open
+                    entry_price = self._apply_buy_fill_buffer(current_open)
                     max_cash = cash
                     if overlay_decision and overlay_decision.position_scale is not None:
                         max_cash *= overlay_decision.position_scale
@@ -256,7 +265,7 @@ class BacktestEngine:
             
             if pending_sell_signal and position is not None:
                 # Execute SELL at today's open price
-                exit_price = current_open
+                exit_price = self._apply_sell_fill_buffer(current_open)
                 entry_date = position.entry_date
                 position_quantity_before_exit = position.quantity
                 sell_pct = float(pending_sell_signal.metadata.get('sell_percentage', 1.0))
@@ -407,6 +416,20 @@ class BacktestEngine:
             rounded_qty = min(total_qty, lot_size)
 
         return rounded_qty
+
+    def _apply_buy_fill_buffer(self, price: float) -> float:
+        return apply_buy_fill_buffer(
+            price,
+            enabled=self.fill_buffer_enabled,
+            fill_buffer_pct=self.fill_buffer_pct,
+        )
+
+    def _apply_sell_fill_buffer(self, price: float) -> float:
+        return apply_sell_fill_buffer(
+            price,
+            enabled=self.fill_buffer_enabled,
+            fill_buffer_pct=self.fill_buffer_pct,
+        )
     
     def _build_result(
         self,
@@ -573,6 +596,8 @@ def backtest_strategy(
     end_date: str = "2026-01-08",
     starting_capital_jpy: float = 5_000_000,
     overlay_manager: Optional[OverlayManager] = None,
+    fill_buffer_enabled: bool = False,
+    fill_buffer_pct: float = 0.02,
 ) -> BacktestResult:
     """
     Convenience function: Backtest single strategy on single ticker.
@@ -591,6 +616,8 @@ def backtest_strategy(
     engine = BacktestEngine(
         starting_capital_jpy=starting_capital_jpy,
         overlay_manager=overlay_manager,
+        fill_buffer_enabled=fill_buffer_enabled,
+        fill_buffer_pct=fill_buffer_pct,
     )
     return engine.backtest_strategy(ticker, entry_strategy, exit_strategy, start_date, end_date)
 
@@ -604,6 +631,8 @@ def backtest_strategies(
     include_benchmark: bool = True,
     data_root: str = './data',
     overlay_manager: Optional[OverlayManager] = None,
+    fill_buffer_enabled: bool = False,
+    fill_buffer_pct: float = 0.02,
 ) -> pd.DataFrame:
     """
     Backtest multiple strategies on multiple tickers.
@@ -624,6 +653,8 @@ def backtest_strategies(
         starting_capital_jpy=starting_capital_jpy,
         data_root=data_root,
         overlay_manager=overlay_manager,
+        fill_buffer_enabled=fill_buffer_enabled,
+        fill_buffer_pct=fill_buffer_pct,
     )
     
     # Fetch benchmark once (from local cache)

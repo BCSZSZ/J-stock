@@ -17,6 +17,7 @@ from collections import defaultdict
 
 import pandas as pd
 
+from src.backtest.fill_buffer import normalize_fill_buffer_pct
 from src.config.capacity import parse_capacity_regime, parse_evaluation_capacity_mode
 from src.config.service import load_config
 from src.config.runtime import CONFIG_ENV_VAR, GDRIVE_DEFAULT_CONFIG_FILE, get_config_file_path
@@ -63,6 +64,8 @@ class AnnualStrategyResult:
     exit_confirmation_days: int = 1
     ranking_strategy: str = "default"
     buy_fill_mode: str = "next_open"
+    fill_buffer_enabled: bool = False
+    fill_buffer_pct: float = 0.0
 
 
 TRADE_EXPORT_COLUMNS = [
@@ -77,6 +80,8 @@ TRADE_EXPORT_COLUMNS = [
     "ranking_strategy",
     "exit_confirmation_days",
     "buy_fill_mode",
+    "fill_buffer_enabled",
+    "fill_buffer_pct",
     "ticker",
     "entry_date",
     "entry_price",
@@ -509,6 +514,8 @@ class StrategyEvaluator:
         use_cache: bool = True,
         ranking_strategies: Optional[List[str]] = None,
         buy_fill_mode: str = "next_open",
+        fill_buffer_enabled: bool = False,
+        fill_buffer_pct: float = 0.02,
         capacity_regime_mode_override: Optional[str] = None,
     ):
         """
@@ -534,6 +541,8 @@ class StrategyEvaluator:
         self.use_cache = use_cache  # Data cache flag
         self.exit_confirmation_days = max(1, int(exit_confirmation_days))
         self.buy_fill_mode = str(buy_fill_mode or "next_open").strip().lower()
+        self.fill_buffer_enabled = bool(fill_buffer_enabled)
+        self.fill_buffer_pct = normalize_fill_buffer_pct(fill_buffer_pct)
         self.monitor_list_file = monitor_list_file
         self.entry_filter_config = entry_filter_config or {}
         self.entry_filter_variants = self._normalize_entry_filter_variants(
@@ -1134,6 +1143,8 @@ class StrategyEvaluator:
             entry_filter_config=entry_filter_config,
             signal_ranker=ranker,
             buy_fill_mode=self.buy_fill_mode,
+            fill_buffer_enabled=self.fill_buffer_enabled,
+            fill_buffer_pct=self.fill_buffer_pct,
         )
         self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 
@@ -1203,6 +1214,8 @@ class StrategyEvaluator:
             exit_confirmation_days=self.exit_confirmation_days,
             ranking_strategy=ranking_strategy,
             buy_fill_mode=self.buy_fill_mode,
+            fill_buffer_enabled=self.fill_buffer_enabled,
+            fill_buffer_pct=self.fill_buffer_pct,
         )
 
     def _get_topix_return(self, start_date: str, end_date: str) -> Optional[float]:
@@ -1367,6 +1380,8 @@ class StrategyEvaluator:
                     "ranking_strategy": ranking_strategy,
                     "exit_confirmation_days": self.exit_confirmation_days,
                     "buy_fill_mode": self.buy_fill_mode,
+                    "fill_buffer_enabled": self.fill_buffer_enabled,
+                    "fill_buffer_pct": self.fill_buffer_pct,
                     "ticker": getattr(trade, "ticker", None),
                     "entry_date": getattr(trade, "entry_date", None),
                     "entry_price": getattr(trade, "entry_price", None),

@@ -38,6 +38,20 @@ def _cmd_walk_forward_evaluate(args):
     return cmd_walk_forward_evaluate(args)
 
 
+def _add_fill_buffer_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--fill-buffer-enabled",
+        action="store_true",
+        help="启用成交价缓冲：买入按更贵成交、卖出按更便宜成交回测",
+    )
+    parser.add_argument(
+        "--fill-buffer-pct",
+        type=float,
+        default=0.02,
+        help="成交价缓冲比例（默认: 0.02 = 2%）",
+    )
+
+
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
@@ -46,6 +60,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         default="next_open",
         help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
     )
+    _add_fill_buffer_arguments(parser)
     parser.add_argument(
         "--capacity-regime-mode",
         choices=["off", "enforce"],
@@ -147,6 +162,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         default="next_open",
         help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
     )
+    _add_fill_buffer_arguments(parser)
     parser.add_argument(
         "--capacity-regime-mode",
         choices=["off", "enforce"],
@@ -469,6 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="起始资金 (默认: config.json 的 backtest.starting_capital_jpy)",
     )
+    _add_fill_buffer_arguments(backtest_parser)
     backtest_parser.set_defaults(func=cmd_backtest)
 
     portfolio_parser = subparsers.add_parser("portfolio", help="组合投资回测")
@@ -506,6 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="起始资金 (默认: config.json 的 backtest.starting_capital_jpy)",
     )
+    _add_fill_buffer_arguments(portfolio_parser)
     portfolio_parser.set_defaults(func=cmd_portfolio)
 
     universe_parser = subparsers.add_parser("universe", help="宇宙选股（从CSV加载）")

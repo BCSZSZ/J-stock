@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -125,6 +125,8 @@ class EvaluationRunRequest(BaseModel):
     )
     buy_fill_mode: Literal["next_open", "next_close"] = "next_open"
     buy_fill_modes: list[Literal["next_open", "next_close"]] | None = None
+    fill_buffer_enabled: bool = False
+    fill_buffer_pct: float = Field(default=0.02, ge=0.0, lt=1.0)
     capacity_regime_mode: Literal["off", "enforce"] | None = None
     override_strategies: bool = False
     entry_strategies: list[str] | None = None

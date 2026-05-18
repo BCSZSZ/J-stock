@@ -190,6 +190,9 @@ def _build_cli_args(
         args.extend(["--mode", req.mode])
 
     args.extend(["--buy-fill-mode", buy_fill_mode or req.buy_fill_mode])
+    if req.fill_buffer_enabled:
+        args.append("--fill-buffer-enabled")
+    args.extend(["--fill-buffer-pct", str(req.fill_buffer_pct)])
 
     if req.capacity_regime_mode:
         args.extend(["--capacity-regime-mode", req.capacity_regime_mode])
@@ -313,6 +316,8 @@ def get_options() -> dict[str, object]:
             "overlay_modes": ["off"],
             "buy_fill_mode": "next_open",
             "buy_fill_modes": ["next_open"],
+            "fill_buffer_enabled": False,
+            "fill_buffer_pct": 0.02,
             "capacity_regime_mode": str(eval_cfg.get("capacity_regime_mode", "off")),
             "exit_confirm_days": eval_cfg.get("exit_confirmation_days"),
             "output_dir": str(eval_cfg.get("output_dir", "strategy_evaluation")),

@@ -22,6 +22,11 @@ from ..data.stock_data_manager import StockDataManager
 from ..overlays import OverlayContext, OverlayManager
 from ..signal_generator import generate_signal_v2
 from ..utils.signal_sizing import extract_buy_size_multiplier
+from .fill_buffer import (
+    apply_buy_fill_buffer,
+    apply_sell_fill_buffer,
+    normalize_fill_buffer_pct,
+)
 from .lot_size_manager import LotSizeManager
 from .models import BacktestResult, Trade
 from .portfolio import Portfolio, Position
@@ -58,6 +63,8 @@ class PortfolioBacktestEngine:
         buy_rank_buffer: int = 2,
         signal_ranker: Optional[Union["DefaultSignalRanker", object]] = None,
         buy_fill_mode: str = "next_open",
+        fill_buffer_enabled: bool = False,
+        fill_buffer_pct: float = 0.02,
     ):
         """
         Args:
@@ -74,6 +81,8 @@ class PortfolioBacktestEngine:
             buy_rank_buffer: 买入排序额外缓冲数量（TopN+buffer）
             signal_ranker: 排序策略实例（优先于 signal_ranking_method）
             buy_fill_mode: 买入成交模式（next_open 或 next_close）
+            fill_buffer_enabled: 是否启用成交价缓冲
+            fill_buffer_pct: 成交价缓冲比例（0.02 = 2%）
         """
         self.starting_capital = starting_capital
         self.max_positions = max_positions
@@ -93,6 +102,8 @@ class PortfolioBacktestEngine:
                 f"Unsupported buy_fill_mode: {buy_fill_mode}. Expected next_open or next_close."
             )
         self.buy_fill_mode = normalized_buy_fill_mode
+        self.fill_buffer_enabled = bool(fill_buffer_enabled)
+        self.fill_buffer_pct = normalize_fill_buffer_pct(fill_buffer_pct)
 
         # 创建信号排序器: 优先使用实例，否则按旧字符串方式
         if signal_ranker is not None:
@@ -268,7 +279,7 @@ class PortfolioBacktestEngine:
                     position = portfolio.positions[ticker]
 
                     # 获取卖出价格（明天开盘价）
-                    exit_price = self._get_next_open_price(
+                    exit_price = self._get_sell_fill_price(
                         all_data[ticker], current_date
                     )
 
@@ -871,7 +882,25 @@ class PortfolioBacktestEngine:
         )
         if column_pos is None:
             return None
-        return float(df.iat[row_pos, column_pos])
+        raw_price = float(df.iat[row_pos, column_pos])
+        return apply_buy_fill_buffer(
+            raw_price,
+            enabled=self.fill_buffer_enabled,
+            fill_buffer_pct=self.fill_buffer_pct,
+        )
+
+    def _get_sell_fill_price(
+        self, data: Dict, current_date: pd.Timestamp
+    ) -> Optional[float]:
+        """获取当前执行日的卖出成交价（开盘价并按配置调整）。"""
+        raw_price = self._get_next_open_price(data, current_date)
+        if raw_price is None:
+            return None
+        return apply_sell_fill_buffer(
+            raw_price,
+            enabled=self.fill_buffer_enabled,
+            fill_buffer_pct=self.fill_buffer_pct,
+        )
 
     def _get_next_open_price(
         self, data: Dict, current_date: pd.Timestamp

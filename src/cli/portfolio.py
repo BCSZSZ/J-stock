@@ -89,6 +89,11 @@ def cmd_portfolio(args):
         )
         print(f"   起始资金: ¥{capital:,}")
         print(f"   最大持仓: {config['portfolio']['max_positions']}只")
+        print(
+            "   成交价缓冲: "
+            f"{'开启' if args.fill_buffer_enabled else '关闭'} "
+            f"({float(args.fill_buffer_pct):.2%})"
+        )
         print("=" * 60)
 
         data_manager = StockDataManager()
@@ -137,6 +142,8 @@ def cmd_portfolio(args):
                 max_positions=config["portfolio"]["max_positions"],
                 max_position_pct=config["portfolio"]["max_position_pct"],
                 overlay_manager=overlay_manager,
+                fill_buffer_enabled=args.fill_buffer_enabled,
+                fill_buffer_pct=args.fill_buffer_pct,
             )
 
             result = engine.backtest_portfolio_strategy(

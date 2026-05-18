@@ -216,6 +216,8 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
                 "entry_filter": "off",
                 "exit_confirmation_days": 1,
                 "buy_fill_mode": "next_open",
+                "fill_buffer_enabled": True,
+                "fill_buffer_pct": 0.02,
                 "return_pct": 10.0,
                 "topix_return_pct": 5.0,
                 "alpha": 5.0,
@@ -235,6 +237,8 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
                 "entry_filter": "off",
                 "exit_confirmation_days": 1,
                 "buy_fill_mode": "next_open",
+                "fill_buffer_enabled": True,
+                "fill_buffer_pct": 0.02,
                 "return_pct": 20.0,
                 "topix_return_pct": 6.0,
                 "alpha": 14.0,
@@ -254,6 +258,8 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
                 "entry_filter": "strict",
                 "exit_confirmation_days": 2,
                 "buy_fill_mode": "next_open",
+                "fill_buffer_enabled": True,
+                "fill_buffer_pct": 0.02,
                 "return_pct": 30.0,
                 "topix_return_pct": 5.0,
                 "alpha": 25.0,
@@ -273,6 +279,8 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
                 "entry_filter": "strict",
                 "exit_confirmation_days": 2,
                 "buy_fill_mode": "next_open",
+                "fill_buffer_enabled": True,
+                "fill_buffer_pct": 0.02,
                 "return_pct": 50.0,
                 "topix_return_pct": 6.0,
                 "alpha": 44.0,
@@ -295,6 +303,8 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
                 "entry_filter": "off",
                 "exit_confirmation_days": 1,
                 "buy_fill_mode": "next_open",
+                "fill_buffer_enabled": True,
+                "fill_buffer_pct": 0.02,
                 "return_jpy": 1000.0,
                 "exit_urgency": "P_TP1",
                 "ticker": "1332",
@@ -306,6 +316,8 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
                 "entry_filter": "off",
                 "exit_confirmation_days": 1,
                 "buy_fill_mode": "next_open",
+                "fill_buffer_enabled": True,
+                "fill_buffer_pct": 0.02,
                 "return_jpy": 1500.0,
                 "exit_urgency": "P_TP2",
                 "ticker": "1332",
@@ -317,6 +329,8 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
                 "entry_filter": "strict",
                 "exit_confirmation_days": 2,
                 "buy_fill_mode": "next_open",
+                "fill_buffer_enabled": True,
+                "fill_buffer_pct": 0.02,
                 "return_jpy": 2000.0,
                 "exit_urgency": "P_TP1",
                 "ticker": "1332",
@@ -328,6 +342,8 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
                 "entry_filter": "strict",
                 "exit_confirmation_days": 2,
                 "buy_fill_mode": "next_open",
+                "fill_buffer_enabled": True,
+                "fill_buffer_pct": 0.02,
                 "return_jpy": 2500.0,
                 "exit_urgency": "P_TP2",
                 "ticker": "1332",
@@ -356,10 +372,10 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
     assert "### 全策略组合 × 年度收益率" in report_text
     assert "### 全策略组合 × 年度胜率" in report_text
     assert "### 全策略组合 × 年度最大回撤" in report_text
-    assert "| 入场策略 | 出场策略 | 入场过滤器 | 出场确认天数 | 买入成交模式 | 2021 | 2022 | 全期间平均收益率 |" in report_text
-    assert "| EntryA | ExitA | off | 1 | next_open | 10.00% | 20.00% | 15.00% |" in report_text
-    assert "| EntryA | ExitA | off | 1 | next_open | 50.00% | 70.00% | 60.00% |" in report_text
-    assert "| EntryA | ExitA | off | 1 | next_open | 5.00% | 7.00% | 6.00% |" in report_text
+    assert "| 入场策略 | 出场策略 | 入场过滤器 | 出场确认天数 | 买入成交模式 | 成交价缓冲 | 缓冲比例 | 2021 | 2022 | 全期间平均收益率 |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | on | 2.00% | 10.00% | 20.00% | 15.00% |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | on | 2.00% | 50.00% | 70.00% | 60.00% |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | on | 2.00% | 5.00% | 7.00% | 6.00% |" in report_text
     assert report_text.index("## 全策略组合年度总览") < report_text.index("## 策略组合 1")
     assert "### 年度总览" in report_text
 
