@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 import json
 from pathlib import Path
+from statistics import median
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException
@@ -138,6 +139,238 @@ def _load_close_series_from_path(path: Path) -> CloseSeries | None:
 
 def _load_close_series(ticker: str) -> CloseSeries | None:
     return _load_close_series_from_path(_features_path(ticker))
+
+
+def _load_open_lookup_from_path(path: Path) -> dict[str, float]:
+    if not path.exists():
+        return {}
+
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return {}
+
+    if df.empty or "Open" not in df.columns:
+        return {}
+
+    if "Date" not in df.columns:
+        df = df.reset_index()
+    if "Date" not in df.columns:
+        return {}
+
+    open_frame = df[["Date", "Open"]].copy()
+    open_frame["Date"] = pd.to_datetime(
+        open_frame["Date"], errors="coerce"
+    ).dt.strftime("%Y-%m-%d")
+    open_frame = open_frame.dropna(subset=["Date", "Open"])
+    if open_frame.empty:
+        return {}
+
+    open_frame = open_frame.drop_duplicates(subset=["Date"], keep="last")
+    return {
+        str(trade_date): float(open_price)
+        for trade_date, open_price in zip(
+            open_frame["Date"].tolist(),
+            open_frame["Open"].tolist(),
+        )
+    }
+
+
+def _load_open_lookup(ticker: str) -> dict[str, float]:
+    return _load_open_lookup_from_path(_features_path(ticker))
+
+
+def _is_active_trade_event(event: dict[str, object]) -> bool:
+    return str(event.get("status") or "ACTIVE") == "ACTIVE"
+
+
+def _to_float(value: object) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _average(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return float(sum(values) / len(values))
+
+
+def _capital_weighted_slippage_pct(events: list[dict[str, object]]) -> float | None:
+    total_benchmark_notional = 0.0
+    total_adverse_jpy = 0.0
+
+    for event in events:
+        slippage_pct = _to_float(event.get("slippage_pct"))
+        execution_open_price = _to_float(event.get("execution_open_price"))
+        quantity = _to_float(event.get("quantity"))
+        if (
+            slippage_pct is None
+            or execution_open_price is None
+            or quantity is None
+            or execution_open_price <= 0
+            or quantity <= 0
+        ):
+            continue
+
+        benchmark_notional = execution_open_price * quantity
+        total_benchmark_notional += benchmark_notional
+        total_adverse_jpy += benchmark_notional * (slippage_pct / 100.0)
+
+    if total_benchmark_notional == 0:
+        return None
+
+    return (total_adverse_jpy / total_benchmark_notional) * 100.0
+
+
+def _enrich_trade_event_with_execution_open(
+    event: dict[str, object],
+    open_lookup_cache: dict[str, dict[str, float]],
+) -> dict[str, object]:
+    enriched = dict(event)
+    ticker = str(enriched.get("ticker") or "")
+    trade_date = str(enriched.get("date") or "")
+    actual_price = _to_float(enriched.get("price"))
+
+    if not ticker or not trade_date:
+        enriched["benchmark_status"] = "MISSING_TRADE_KEYS"
+        enriched["execution_open_price"] = None
+        enriched["actual_vs_open_jpy"] = None
+        enriched["actual_vs_open_pct"] = None
+        enriched["slippage_pct"] = None
+        enriched["slippage_bps"] = None
+        enriched["slippage_direction"] = "UNKNOWN"
+        return enriched
+
+    open_lookup = open_lookup_cache.get(ticker)
+    if open_lookup is None:
+        open_lookup = _load_open_lookup(ticker)
+        open_lookup_cache[ticker] = open_lookup
+
+    execution_open = open_lookup.get(trade_date)
+    if execution_open is None:
+        enriched["benchmark_status"] = "MISSING_OPEN"
+        enriched["execution_open_price"] = None
+        enriched["actual_vs_open_jpy"] = None
+        enriched["actual_vs_open_pct"] = None
+        enriched["slippage_pct"] = None
+        enriched["slippage_bps"] = None
+        enriched["slippage_direction"] = "UNKNOWN"
+        return enriched
+
+    if actual_price is None or execution_open == 0:
+        enriched["benchmark_status"] = "MISSING_PRICE"
+        enriched["execution_open_price"] = execution_open
+        enriched["actual_vs_open_jpy"] = None
+        enriched["actual_vs_open_pct"] = None
+        enriched["slippage_pct"] = None
+        enriched["slippage_bps"] = None
+        enriched["slippage_direction"] = "UNKNOWN"
+        return enriched
+
+    raw_error_jpy = actual_price - execution_open
+    raw_error_pct = (raw_error_jpy / execution_open) * 100.0
+    if str(enriched.get("action") or "") == "SELL":
+        slippage_pct = -raw_error_pct
+    else:
+        slippage_pct = raw_error_pct
+
+    if slippage_pct > 0:
+        slippage_direction = "WORSE"
+    elif slippage_pct < 0:
+        slippage_direction = "BETTER"
+    else:
+        slippage_direction = "MATCH"
+
+    enriched["benchmark_status"] = "AVAILABLE"
+    enriched["execution_open_price"] = execution_open
+    enriched["actual_vs_open_jpy"] = raw_error_jpy
+    enriched["actual_vs_open_pct"] = raw_error_pct
+    enriched["slippage_pct"] = slippage_pct
+    enriched["slippage_bps"] = slippage_pct * 100.0
+    enriched["slippage_direction"] = slippage_direction
+    return enriched
+
+
+def _build_trade_history_summary(events: list[dict[str, object]]) -> dict[str, object]:
+    active_events = [event for event in events if _is_active_trade_event(event)]
+    benchmarked_events = [
+        event
+        for event in active_events
+        if event.get("benchmark_status") == "AVAILABLE"
+    ]
+
+    overall_slippage = [
+        float(event["slippage_pct"])
+        for event in benchmarked_events
+        if event.get("slippage_pct") is not None
+    ]
+    buy_slippage = [
+        float(event["slippage_pct"])
+        for event in benchmarked_events
+        if event.get("action") == "BUY" and event.get("slippage_pct") is not None
+    ]
+    sell_slippage = [
+        float(event["slippage_pct"])
+        for event in benchmarked_events
+        if event.get("action") == "SELL" and event.get("slippage_pct") is not None
+    ]
+    buy_events = [
+        event for event in benchmarked_events if event.get("action") == "BUY"
+    ]
+    sell_events = [
+        event for event in benchmarked_events if event.get("action") == "SELL"
+    ]
+    absolute_errors = [
+        abs(float(event["actual_vs_open_jpy"]))
+        for event in benchmarked_events
+        if event.get("actual_vs_open_jpy") is not None
+    ]
+
+    return {
+        "total_trades": len(active_events),
+        "benchmarked_trades": len(benchmarked_events),
+        "missing_open_trades": len(active_events) - len(benchmarked_events),
+        "capital_weighted_avg_slippage_pct_overall": _capital_weighted_slippage_pct(
+            benchmarked_events
+        ),
+        "capital_weighted_avg_slippage_pct_buy": _capital_weighted_slippage_pct(
+            buy_events
+        ),
+        "capital_weighted_avg_slippage_pct_sell": _capital_weighted_slippage_pct(
+            sell_events
+        ),
+        "avg_slippage_pct_overall": _average(overall_slippage),
+        "avg_slippage_pct_buy": _average(buy_slippage),
+        "avg_slippage_pct_sell": _average(sell_slippage),
+        "avg_abs_error_jpy": _average(absolute_errors),
+        "median_slippage_pct": float(median(overall_slippage)) if overall_slippage else None,
+    }
+
+
+def _enrich_trade_history_payload(data: object) -> dict[str, object]:
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=500, detail="Invalid trade history format")
+
+    raw_events = data.get("events") or data.get("trades") or []
+    if not isinstance(raw_events, list):
+        raise HTTPException(status_code=500, detail="Invalid trade history events format")
+
+    open_lookup_cache: dict[str, dict[str, float]] = {}
+    enriched_events = [
+        _enrich_trade_event_with_execution_open(event, open_lookup_cache)
+        if isinstance(event, dict)
+        else {"benchmark_status": "INVALID_EVENT"}
+        for event in raw_events
+    ]
+
+    payload = dict(data)
+    payload["events"] = enriched_events
+    payload["summary"] = _build_trade_history_summary(enriched_events)
+    return payload
 
 
 def _load_topix_close_series() -> CloseSeries | None:
@@ -951,7 +1184,7 @@ def get_sector_attribution() -> SectorAttributionResponse:
 def get_trade_history() -> dict[str, object]:
     cfg = get_production_config()
     data = _load_json(cfg.history_file)
-    return data
+    return _enrich_trade_history_payload(data)
 
 
 @router.get("/cash-history")

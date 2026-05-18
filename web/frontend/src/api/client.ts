@@ -2,6 +2,49 @@ import type { SignalRecord } from "../signalSemantics";
 
 const BASE = "/api";
 
+export type TradeHistoryEvent = {
+  date: string;
+  group_id: string;
+  ticker: string;
+  action: string;
+  quantity: number;
+  price: number;
+  status?: string;
+  event_id?: string;
+  position_effects?: Array<Record<string, unknown>>;
+  reason?: string;
+  entry_reason?: string;
+  benchmark_status?: string;
+  execution_open_price?: number | null;
+  actual_vs_open_jpy?: number | null;
+  actual_vs_open_pct?: number | null;
+  slippage_pct?: number | null;
+  slippage_bps?: number | null;
+  slippage_direction?: string;
+  [key: string]: unknown;
+};
+
+export type TradeHistorySummary = {
+  total_trades: number;
+  benchmarked_trades: number;
+  missing_open_trades: number;
+  capital_weighted_avg_slippage_pct_overall: number | null;
+  capital_weighted_avg_slippage_pct_buy: number | null;
+  capital_weighted_avg_slippage_pct_sell: number | null;
+  avg_slippage_pct_overall: number | null;
+  avg_slippage_pct_buy: number | null;
+  avg_slippage_pct_sell: number | null;
+  avg_abs_error_jpy: number | null;
+  median_slippage_pct: number | null;
+};
+
+export type TradeHistoryResponse = {
+  schema_version?: number;
+  events: TradeHistoryEvent[];
+  summary: TradeHistorySummary;
+  [key: string]: unknown;
+};
+
 function withOutputDir(path: string, outputDir?: string): string {
   if (!outputDir) return path;
   const params = new URLSearchParams({ output_dir: outputDir });
@@ -104,7 +147,7 @@ export const api = {
       }>;
     }>("/state/sector-attribution"),
 
-  tradeHistory: () => request<Record<string, unknown>>("/state/trade-history"),
+  tradeHistory: () => request<TradeHistoryResponse>("/state/trade-history"),
   cashHistory: () => request<Record<string, unknown>>("/state/cash-history"),
   signalDates: () => request<string[]>("/state/signals"),
   signals: (date: string) =>
