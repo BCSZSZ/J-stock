@@ -1094,10 +1094,15 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 signals_position = Position(
                     ticker=ticker,
                     entry_price=position.entry_price,
+                    signal_entry_price=position.signal_entry_price,
                     entry_date=entry_date_ts,
                     quantity=position.quantity,
                     entry_signal=None,
-                    peak_price_since_entry=position.peak_price or position.entry_price,
+                    peak_price_since_entry=(
+                        position.peak_price
+                        or position.signal_entry_price
+                        or position.entry_price
+                    ),
                 )
 
                 if current_price > signals_position.peak_price_since_entry:

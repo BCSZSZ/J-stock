@@ -81,7 +81,7 @@ class BollingerDynamicExit(BaseExitStrategy):
             )
         
         current_price = latest['Close']
-        pnl_pct = (current_price / position.entry_price - 1) * 100
+        pnl_pct = position.current_pnl_pct(current_price)
         
         reasons = []
         confidence = 0.0

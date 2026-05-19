@@ -125,6 +125,8 @@ class EvaluationRunRequest(BaseModel):
     )
     buy_fill_mode: Literal["next_open", "next_close"] = "next_open"
     buy_fill_modes: list[Literal["next_open", "next_close"]] | None = None
+    entry_reference_mode: Literal["raw_fill", "buffered_fill"] = "raw_fill"
+    entry_reference_modes: list[Literal["raw_fill", "buffered_fill"]] | None = None
     fill_buffer_enabled: bool = False
     fill_buffer_pct: float = Field(default=0.02, ge=0.0, lt=1.0)
     capacity_regime_mode: Literal["off", "enforce"] | None = None

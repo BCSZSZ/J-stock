@@ -90,7 +90,7 @@ class MultiViewCompositeExit(BaseExitStrategy):
 
         entry_atr = self._resolve_entry_atr(df, position.entry_date, current_atr)
         r_value = max(self.r_mult * entry_atr, 1e-6)
-        pnl_abs = current_price - position.entry_price
+        pnl_abs = current_price - position.decision_entry_price
         pnl_r = pnl_abs / r_value
         holding_days = self._count_trading_days(
             df, position.entry_date, market_data.current_date
@@ -222,7 +222,7 @@ class MultiViewCompositeExit(BaseExitStrategy):
 
         entry_atr = self._resolve_entry_atr(df, position.entry_date, current_atr)
         r_value = max(self.r_mult * entry_atr, 1e-6)
-        pnl_abs = current_price - position.entry_price
+        pnl_abs = current_price - position.decision_entry_price
         pnl_pct = position.current_pnl_pct(current_price)
 
         # R1: ATR trailing risk stop (full exit)
@@ -475,7 +475,7 @@ class MVXNew_N3_R3p25_T1p6_D21_B20p0(MultiViewCompositeExit):
 
         entry_atr = self._resolve_entry_atr(df, position.entry_date, current_atr)
         r_value = max(self.r_mult * entry_atr, 1e-6)
-        pnl_abs = current_price - position.entry_price
+        pnl_abs = current_price - position.decision_entry_price
         pnl_r = pnl_abs / r_value
         holding_days = self._count_trading_days(
             df, position.entry_date, market_data.current_date
@@ -616,7 +616,7 @@ class MVXNew_N3_R3p25_T1p6_D21_B20p0(MultiViewCompositeExit):
 
         entry_atr = self._resolve_entry_atr(df, position.entry_date, current_atr)
         r_value = max(self.r_mult * entry_atr, 1e-6)
-        pnl_abs = current_price - position.entry_price
+        pnl_abs = current_price - position.decision_entry_price
         pnl_pct = position.current_pnl_pct(current_price)
 
         trail_level = position.peak_price_since_entry - (self.trail_mult * current_atr)
@@ -789,7 +789,7 @@ class MultiViewUnifiedTakeProfitExit(BaseExitStrategy):
             current_atr,
         )
         r_value = max(self.r_mult * entry_atr, 1e-6)
-        pnl_abs = current_price - position.entry_price
+        pnl_abs = current_price - position.decision_entry_price
         pnl_r = pnl_abs / r_value
         holding_days = MultiViewCompositeExit._count_trading_days(
             df,
@@ -913,7 +913,7 @@ class MultiViewUnifiedTakeProfitExit(BaseExitStrategy):
             current_atr,
         )
         r_value = max(self.r_mult * entry_atr, 1e-6)
-        pnl_abs = current_price - position.entry_price
+        pnl_abs = current_price - position.decision_entry_price
         pnl_pct = position.current_pnl_pct(current_price)
 
         trail_level = position.peak_price_since_entry - (self.trail_mult * current_atr)

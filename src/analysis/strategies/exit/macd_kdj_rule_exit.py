@@ -110,7 +110,7 @@ class MACDKDJRuleExit(BaseExitStrategy):
             )
 
         # E3: Stop loss
-        stop_price = position.entry_price * (1 - self.stop_loss_pct)
+        stop_price = position.decision_entry_price * (1 - self.stop_loss_pct)
         if current_price < stop_price:
             return TradingSignal(
                 action=SignalAction.SELL,

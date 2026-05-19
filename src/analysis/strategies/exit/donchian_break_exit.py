@@ -63,7 +63,7 @@ class DonchianBreakExit(BaseExitStrategy):
         current_price = latest["Close"]
         pnl_pct = position.current_pnl_pct(current_price)
 
-        stop_price = position.entry_price * (1 - self.hard_stop_pct)
+        stop_price = position.decision_entry_price * (1 - self.hard_stop_pct)
         if current_price < stop_price:
             return TradingSignal(
                 action=SignalAction.SELL,

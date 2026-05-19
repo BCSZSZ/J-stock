@@ -83,7 +83,7 @@ class MultiDimensionalMAExit(BaseExitStrategy):
 
         entry_atr = self._resolve_entry_atr(df, position.entry_date, float(current_atr))
         r_value = max(self.r_mult * entry_atr, 1e-6)
-        pnl_abs = float(current_price) - float(position.entry_price)
+        pnl_abs = float(current_price) - float(position.decision_entry_price)
         pnl_pct = position.current_pnl_pct(float(current_price))
 
         # R1: ATR trailing stop (full exit)

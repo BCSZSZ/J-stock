@@ -21,10 +21,21 @@ class Position:
     entry_date: pd.Timestamp
     entry_signal: 'TradingSignal'  # Forward reference
     peak_price_since_entry: float = None
+    signal_entry_price: float | None = None
     
     def __post_init__(self):
+        if self.signal_entry_price is None:
+            self.signal_entry_price = self.entry_price
         if self.peak_price_since_entry is None:
-            self.peak_price_since_entry = self.entry_price
+            self.peak_price_since_entry = self.decision_entry_price
+
+    @property
+    def execution_entry_price(self) -> float:
+        return self.entry_price
+
+    @property
+    def decision_entry_price(self) -> float:
+        return self.signal_entry_price or self.entry_price
     
     def get_current_value(self, current_price: float) -> float:
         """计算当前市值"""
@@ -48,6 +59,9 @@ class Position:
         Returns:
             盈亏百分比 (如 15.5 表示 +15.5%)
         """
+        return ((current_price / self.decision_entry_price) - 1) * 100
+
+    def current_execution_pnl_pct(self, current_price: float) -> float:
         return ((current_price / self.entry_price) - 1) * 100
     
     def peak_pnl_pct(self) -> float:
@@ -57,7 +71,7 @@ class Position:
         Returns:
             最高盈亏百分比
         """
-        return ((self.peak_price_since_entry / self.entry_price) - 1) * 100
+        return ((self.peak_price_since_entry / self.decision_entry_price) - 1) * 100
     
     def __repr__(self):
         return (f"Position({self.ticker}, entry=¥{self.entry_price:,.0f}, "

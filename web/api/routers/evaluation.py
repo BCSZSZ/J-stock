@@ -14,6 +14,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from src.backtest.entry_reference import (
+    BUFFERED_FILL_ENTRY_REFERENCE,
+    RAW_FILL_ENTRY_REFERENCE,
+)
 from src.config.runtime import is_local_path
 from web.api.dependencies import get_production_config, get_project_root, get_config_manager
 from web.api.schemas import EvaluationRunRequest
@@ -26,6 +30,7 @@ ENTRY_FILTER_MODES = ["off", "single", "grid", "auto"]
 RANKING_MODES = ["prs_train"]
 OVERLAY_MODES = ["off", "on"]
 BUY_FILL_MODES = ["next_open", "next_close"]
+ENTRY_REFERENCE_MODES = [RAW_FILL_ENTRY_REFERENCE, BUFFERED_FILL_ENTRY_REFERENCE]
 CAPACITY_REGIME_MODES = ["off", "enforce"]
 
 
@@ -120,6 +125,16 @@ def _resolve_requested_buy_fill_modes(req: EvaluationRunRequest) -> list[str]:
     return resolved or [req.buy_fill_mode]
 
 
+def _resolve_requested_entry_reference_modes(req: EvaluationRunRequest) -> list[str]:
+    requested_modes = req.entry_reference_modes or [req.entry_reference_mode]
+    resolved: list[str] = []
+    for mode in requested_modes:
+        normalized = str(mode).strip()
+        if normalized and normalized not in resolved:
+            resolved.append(normalized)
+    return resolved or [req.entry_reference_mode]
+
+
 def _resolve_effective_ranking_strategies(
     req: EvaluationRunRequest,
     production_ranking_strategy: str,
@@ -170,6 +185,7 @@ def _resolve_production_strategy_defaults(prod_cfg) -> tuple[str, str]:
 def _build_cli_args(
     req: EvaluationRunRequest,
     buy_fill_mode: str | None = None,
+    entry_reference_mode: str | None = None,
 ) -> list[str]:
     if req.command not in COMMANDS:
         raise HTTPException(status_code=400, detail=f"Unsupported command: {req.command}")
@@ -190,6 +206,9 @@ def _build_cli_args(
         args.extend(["--mode", req.mode])
 
     args.extend(["--buy-fill-mode", buy_fill_mode or req.buy_fill_mode])
+    args.extend(
+        ["--entry-reference-mode", entry_reference_mode or req.entry_reference_mode]
+    )
     if req.fill_buffer_enabled:
         args.append("--fill-buffer-enabled")
     args.extend(["--fill-buffer-pct", str(req.fill_buffer_pct)])
@@ -291,6 +310,7 @@ def get_options() -> dict[str, object]:
         "entry_filter_names": _load_entry_filter_names(raw_config),
         "overlay_modes": OVERLAY_MODES,
         "buy_fill_modes": BUY_FILL_MODES,
+        "entry_reference_modes": ENTRY_REFERENCE_MODES,
         "capacity_regime_modes": CAPACITY_REGIME_MODES,
         "ranking_modes": RANKING_MODES,
         "position_profiles": position_profiles,
@@ -316,6 +336,8 @@ def get_options() -> dict[str, object]:
             "overlay_modes": ["off"],
             "buy_fill_mode": "next_open",
             "buy_fill_modes": ["next_open"],
+            "entry_reference_mode": RAW_FILL_ENTRY_REFERENCE,
+            "entry_reference_modes": [RAW_FILL_ENTRY_REFERENCE],
             "fill_buffer_enabled": False,
             "fill_buffer_pct": 0.02,
             "capacity_regime_mode": str(eval_cfg.get("capacity_regime_mode", "off")),
@@ -335,6 +357,7 @@ def get_options() -> dict[str, object]:
 async def run_evaluation(req: EvaluationRunRequest) -> StreamingResponse:
     root = get_project_root()
     requested_buy_fill_modes = _resolve_requested_buy_fill_modes(req)
+    requested_entry_reference_modes = _resolve_requested_entry_reference_modes(req)
 
     async def event_stream():  # type: ignore[return]
         q: Queue[str | None] = Queue()
@@ -344,22 +367,37 @@ async def run_evaluation(req: EvaluationRunRequest) -> StreamingResponse:
 
         def _reader() -> None:
             final_code = 0
-            total_modes = len(requested_buy_fill_modes)
+            batch_specs = [
+                (buy_fill_mode, entry_reference_mode)
+                for buy_fill_mode in requested_buy_fill_modes
+                for entry_reference_mode in requested_entry_reference_modes
+            ]
+            total_batches = len(batch_specs)
 
-            if total_modes > 1:
+            if total_batches > 1:
                 _emit_line(
-                    f"Running {total_modes} buy fill mode batches: {', '.join(requested_buy_fill_modes)}"
+                    "Running "
+                    f"{total_batches} evaluation batches: "
+                    f"buy fill modes [{', '.join(requested_buy_fill_modes)}] × "
+                    f"entry reference modes [{', '.join(requested_entry_reference_modes)}]"
                 )
 
-            for index, buy_fill_mode in enumerate(requested_buy_fill_modes, start=1):
-                if total_modes > 1:
+            for index, (buy_fill_mode, entry_reference_mode) in enumerate(
+                batch_specs,
+                start=1,
+            ):
+                if total_batches > 1:
                     _emit_line("=" * 80)
                     _emit_line(
-                        f"[buy-fill {index}/{total_modes}] Starting full run for {buy_fill_mode}"
+                        f"[batch {index}/{total_batches}] Starting full run for buy_fill={buy_fill_mode}, entry_reference={entry_reference_mode}"
                     )
                     _emit_line("=" * 80)
 
-                args = _build_cli_args(req, buy_fill_mode=buy_fill_mode)
+                args = _build_cli_args(
+                    req,
+                    buy_fill_mode=buy_fill_mode,
+                    entry_reference_mode=entry_reference_mode,
+                )
                 proc = subprocess.Popen(
                     ["uv", "run", "python", "main.py", *args],
                     stdout=subprocess.PIPE,
@@ -375,10 +413,10 @@ async def run_evaluation(req: EvaluationRunRequest) -> StreamingResponse:
                 if code != 0 and final_code == 0:
                     final_code = code
 
-                if total_modes > 1:
+                if total_batches > 1:
                     status = "OK" if code == 0 else f"FAILED ({code})"
                     _emit_line(
-                        f"[buy-fill {index}/{total_modes}] Completed {buy_fill_mode}: {status}"
+                        f"[batch {index}/{total_batches}] Completed buy_fill={buy_fill_mode}, entry_reference={entry_reference_mode}: {status}"
                     )
 
             q.put(f"data: {json.dumps({'done': True, 'exit_code': final_code})}\n\n")

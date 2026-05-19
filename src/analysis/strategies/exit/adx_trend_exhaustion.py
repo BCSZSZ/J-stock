@@ -78,7 +78,7 @@ class ADXTrendExhaustionExit(BaseExitStrategy):
         recent_20 = df.tail(20)
         
         current_price = latest['Close']
-        entry_price = position.entry_price
+        entry_price = position.decision_entry_price
         peak_price = position.peak_price_since_entry
         
         # ========== P0: ADX趋势衰竭 ==========

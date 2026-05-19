@@ -52,6 +52,19 @@ def _add_fill_buffer_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_entry_reference_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--entry-reference-mode",
+        choices=["raw_fill", "buffered_fill"],
+        default="raw_fill",
+        help=(
+            "出场信号使用的入场参考价模式: "
+            "raw_fill=原始成交参考价（未加buffer）, "
+            "buffered_fill=加buffer后的实际成交价"
+        ),
+    )
+
+
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
@@ -60,6 +73,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         default="next_open",
         help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
     )
+    _add_entry_reference_arguments(parser)
     _add_fill_buffer_arguments(parser)
     parser.add_argument(
         "--capacity-regime-mode",
@@ -162,6 +176,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         default="next_open",
         help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
     )
+    _add_entry_reference_arguments(parser)
     _add_fill_buffer_arguments(parser)
     parser.add_argument(
         "--capacity-regime-mode",

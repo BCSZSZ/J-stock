@@ -14,6 +14,7 @@ from typing import Optional
 import pandas as pd
 
 from ..backtest.lot_size_manager import LotSizeManager
+from .reference_price import resolve_signal_entry_price
 from .signal_generator import Signal
 from .state_manager import ProductionState, TradeHistoryManager, StrategyGroupState
 
@@ -162,12 +163,17 @@ class TradeExecutor:
         # Execute BUY
         try:
             cash_before = group.cash
+            signal_entry_price = resolve_signal_entry_price(
+                signal.ticker,
+                self.current_date,
+            )
             new_position = group.add_position(
                 ticker=signal.ticker,
                 quantity=qty,
                 entry_price=price,
                 entry_date=self.current_date,
-                entry_score=signal.score
+                entry_score=signal.score,
+                signal_entry_price=signal_entry_price,
             )
             
             # Record trade
@@ -189,6 +195,7 @@ class TradeExecutor:
                         "entry_date": new_position.entry_date,
                         "entry_score": new_position.entry_score,
                         "peak_price": new_position.peak_price,
+                        "signal_entry_price": new_position.signal_entry_price,
                     }
                 ],
                 cash_effect={

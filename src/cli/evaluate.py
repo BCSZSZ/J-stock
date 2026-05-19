@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from src.backtest.entry_reference import normalize_entry_reference_mode
 from src.backtest.fill_buffer import normalize_fill_buffer_pct
 from src.evaluation import (
     MarketRegime,
@@ -120,6 +121,11 @@ def _build_output_run_slug(run_kind: str, args, eval_cfg) -> str:
     parts.append(_summarize_selection_for_dir("entry", entry_strategies))
     parts.append(_summarize_selection_for_dir("exit", exit_strategies))
     parts.append(_sanitize_name(f"fill_{getattr(args, 'buy_fill_mode', 'next_open') or 'next_open'}"))
+    parts.append(
+        _sanitize_name(
+            f"entryref_{normalize_entry_reference_mode(getattr(args, 'entry_reference_mode', 'raw_fill'))}"
+        )
+    )
     fill_buffer_enabled = bool(getattr(args, "fill_buffer_enabled", False))
     fill_buffer_pct = normalize_fill_buffer_pct(getattr(args, "fill_buffer_pct", 0.02))
     if fill_buffer_enabled:
@@ -504,6 +510,7 @@ def _build_evaluator(
         verbose=args.verbose,
         exit_confirmation_days=exit_confirm_days,
         buy_fill_mode=getattr(args, "buy_fill_mode", "next_open"),
+        entry_reference_mode=getattr(args, "entry_reference_mode", "raw_fill"),
         fill_buffer_enabled=getattr(args, "fill_buffer_enabled", False),
         fill_buffer_pct=getattr(args, "fill_buffer_pct", 0.02),
         capacity_regime_mode_override=getattr(args, "capacity_regime_mode", None),
@@ -571,6 +578,7 @@ def _annual_rank_group_columns(segmented_df: pd.DataFrame, continuous_df: pd.Dat
         "entry_filter",
         "exit_confirmation_days",
         "buy_fill_mode",
+        "entry_reference_mode",
         "fill_buffer_enabled",
         "fill_buffer_pct",
         "position_profile",
@@ -871,6 +879,10 @@ def _prepare_review_frames(
             raw_df["buy_fill_mode"] = raw_df["buy_fill_mode"].fillna("next_open")
         else:
             raw_df["buy_fill_mode"] = "next_open"
+        if "entry_reference_mode" in raw_df.columns:
+            raw_df["entry_reference_mode"] = raw_df["entry_reference_mode"].fillna("raw_fill")
+        else:
+            raw_df["entry_reference_mode"] = "raw_fill"
         if "fill_buffer_enabled" in raw_df.columns:
             raw_df["fill_buffer_enabled"] = raw_df["fill_buffer_enabled"].fillna(False).astype(bool)
         else:
@@ -895,6 +907,10 @@ def _prepare_review_frames(
             trades_df["buy_fill_mode"] = trades_df["buy_fill_mode"].fillna("next_open")
         else:
             trades_df["buy_fill_mode"] = "next_open"
+        if "entry_reference_mode" in trades_df.columns:
+            trades_df["entry_reference_mode"] = trades_df["entry_reference_mode"].fillna("raw_fill")
+        else:
+            trades_df["entry_reference_mode"] = "raw_fill"
         if "fill_buffer_enabled" in trades_df.columns:
             trades_df["fill_buffer_enabled"] = trades_df["fill_buffer_enabled"].fillna(False).astype(bool)
         else:
@@ -931,6 +947,7 @@ def _review_combo_columns(segmented_raw_df: pd.DataFrame, continuous_raw_df: pd.
         "entry_filter",
         "exit_confirmation_days",
         "buy_fill_mode",
+        "entry_reference_mode",
         "fill_buffer_enabled",
         "fill_buffer_pct",
     ]
@@ -980,6 +997,7 @@ def _review_combo_column_label(column: str) -> str:
         "entry_filter": "入场过滤器",
         "exit_confirmation_days": "出场确认天数",
         "buy_fill_mode": "买入成交模式",
+        "entry_reference_mode": "入场参考价模式",
         "fill_buffer_enabled": "成交价缓冲",
         "fill_buffer_pct": "缓冲比例",
     }
@@ -1460,6 +1478,7 @@ def _write_localized_final_review_report(
                 f"- 入场过滤器：{combo_row.get('entry_filter', 'off')}",
                 f"- 出场确认天数：{_format_count(combo_row.get('exit_confirmation_days', 0))}",
                 f"- 买入成交模式：{combo_row.get('buy_fill_mode', 'next_open')}",
+                f"- 入场参考价模式：{combo_row.get('entry_reference_mode', 'raw_fill')}",
                 f"- 成交价缓冲：{'on' if bool(combo_row.get('fill_buffer_enabled', False)) else 'off'}",
                 f"- 缓冲比例：{_format_review_combo_value('fill_buffer_pct', combo_row.get('fill_buffer_pct', 0.0))}",
                 "",
@@ -2080,6 +2099,7 @@ def _write_walk_forward_final_review_report(
     min_train_years: int,
     ranking_mode: str,
     buy_fill_mode: str,
+    entry_reference_mode: str,
     fill_buffer_enabled: bool,
     fill_buffer_pct: float,
     selection_df: pd.DataFrame,
@@ -2110,6 +2130,7 @@ def _write_walk_forward_final_review_report(
         f"最少训练年份数：{min_train_years}",
         f"训练排序模式：{ranking_mode}",
         f"买入成交模式：{buy_fill_mode}",
+        f"入场参考价模式：{entry_reference_mode}",
         f"成交价缓冲：{'on' if fill_buffer_enabled else 'off'}",
         f"缓冲比例：{fill_buffer_pct:.2%}",
         f"输出目录：{output_dir}",
@@ -2268,6 +2289,7 @@ def _write_walk_forward_report(
     years: List[int],
     min_train_years: int,
     buy_fill_mode: str,
+    entry_reference_mode: str,
     fill_buffer_enabled: bool,
     fill_buffer_pct: float,
     selection_df: pd.DataFrame,
@@ -2284,6 +2306,7 @@ def _write_walk_forward_report(
         f"- Minimum train years: {min_train_years}",
         f"- Ranking mode: {ranking_mode}",
         f"- Buy fill mode: {buy_fill_mode}",
+        f"- Entry reference mode: {entry_reference_mode}",
         f"- Fill buffer: {'on' if fill_buffer_enabled else 'off'}",
         f"- Fill buffer pct: {fill_buffer_pct:.2%}",
         "- Selection protocol: expanding train window, next-period out-of-sample test, report only test windows.",
@@ -2495,6 +2518,10 @@ def _run_walk_forward_once(
 
     print(f"🧷 Exit确认天数: {exit_confirm_days}")
     print(
+        "🎯 入场参考价模式: "
+        f"{normalize_entry_reference_mode(getattr(args, 'entry_reference_mode', 'raw_fill'))}"
+    )
+    print(
         "🪙 成交价缓冲: "
         f"{'开启' if getattr(args, 'fill_buffer_enabled', False) else '关闭'} "
         f"({normalize_fill_buffer_pct(getattr(args, 'fill_buffer_pct', 0.02)):.2%})"
@@ -2684,6 +2711,9 @@ def _run_walk_forward_once(
         years=years,
         min_train_years=min_train_years,
         buy_fill_mode=getattr(args, "buy_fill_mode", "next_open"),
+        entry_reference_mode=normalize_entry_reference_mode(
+            getattr(args, "entry_reference_mode", "raw_fill")
+        ),
         fill_buffer_enabled=getattr(args, "fill_buffer_enabled", False),
         fill_buffer_pct=normalize_fill_buffer_pct(getattr(args, "fill_buffer_pct", 0.02)),
         selection_df=selection_df,
@@ -2703,6 +2733,9 @@ def _run_walk_forward_once(
         min_train_years=min_train_years,
         ranking_mode=ranking_mode,
         buy_fill_mode=getattr(args, "buy_fill_mode", "next_open"),
+        entry_reference_mode=normalize_entry_reference_mode(
+            getattr(args, "entry_reference_mode", "raw_fill")
+        ),
         fill_buffer_enabled=getattr(args, "fill_buffer_enabled", False),
         fill_buffer_pct=normalize_fill_buffer_pct(getattr(args, "fill_buffer_pct", 0.02)),
         selection_df=selection_df,
@@ -2949,6 +2982,10 @@ def _run_once(
     _log_step("_run_once: StrategyEvaluator 初始化完成")
 
     print(f"🧷 Exit确认天数: {exit_confirm_days}")
+    print(
+        "🎯 入场参考价模式: "
+        f"{normalize_entry_reference_mode(getattr(args, 'entry_reference_mode', 'raw_fill'))}"
+    )
     print(
         "🪙 成交价缓冲: "
         f"{'开启' if getattr(args, 'fill_buffer_enabled', False) else '关闭'} "

@@ -27,6 +27,10 @@ from .fill_buffer import (
     apply_sell_fill_buffer,
     normalize_fill_buffer_pct,
 )
+from .entry_reference import (
+    normalize_entry_reference_mode,
+    resolve_signal_entry_price,
+)
 from .lot_size_manager import LotSizeManager
 from .models import BacktestResult, Trade
 from .portfolio import Portfolio, Position
@@ -65,6 +69,7 @@ class PortfolioBacktestEngine:
         buy_fill_mode: str = "next_open",
         fill_buffer_enabled: bool = False,
         fill_buffer_pct: float = 0.02,
+        entry_reference_mode: str = "raw_fill",
     ):
         """
         Args:
@@ -83,6 +88,7 @@ class PortfolioBacktestEngine:
             buy_fill_mode: 买入成交模式（next_open 或 next_close）
             fill_buffer_enabled: 是否启用成交价缓冲
             fill_buffer_pct: 成交价缓冲比例（0.02 = 2%）
+            entry_reference_mode: 信号语义使用的入场参考价模式（raw_fill 或 buffered_fill）
         """
         self.starting_capital = starting_capital
         self.max_positions = max_positions
@@ -104,6 +110,9 @@ class PortfolioBacktestEngine:
         self.buy_fill_mode = normalized_buy_fill_mode
         self.fill_buffer_enabled = bool(fill_buffer_enabled)
         self.fill_buffer_pct = normalize_fill_buffer_pct(fill_buffer_pct)
+        self.entry_reference_mode = normalize_entry_reference_mode(
+            entry_reference_mode
+        )
 
         # 创建信号排序器: 优先使用实例，否则按旧字符串方式
         if signal_ranker is not None:
@@ -528,6 +537,16 @@ class PortfolioBacktestEngine:
                                 max_cash = min(max_cash, available_exposure)
                             max_cash *= signal_buy_scale
 
+                        raw_signal_entry_price = self._get_base_buy_fill_price(
+                            all_data[ticker], current_date
+                        )
+                        if raw_signal_entry_price is None:
+                            continue
+                        signal_entry_price = self._resolve_signal_entry_price(
+                            raw_signal_entry_price,
+                            entry_price,
+                        )
+
                         # 计算可购买股数（考虑lot size）
                         shares = LotSizeManager.calculate_buyable_shares(
                             ticker, max_cash, entry_price
@@ -540,9 +559,10 @@ class PortfolioBacktestEngine:
                                 ticker=ticker,
                                 quantity=shares,
                                 entry_price=entry_price,
+                                signal_entry_price=signal_entry_price,
                                 entry_date=current_date,
                                 entry_signal=buy_signal,
-                                peak_price_since_entry=entry_price,
+                                peak_price_since_entry=signal_entry_price,
                             )
 
                             # 添加到组合
@@ -870,6 +890,19 @@ class PortfolioBacktestEngine:
         self, data: Dict, current_date: pd.Timestamp
     ) -> Optional[float]:
         """获取当前执行日的买入成交价（开盘或收盘）。"""
+        raw_price = self._get_base_buy_fill_price(data, current_date)
+        if raw_price is None:
+            return None
+        return apply_buy_fill_buffer(
+            raw_price,
+            enabled=self.fill_buffer_enabled,
+            fill_buffer_pct=self.fill_buffer_pct,
+        )
+
+    def _get_base_buy_fill_price(
+        self, data: Dict, current_date: pd.Timestamp
+    ) -> Optional[float]:
+        """获取未应用 fill buffer 的买入参考价。"""
         df = data["features"]
         pos_map = data.get("date_pos_map") or {}
         row_pos = pos_map.get(current_date)
@@ -882,11 +915,17 @@ class PortfolioBacktestEngine:
         )
         if column_pos is None:
             return None
-        raw_price = float(df.iat[row_pos, column_pos])
-        return apply_buy_fill_buffer(
-            raw_price,
-            enabled=self.fill_buffer_enabled,
-            fill_buffer_pct=self.fill_buffer_pct,
+        return float(df.iat[row_pos, column_pos])
+
+    def _resolve_signal_entry_price(
+        self,
+        raw_fill_price: float,
+        executed_fill_price: float,
+    ) -> float:
+        return resolve_signal_entry_price(
+            raw_fill_price,
+            executed_fill_price,
+            self.entry_reference_mode,
         )
 
     def _get_sell_fill_price(

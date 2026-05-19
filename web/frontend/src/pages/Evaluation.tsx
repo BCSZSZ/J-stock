@@ -12,6 +12,7 @@ type EvaluationCommand =
 type EvaluationMode = "annual" | "quarterly" | "monthly" | "custom";
 type EntryFilterMode = "off" | "single" | "grid" | "auto";
 type BuyFillMode = "next_open" | "next_close";
+type EntryReferenceMode = "raw_fill" | "buffered_fill";
 type CapacityRegimeMode = "off" | "enforce";
 
 interface EvaluationDefaults {
@@ -20,6 +21,8 @@ interface EvaluationDefaults {
   override_strategies: boolean;
   buy_fill_mode: string;
   buy_fill_modes?: string[];
+  entry_reference_mode: string;
+  entry_reference_modes?: string[];
   fill_buffer_enabled: boolean;
   fill_buffer_pct: number;
   entry_strategies: string[];
@@ -49,6 +52,7 @@ interface EvaluationOptionsResponse {
   entry_filter_names: string[];
   overlay_modes: string[];
   buy_fill_modes: string[];
+  entry_reference_modes: string[];
   capacity_regime_modes: string[];
   ranking_modes: string[];
   position_profiles: string[];
@@ -254,6 +258,10 @@ function isBuyFillMode(value: string): value is BuyFillMode {
   return value === "next_open" || value === "next_close";
 }
 
+function isEntryReferenceMode(value: string): value is EntryReferenceMode {
+  return value === "raw_fill" || value === "buffered_fill";
+}
+
 function isCapacityRegimeMode(value: string): value is CapacityRegimeMode {
   return value === "off" || value === "enforce";
 }
@@ -262,6 +270,12 @@ function formatBuyFillModeLabel(mode: BuyFillMode): string {
   return mode === "next_open"
     ? "next_open (次日开盘成交)"
     : "next_close (次日收盘成交)";
+}
+
+function formatEntryReferenceModeLabel(mode: EntryReferenceMode): string {
+  return mode === "raw_fill"
+    ? "raw_fill (未加 buffer 的原始成交参考价; next_open 时即次日开盘)"
+    : "buffered_fill (加 buffer 后的实际成交价)";
 }
 
 export default function Evaluation() {
@@ -274,6 +288,8 @@ export default function Evaluation() {
   const [selectedBuyFillModes, setSelectedBuyFillModes] = useState<
     BuyFillMode[]
   >(["next_open"]);
+  const [selectedEntryReferenceModes, setSelectedEntryReferenceModes] =
+    useState<EntryReferenceMode[]>(["raw_fill"]);
   const [fillBufferEnabled, setFillBufferEnabled] = useState(false);
   const [fillBufferPct, setFillBufferPct] = useState("0.02");
   const [selectedEntry, setSelectedEntry] = useState<string[]>([]);
@@ -341,6 +357,9 @@ export default function Evaluation() {
     "next_open",
     "next_close",
   ]).filter(isBuyFillMode);
+  const entryReferenceModeOptions = (
+    options.data?.entry_reference_modes ?? ["raw_fill", "buffered_fill"]
+  ).filter(isEntryReferenceMode);
   const capacityRegimeModeOptions = (
     options.data?.capacity_regime_modes ?? ["off", "enforce"]
   ).filter(isCapacityRegimeMode);
@@ -360,6 +379,18 @@ export default function Evaluation() {
             isBuyFillMode(defaults.buy_fill_mode)
               ? defaults.buy_fill_mode
               : "next_open",
+          ],
+    );
+    const defaultEntryReferenceModes = (
+      defaults.entry_reference_modes ?? []
+    ).filter(isEntryReferenceMode);
+    setSelectedEntryReferenceModes(
+      defaultEntryReferenceModes.length > 0
+        ? defaultEntryReferenceModes
+        : [
+            isEntryReferenceMode(defaults.entry_reference_mode)
+              ? defaults.entry_reference_mode
+              : "raw_fill",
           ],
     );
     setFillBufferEnabled(Boolean(defaults.fill_buffer_enabled));
@@ -407,16 +438,22 @@ export default function Evaluation() {
     if (selectedBuyFillModes.length === 0) {
       return;
     }
+    if (selectedEntryReferenceModes.length === 0) {
+      return;
+    }
     if (fillBufferPctInvalid) {
       return;
     }
 
     const normalizedFillBufferPct = parsedFillBufferPct ?? 0.02;
+    const executionBatchCount =
+      selectedBuyFillModes.length * selectedEntryReferenceModes.length;
 
     const payload: Record<string, unknown> = {
       command,
       mode,
       buy_fill_modes: selectedBuyFillModes,
+      entry_reference_modes: selectedEntryReferenceModes,
       fill_buffer_enabled: fillBufferEnabled,
       fill_buffer_pct: normalizedFillBufferPct,
       capacity_regime_mode: capacityRegimeMode,
@@ -462,8 +499,9 @@ export default function Evaluation() {
       [
         `Command: ${command}`,
         `Buy Fill Modes: ${selectedBuyFillModes.join(", ")}`,
+        `Entry Reference Modes: ${selectedEntryReferenceModes.join(", ")}`,
         `Fill Buffer: ${fillBufferEnabled ? `ON (${(normalizedFillBufferPct * 100).toFixed(2)}%)` : `OFF (${(normalizedFillBufferPct * 100).toFixed(2)}% configured)`}`,
-        `Execution: one full run per selected fill mode`,
+        `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
         isWalkForward
           ? `Mode: ${mode} | Initial Train Years: ${payload.min_train_years}`
@@ -584,6 +622,37 @@ export default function Evaluation() {
             )}
           </div>
 
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">
+              Entry Reference Modes ({selectedEntryReferenceModes.length} selected)
+            </label>
+            <p className="mb-2 text-xs text-gray-500">
+              Select at least one. Each selected mode runs the full evaluation set once per buy fill mode.
+            </p>
+            <CheckboxList
+              options={entryReferenceModeOptions}
+              selected={selectedEntryReferenceModes}
+              onToggle={(name) => {
+                if (!isEntryReferenceMode(name)) return;
+                toggleSelection(
+                  selectedEntryReferenceModes,
+                  setSelectedEntryReferenceModes,
+                  name,
+                );
+              }}
+            />
+            {selectedEntryReferenceModes.length === 0 && (
+              <p className="mt-2 text-xs text-red-400">
+                Select at least one entry reference mode to run evaluation.
+              </p>
+            )}
+            {selectedEntryReferenceModes.length > 0 && (
+              <p className="mt-2 text-xs text-gray-500">
+                Active: {selectedEntryReferenceModes.map(formatEntryReferenceModeLabel).join(", ")}
+              </p>
+            )}
+          </div>
+
           <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3 space-y-3">
             <label className="flex items-center gap-2 text-sm text-gray-300">
               <input
@@ -606,6 +675,12 @@ export default function Evaluation() {
               <p className="mt-2 text-xs text-gray-500">
                 Buy fills use raw price × (1 + buffer). Sell fills use raw price × (1 - buffer).
               </p>
+              {!fillBufferEnabled &&
+                selectedEntryReferenceModes.includes("buffered_fill") && (
+                  <p className="mt-2 text-xs text-yellow-300">
+                    Fill buffer is OFF, so buffered_fill will currently collapse to the same entry reference price as raw_fill.
+                  </p>
+                )}
               {fillBufferPctInvalid && (
                 <p className="mt-2 text-xs text-red-400">
                   Enter a valid ratio between 0 and 1, for example 0.02.
@@ -928,6 +1003,7 @@ export default function Evaluation() {
             disabled={
               exec.running ||
               selectedBuyFillModes.length === 0 ||
+              selectedEntryReferenceModes.length === 0 ||
               fillBufferPctInvalid
             }
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm w-full"

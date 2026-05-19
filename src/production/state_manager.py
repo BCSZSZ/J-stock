@@ -44,6 +44,11 @@ class Position:
     entry_score: float
     peak_price: float = 0.0  # Track for trailing stops
     lot_id: str = ""
+    signal_entry_price: Optional[float] = None
+
+    def __post_init__(self):
+        if self.signal_entry_price is None:
+            self.signal_entry_price = self.entry_price
     
     def current_value(self, current_price: float) -> float:
         """Calculate current market value"""
@@ -105,6 +110,7 @@ class StrategyGroupState:
         entry_price: float,
         entry_date: str,
         entry_score: float,
+        signal_entry_price: Optional[float] = None,
         lot_id: Optional[str] = None,
     ) -> Position:
         """
@@ -118,8 +124,9 @@ class StrategyGroupState:
             entry_price=entry_price,
             entry_date=entry_date,
             entry_score=entry_score,
-            peak_price=entry_price,
+            peak_price=signal_entry_price if signal_entry_price is not None else entry_price,
             lot_id=lot_id or _new_lot_id(ticker, entry_date),
+            signal_entry_price=signal_entry_price,
         )
         self.positions.append(position)
         self.positions.sort(key=_position_sort_key)
@@ -153,11 +160,14 @@ class StrategyGroupState:
         entry_date: str,
         entry_score: float,
         peak_price: Optional[float] = None,
+        signal_entry_price: Optional[float] = None,
     ) -> Position:
         """Restore or increase a lot while preserving FIFO ordering."""
         existing = self.get_position_by_lot_id(lot_id)
         if existing:
             existing.quantity += quantity
+            if existing.signal_entry_price is None and signal_entry_price is not None:
+                existing.signal_entry_price = signal_entry_price
             if peak_price is not None:
                 existing.peak_price = max(existing.peak_price, peak_price)
             return existing
@@ -168,8 +178,13 @@ class StrategyGroupState:
             entry_price=entry_price,
             entry_date=entry_date,
             entry_score=entry_score,
-            peak_price=peak_price if peak_price is not None else entry_price,
+            peak_price=(
+                peak_price
+                if peak_price is not None
+                else (signal_entry_price if signal_entry_price is not None else entry_price)
+            ),
             lot_id=lot_id,
+            signal_entry_price=signal_entry_price,
         )
         self.positions.append(restored)
         self.positions.sort(key=_position_sort_key)
@@ -275,6 +290,7 @@ class StrategyGroupState:
                     "entry_date": position.entry_date,
                     "entry_score": position.entry_score,
                     "peak_price": position.peak_price,
+                    "signal_entry_price": position.signal_entry_price,
                 }
             )
             
@@ -871,6 +887,7 @@ def build_state_as_of(
                                 entry_price=float(effect.get("entry_price", price)),
                                 entry_date=effect.get("entry_date", trade.date),
                                 entry_score=float(effect.get("entry_score", trade.entry_score or 0.0)),
+                                signal_entry_price=effect.get("signal_entry_price"),
                                 lot_id=effect.get("lot_id"),
                             )
                     else:

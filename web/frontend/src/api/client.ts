@@ -203,6 +203,7 @@ export const api = {
       entry_filter_names: string[];
       overlay_modes: string[];
       buy_fill_modes: string[];
+      entry_reference_modes: string[];
       capacity_regime_modes: string[];
       ranking_modes: string[];
       position_profiles: string[];
@@ -218,6 +219,8 @@ export const api = {
         override_strategies: boolean;
         buy_fill_mode: string;
         buy_fill_modes?: string[];
+        entry_reference_mode: string;
+        entry_reference_modes?: string[];
         fill_buffer_enabled: boolean;
         fill_buffer_pct: number;
         entry_strategies: string[];

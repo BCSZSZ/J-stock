@@ -22,6 +22,10 @@ from src.backtest.fill_buffer import (
     apply_sell_fill_buffer,
     normalize_fill_buffer_pct,
 )
+from src.backtest.entry_reference import (
+    normalize_entry_reference_mode,
+    resolve_signal_entry_price,
+)
 from src.data.market_data_builder import MarketDataBuilder
 from src.overlays import OverlayContext, OverlayManager
 from src.backtest.metrics import (
@@ -57,6 +61,7 @@ class BacktestEngine:
         overlay_manager: Optional[OverlayManager] = None,
         fill_buffer_enabled: bool = False,
         fill_buffer_pct: float = 0.02,
+        entry_reference_mode: str = 'raw_fill',
     ):
         """
         Initialize backtest engine.
@@ -72,6 +77,9 @@ class BacktestEngine:
         self.overlay_manager = overlay_manager
         self.fill_buffer_enabled = bool(fill_buffer_enabled)
         self.fill_buffer_pct = normalize_fill_buffer_pct(fill_buffer_pct)
+        self.entry_reference_mode = normalize_entry_reference_mode(
+            entry_reference_mode
+        )
     
     def _load_data(self, ticker: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
         """
@@ -234,6 +242,10 @@ class BacktestEngine:
                 else:
                     # Execute BUY at today's open price (signal was generated yesterday)
                     entry_price = self._apply_buy_fill_buffer(current_open)
+                    signal_entry_price = self._resolve_signal_entry_price(
+                        current_open,
+                        entry_price,
+                    )
                     max_cash = cash
                     if overlay_decision and overlay_decision.position_scale is not None:
                         max_cash *= overlay_decision.position_scale
@@ -249,10 +261,11 @@ class BacktestEngine:
                         position = Position(
                             ticker=ticker,
                             entry_price=entry_price,
+                            signal_entry_price=signal_entry_price,
                             entry_date=current_date,
                             quantity=shares,
                             entry_signal=pending_buy_signal,
-                            peak_price_since_entry=entry_price
+                            peak_price_since_entry=signal_entry_price
                         )
                         cash -= shares * entry_price
                         
@@ -430,6 +443,17 @@ class BacktestEngine:
             enabled=self.fill_buffer_enabled,
             fill_buffer_pct=self.fill_buffer_pct,
         )
+
+    def _resolve_signal_entry_price(
+        self,
+        raw_fill_price: float,
+        executed_fill_price: float,
+    ) -> float:
+        return resolve_signal_entry_price(
+            raw_fill_price,
+            executed_fill_price,
+            self.entry_reference_mode,
+        )
     
     def _build_result(
         self,
@@ -598,6 +622,7 @@ def backtest_strategy(
     overlay_manager: Optional[OverlayManager] = None,
     fill_buffer_enabled: bool = False,
     fill_buffer_pct: float = 0.02,
+    entry_reference_mode: str = "raw_fill",
 ) -> BacktestResult:
     """
     Convenience function: Backtest single strategy on single ticker.
@@ -618,6 +643,7 @@ def backtest_strategy(
         overlay_manager=overlay_manager,
         fill_buffer_enabled=fill_buffer_enabled,
         fill_buffer_pct=fill_buffer_pct,
+        entry_reference_mode=entry_reference_mode,
     )
     return engine.backtest_strategy(ticker, entry_strategy, exit_strategy, start_date, end_date)
 
@@ -633,6 +659,7 @@ def backtest_strategies(
     overlay_manager: Optional[OverlayManager] = None,
     fill_buffer_enabled: bool = False,
     fill_buffer_pct: float = 0.02,
+    entry_reference_mode: str = "raw_fill",
 ) -> pd.DataFrame:
     """
     Backtest multiple strategies on multiple tickers.
@@ -655,6 +682,7 @@ def backtest_strategies(
         overlay_manager=overlay_manager,
         fill_buffer_enabled=fill_buffer_enabled,
         fill_buffer_pct=fill_buffer_pct,
+        entry_reference_mode=entry_reference_mode,
     )
     
     # Fetch benchmark once (from local cache)

@@ -65,9 +65,9 @@ class ATRExitStrategy(BaseExitStrategy):
         ema_20 = latest['EMA_20']
         
         # P0: Hard Stop Loss
-        stop_loss_level = position.entry_price - (current_atr * self.stop_mult)
+        stop_loss_level = position.decision_entry_price - (current_atr * self.stop_mult)
         if current_price < stop_loss_level:
-            loss_pct = ((current_price / position.entry_price) - 1) * 100
+            loss_pct = ((current_price / position.decision_entry_price) - 1) * 100
             return TradingSignal(
                 action=SignalAction.SELL,
                 confidence=1.0,

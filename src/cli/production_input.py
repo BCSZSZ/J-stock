@@ -8,6 +8,7 @@ from src.cli.production_utils import (
     get_signal_date_from_path,
     parse_signal_payload,
 )
+from src.production.reference_price import resolve_signal_entry_price
 
 
 def _parse_sell_action_to_pct(action: str) -> float:
@@ -120,6 +121,7 @@ def _build_buy_effect(position) -> dict:
         "entry_date": position.entry_date,
         "entry_score": position.entry_score,
         "peak_price": position.peak_price,
+        "signal_entry_price": position.signal_entry_price,
     }
 
 
@@ -168,6 +170,7 @@ def _reverse_trade_event(target_group, history, old_trade) -> tuple[bool, str]:
                 entry_date=effect.get("entry_date", old_trade.date),
                 entry_score=float(effect.get("entry_score", 0.0)),
                 peak_price=float(effect.get("peak_price", effect.get("entry_price", 0.0))),
+                signal_entry_price=effect.get("signal_entry_price"),
             )
         target_group.cash -= cash_delta
         return True, ""
@@ -203,6 +206,7 @@ def _reverse_trade_event(target_group, history, old_trade) -> tuple[bool, str]:
                 entry_date=last_buy.date,
                 entry_score=float(last_buy.entry_score or 0.0),
                 peak_price=last_buy.price,
+                signal_entry_price=None,
             )
         target_group.cash -= cash_delta
         return True, "legacy SELL fallback applied"
@@ -304,6 +308,7 @@ def run_input_workflow(args, prod_cfg, state) -> None:
                     entry_price=price,
                     entry_date=effective_date,
                     entry_score=0.0,
+                    signal_entry_price=resolve_signal_entry_price(ticker, effective_date),
                 )
                 new_trade = history.record_trade(
                     date=effective_date,
@@ -450,6 +455,7 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             entry_price=price,
             entry_date=trade_date,
             entry_score=float(sig.get("score", 0) or 0),
+            signal_entry_price=resolve_signal_entry_price(ticker, trade_date),
         )
         history.record_trade(
             date=trade_date,

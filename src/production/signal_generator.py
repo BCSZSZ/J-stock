@@ -318,6 +318,7 @@ class SignalGenerator:
             signals_position = Position(
                 ticker=ticker,
                 entry_price=position.entry_price,
+                signal_entry_price=position.signal_entry_price,
                 entry_date=pd.Timestamp(position.entry_date),
                 quantity=position.quantity,
                 entry_signal=TradingSignal(
@@ -327,7 +328,11 @@ class SignalGenerator:
                     metadata={"score": position.entry_score},
                     strategy_name="Entry",
                 ),
-                peak_price_since_entry=position.peak_price,
+                peak_price_since_entry=(
+                    position.peak_price
+                    or position.signal_entry_price
+                    or position.entry_price
+                ),
             )
 
             # Update peak price
@@ -339,6 +344,7 @@ class SignalGenerator:
             # Generate exit signal via unified v2
             trading_signal = generate_signal_v2(
                 market_data=market_data,
+                entry_strategy=exit_strategy,
                 exit_strategy=exit_strategy,
                 position=signals_position,
             )
@@ -386,7 +392,7 @@ class SignalGenerator:
                     entry_price=position.entry_price,
                     entry_date=position.entry_date,
                     holding_days=holding_days,
-                    unrealized_pl_pct=signals_position.current_pnl_pct(current_price),
+                    unrealized_pl_pct=signals_position.current_execution_pnl_pct(current_price),
                     strategy_name=exit_strategy.strategy_name,
                     evaluation_details=evaluation_details,
                 )
@@ -412,7 +418,7 @@ class SignalGenerator:
                     entry_price=position.entry_price,
                     entry_date=position.entry_date,
                     holding_days=holding_days,
-                    unrealized_pl_pct=signals_position.current_pnl_pct(current_price),
+                    unrealized_pl_pct=signals_position.current_execution_pnl_pct(current_price),
                     strategy_name=exit_strategy.strategy_name,
                     evaluation_details=evaluation_details,
                 )

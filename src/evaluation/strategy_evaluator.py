@@ -17,6 +17,7 @@ from collections import defaultdict
 
 import pandas as pd
 
+from src.backtest.entry_reference import normalize_entry_reference_mode
 from src.backtest.fill_buffer import normalize_fill_buffer_pct
 from src.config.capacity import parse_capacity_regime, parse_evaluation_capacity_mode
 from src.config.service import load_config
@@ -64,6 +65,7 @@ class AnnualStrategyResult:
     exit_confirmation_days: int = 1
     ranking_strategy: str = "default"
     buy_fill_mode: str = "next_open"
+    entry_reference_mode: str = "raw_fill"
     fill_buffer_enabled: bool = False
     fill_buffer_pct: float = 0.0
 
@@ -80,6 +82,7 @@ TRADE_EXPORT_COLUMNS = [
     "ranking_strategy",
     "exit_confirmation_days",
     "buy_fill_mode",
+    "entry_reference_mode",
     "fill_buffer_enabled",
     "fill_buffer_pct",
     "ticker",
@@ -514,6 +517,7 @@ class StrategyEvaluator:
         use_cache: bool = True,
         ranking_strategies: Optional[List[str]] = None,
         buy_fill_mode: str = "next_open",
+        entry_reference_mode: str = "raw_fill",
         fill_buffer_enabled: bool = False,
         fill_buffer_pct: float = 0.02,
         capacity_regime_mode_override: Optional[str] = None,
@@ -541,6 +545,9 @@ class StrategyEvaluator:
         self.use_cache = use_cache  # Data cache flag
         self.exit_confirmation_days = max(1, int(exit_confirmation_days))
         self.buy_fill_mode = str(buy_fill_mode or "next_open").strip().lower()
+        self.entry_reference_mode = normalize_entry_reference_mode(
+            entry_reference_mode
+        )
         self.fill_buffer_enabled = bool(fill_buffer_enabled)
         self.fill_buffer_pct = normalize_fill_buffer_pct(fill_buffer_pct)
         self.monitor_list_file = monitor_list_file
@@ -1143,6 +1150,7 @@ class StrategyEvaluator:
             entry_filter_config=entry_filter_config,
             signal_ranker=ranker,
             buy_fill_mode=self.buy_fill_mode,
+            entry_reference_mode=self.entry_reference_mode,
             fill_buffer_enabled=self.fill_buffer_enabled,
             fill_buffer_pct=self.fill_buffer_pct,
         )
@@ -1214,6 +1222,7 @@ class StrategyEvaluator:
             exit_confirmation_days=self.exit_confirmation_days,
             ranking_strategy=ranking_strategy,
             buy_fill_mode=self.buy_fill_mode,
+            entry_reference_mode=self.entry_reference_mode,
             fill_buffer_enabled=self.fill_buffer_enabled,
             fill_buffer_pct=self.fill_buffer_pct,
         )
@@ -1380,6 +1389,7 @@ class StrategyEvaluator:
                     "ranking_strategy": ranking_strategy,
                     "exit_confirmation_days": self.exit_confirmation_days,
                     "buy_fill_mode": self.buy_fill_mode,
+                    "entry_reference_mode": self.entry_reference_mode,
                     "fill_buffer_enabled": self.fill_buffer_enabled,
                     "fill_buffer_pct": self.fill_buffer_pct,
                     "ticker": getattr(trade, "ticker", None),
