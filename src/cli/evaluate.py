@@ -16,7 +16,12 @@ from src.evaluation import (
     create_monthly_periods,
     create_quarterly_periods,
 )
-from src.evaluation.replay_seed import ReplaySeed, load_replay_seed, resolve_latest_available_end_date
+from src.evaluation.replay_seed import (
+    ReplaySeed,
+    extract_report_date,
+    load_replay_seed,
+    resolve_latest_available_end_date,
+)
 from src.evaluation.strategy_evaluator import select_rank_df_for_mode
 from src.evaluation.scoring import candidate_key_columns, rank_final_prs, summarize_prs_train_metrics
 from src.config.runtime import get_config_file_path, is_local_path
@@ -3381,11 +3386,16 @@ def cmd_replay_evaluation(args):
     try:
         config_mgr = ConfigManager(str(get_config_file_path()))
         prod_cfg = config_mgr.get_production_config()
+        report_date = extract_report_date(report_file)
+        prior_signal_file = Path(
+            str(prod_cfg.signal_file_pattern).replace("{date}", report_date)
+        )
         replay_seed = load_replay_seed(
             report_file=report_file,
             state_file=Path(prod_cfg.state_file),
             history_file=Path(prod_cfg.history_file),
             cash_history_file=Path(prod_cfg.cash_history_file),
+            prior_signal_file=prior_signal_file,
             data_root="data",
         )
     except ValueError as e:
@@ -3424,6 +3434,8 @@ def cmd_replay_evaluation(args):
     print(f"💰 Seed cash: ¥{replay_seed.starting_cash_jpy:,.0f}")
     print(f"📊 Seed baseline equity: ¥{replay_seed.baseline_total_equity_jpy:,.0f}")
     print(f"📦 Seed positions: {len(replay_seed.positions)}")
+    print(f"📨 Prior-day signals: {replay_seed.prior_signal_file}")
+    print(f"🧾 Pending replay orders: {len(replay_seed.pending_orders)}")
     print(f"🧺 股票池变体: {len(universe_variants)} 个")
     print(f"   {', '.join(name for name, _ in universe_variants)}")
     print(f"🧭 Overlay: {'ENABLED' if effective_overlay_on else 'DISABLED'}")

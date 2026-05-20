@@ -55,6 +55,8 @@ class PortfolioBacktestEngine:
         starting_capital: float,
         initial_cash: Optional[float] = None,
         seeded_positions: Optional[Sequence[Position]] = None,
+        initial_pending_buy_signals: Optional[Dict[str, TradingSignal]] = None,
+        initial_pending_sell_signals: Optional[Dict[str, TradingSignal]] = None,
         max_positions: int = 5,
         max_position_pct: float = 0.30,
         min_position_pct: float = 0.05,
@@ -97,8 +99,15 @@ class PortfolioBacktestEngine:
             float(initial_cash) if initial_cash is not None else float(starting_capital)
         )
         self.seeded_positions = list(seeded_positions or [])
+        self.initial_pending_buy_signals = dict(initial_pending_buy_signals or {})
+        self.initial_pending_sell_signals = dict(initial_pending_sell_signals or {})
         self.last_final_cash_jpy: float = self.initial_cash
         self.last_final_open_positions: List[OpenPositionSnapshot] = []
+        self.last_pending_buy_signals: Dict[str, TradingSignal] = {}
+        self.last_pending_sell_signals: Dict[str, TradingSignal] = {}
+        self.last_execution_events: List[Dict[str, object]] = []
+        self.last_processed_date: Optional[str] = None
+        self.daily_snapshots: List[Dict[str, object]] = []
         self.max_positions = max_positions
         self.max_position_pct = max_position_pct
         self.min_position_pct = min_position_pct
@@ -225,8 +234,17 @@ class PortfolioBacktestEngine:
         peak_capacity_snapshot = None
 
         # 待执行订单（信号今天生成，明天执行）
-        pending_buy_signals: Dict[str, TradingSignal] = {}
-        pending_sell_signals: Dict[str, TradingSignal] = {}
+        pending_buy_signals: Dict[str, TradingSignal] = dict(
+            self.initial_pending_buy_signals
+        )
+        pending_sell_signals: Dict[str, TradingSignal] = dict(
+            self.initial_pending_sell_signals
+        )
+        self.last_execution_events = []
+        self.last_pending_buy_signals = {}
+        self.last_pending_sell_signals = {}
+        self.last_processed_date = None
+        self.daily_snapshots = []
         sell_confirmation_streaks: Dict[str, int] = {}
 
         benchmark_data = None
@@ -236,6 +254,7 @@ class PortfolioBacktestEngine:
 
         # 每日循环
         for i, current_date in enumerate(trading_days):
+            self.last_processed_date = current_date.strftime("%Y-%m-%d")
             executed_buys = []
             executed_sells = []
             current_prices = self._get_current_prices(all_data, current_date)
@@ -311,12 +330,23 @@ class PortfolioBacktestEngine:
                         continue
 
                     # 支持部分卖出：默认全卖
-                    sell_pct = float(sell_signal.metadata.get("sell_percentage", 1.0))
-                    qty_to_sell = self._calculate_sell_quantity(
-                        ticker=ticker,
-                        total_qty=position.quantity,
-                        sell_pct=sell_pct,
+                    planned_sell_qty = sell_signal.metadata.get(
+                        "planned_sell_quantity"
                     )
+                    if planned_sell_qty is not None:
+                        qty_to_sell = min(
+                            position.quantity,
+                            max(0, int(planned_sell_qty)),
+                        )
+                    else:
+                        sell_pct = float(
+                            sell_signal.metadata.get("sell_percentage", 1.0)
+                        )
+                        qty_to_sell = self._calculate_sell_quantity(
+                            ticker=ticker,
+                            total_qty=position.quantity,
+                            sell_pct=sell_pct,
+                        )
 
                     if qty_to_sell <= 0:
                         continue
@@ -386,6 +416,23 @@ class PortfolioBacktestEngine:
                             f"{profit_icon} SELL {current_date.date()} {ticker}: {qty_to_sell:,} shares @ ¥{exit_price:,.2f} "
                             f"({return_pct:+.2f}%, ¥{return_jpy:+,.0f}) - {trigger}"
                         )
+                        self.last_execution_events.append(
+                            {
+                                "date": current_date.strftime("%Y-%m-%d"),
+                                "ticker": ticker,
+                                "signal_action": sell_signal.action.value,
+                                "executed_action": "SELL",
+                                "shares": int(qty_to_sell),
+                                "price": float(exit_price),
+                                "reason": sell_signal.reasons[0]
+                                if sell_signal.reasons
+                                else "Unknown",
+                                "strategy_name": sell_signal.strategy_name,
+                                "signal_source": str(
+                                    (sell_signal.metadata or {}).get("source") or "generated_pending"
+                                ),
+                            }
+                        )
 
                 del pending_sell_signals[ticker]
 
@@ -421,28 +468,33 @@ class PortfolioBacktestEngine:
                     new_positions_opened = 0
 
                     # 对买入信号排序
-                    if self.signal_ranker.requires_market_data():
-                        market_data_dict = {
-                            ticker: get_market_data_for_today(ticker)
-                            for ticker in pending_buy_signals.keys()
-                            if ticker in all_data
-                        }
+                    if self._uses_preloaded_pending_signals(pending_buy_signals):
+                        ranked_signals = self._order_preloaded_pending_buy_signals(
+                            pending_buy_signals
+                        )
                     else:
-                        market_data_dict = {}
+                        if self.signal_ranker.requires_market_data():
+                            market_data_dict = {
+                                ticker: get_market_data_for_today(ticker)
+                                for ticker in pending_buy_signals.keys()
+                                if ticker in all_data
+                            }
+                        else:
+                            market_data_dict = {}
 
-                    ranked_signals = self.signal_ranker.rank_buy_signals(
-                        pending_buy_signals,
-                        market_data_dict,
-                        top_k=max(
-                            1,
-                            (
-                                day_capacity_snapshot.max_positions
-                                if day_capacity_snapshot is not None
-                                else self.max_positions
-                            )
-                            + self.buy_rank_buffer,
-                        ),
-                    )
+                        ranked_signals = self.signal_ranker.rank_buy_signals(
+                            pending_buy_signals,
+                            market_data_dict,
+                            top_k=max(
+                                1,
+                                (
+                                    day_capacity_snapshot.max_positions
+                                    if day_capacity_snapshot is not None
+                                    else self.max_positions
+                                )
+                                + self.buy_rank_buffer,
+                            ),
+                        )
 
                     # 依次尝试买入
                     for ticker, buy_signal, priority in ranked_signals:
@@ -469,89 +521,7 @@ class PortfolioBacktestEngine:
                         if entry_price is None:
                             continue
 
-                        available_exposure = None
-                        if (
-                            overlay_decision
-                            and overlay_decision.target_exposure is not None
-                        ):
-                            total_value = get_portfolio_total_value()
-                            invested = total_value - portfolio.cash
-                            max_invested = (
-                                total_value * overlay_decision.target_exposure
-                            )
-                            available_exposure = max(0.0, max_invested - invested)
-
-                        signal_buy_scale = extract_buy_size_multiplier(
-                            buy_signal.metadata
-                        )
-                        if (
-                            overlay_decision
-                            and overlay_decision.position_scale is not None
-                        ):
-                            signal_buy_scale *= overlay_decision.position_scale
-
                         entry_metadata = dict(buy_signal.metadata or {})
-
-                        if day_capacity_snapshot is not None:
-                            market_data_for_capacity = get_market_data_for_today(ticker)
-                            turnover_jpy = self._extract_turnover_value(
-                                market_data_for_capacity
-                            )
-                            capacity_decision = compute_order_capacity(
-                                tier=day_capacity_snapshot,
-                                turnover_jpy=turnover_jpy,
-                                available_cash_jpy=portfolio.cash,
-                                available_exposure_jpy=available_exposure,
-                                signal_scale=signal_buy_scale,
-                            )
-                            if capacity_decision.blocking_reason is not None:
-                                capacity_blocked_buys += 1
-                                if capacity_decision.blocking_reason in {
-                                    "missing_turnover",
-                                    "liquidity_floor",
-                                }:
-                                    capacity_liquidity_blocked_buys += 1
-                                capacity_cash_drag_jpy += max(
-                                    0.0,
-                                    capacity_decision.equity_cap_jpy
-                                    - capacity_decision.order_cap_jpy,
-                                )
-                                continue
-
-                            max_cash = capacity_decision.order_cap_jpy
-                            if capacity_decision.is_trimmed:
-                                capacity_trimmed_buys += 1
-                            capacity_cash_drag_jpy += max(
-                                0.0,
-                                capacity_decision.equity_cap_jpy
-                                - capacity_decision.order_cap_jpy,
-                            )
-                            if capacity_decision.participation_pct is not None:
-                                capacity_participations.append(
-                                    capacity_decision.participation_pct * 100.0
-                                )
-
-                            entry_metadata.update(
-                                {
-                                    "capacity_regime_version": day_capacity_snapshot.regime_version,
-                                    "capacity_tier_name": day_capacity_snapshot.tier_name,
-                                    "capacity_tier_index": day_capacity_snapshot.tier_index,
-                                    "capacity_effective_equity_jpy": day_capacity_snapshot.effective_equity_jpy,
-                                    "capacity_max_positions": day_capacity_snapshot.max_positions,
-                                    "capacity_max_position_pct": day_capacity_snapshot.max_position_pct,
-                                    "capacity_participation_cap_pct": day_capacity_snapshot.participation_cap_pct,
-                                    "capacity_min_turnover_20_jpy": day_capacity_snapshot.min_turnover_20_jpy,
-                                    "capacity_order_cap_jpy": capacity_decision.order_cap_jpy,
-                                    "capacity_turnover_jpy": capacity_decision.turnover_jpy,
-                                    "capacity_participation_pct": capacity_decision.participation_pct,
-                                }
-                            )
-                        else:
-                            max_cash = portfolio.calculate_max_position_size(current_prices)
-                            if available_exposure is not None:
-                                max_cash = min(max_cash, available_exposure)
-                            max_cash *= signal_buy_scale
-
                         raw_signal_entry_price = self._get_base_buy_fill_price(
                             all_data[ticker], current_date
                         )
@@ -562,10 +532,96 @@ class PortfolioBacktestEngine:
                             entry_price,
                         )
 
-                        # 计算可购买股数（考虑lot size）
-                        shares = LotSizeManager.calculate_buyable_shares(
-                            ticker, max_cash, entry_price
-                        )
+                        if self._is_preloaded_pending_signal(buy_signal):
+                            shares = max(
+                                0,
+                                int(entry_metadata.get("planned_quantity") or 0),
+                            )
+                        else:
+                            available_exposure = None
+                            if (
+                                overlay_decision
+                                and overlay_decision.target_exposure is not None
+                            ):
+                                total_value = get_portfolio_total_value()
+                                invested = total_value - portfolio.cash
+                                max_invested = (
+                                    total_value * overlay_decision.target_exposure
+                                )
+                                available_exposure = max(0.0, max_invested - invested)
+
+                            signal_buy_scale = extract_buy_size_multiplier(
+                                buy_signal.metadata
+                            )
+                            if (
+                                overlay_decision
+                                and overlay_decision.position_scale is not None
+                            ):
+                                signal_buy_scale *= overlay_decision.position_scale
+
+                            if day_capacity_snapshot is not None:
+                                market_data_for_capacity = get_market_data_for_today(ticker)
+                                turnover_jpy = self._extract_turnover_value(
+                                    market_data_for_capacity
+                                )
+                                capacity_decision = compute_order_capacity(
+                                    tier=day_capacity_snapshot,
+                                    turnover_jpy=turnover_jpy,
+                                    available_cash_jpy=portfolio.cash,
+                                    available_exposure_jpy=available_exposure,
+                                    signal_scale=signal_buy_scale,
+                                )
+                                if capacity_decision.blocking_reason is not None:
+                                    capacity_blocked_buys += 1
+                                    if capacity_decision.blocking_reason in {
+                                        "missing_turnover",
+                                        "liquidity_floor",
+                                    }:
+                                        capacity_liquidity_blocked_buys += 1
+                                    capacity_cash_drag_jpy += max(
+                                        0.0,
+                                        capacity_decision.equity_cap_jpy
+                                        - capacity_decision.order_cap_jpy,
+                                    )
+                                    continue
+
+                                max_cash = capacity_decision.order_cap_jpy
+                                if capacity_decision.is_trimmed:
+                                    capacity_trimmed_buys += 1
+                                capacity_cash_drag_jpy += max(
+                                    0.0,
+                                    capacity_decision.equity_cap_jpy
+                                    - capacity_decision.order_cap_jpy,
+                                )
+                                if capacity_decision.participation_pct is not None:
+                                    capacity_participations.append(
+                                        capacity_decision.participation_pct * 100.0
+                                    )
+
+                                entry_metadata.update(
+                                    {
+                                        "capacity_regime_version": day_capacity_snapshot.regime_version,
+                                        "capacity_tier_name": day_capacity_snapshot.tier_name,
+                                        "capacity_tier_index": day_capacity_snapshot.tier_index,
+                                        "capacity_effective_equity_jpy": day_capacity_snapshot.effective_equity_jpy,
+                                        "capacity_max_positions": day_capacity_snapshot.max_positions,
+                                        "capacity_max_position_pct": day_capacity_snapshot.max_position_pct,
+                                        "capacity_participation_cap_pct": day_capacity_snapshot.participation_cap_pct,
+                                        "capacity_min_turnover_20_jpy": day_capacity_snapshot.min_turnover_20_jpy,
+                                        "capacity_order_cap_jpy": capacity_decision.order_cap_jpy,
+                                        "capacity_turnover_jpy": capacity_decision.turnover_jpy,
+                                        "capacity_participation_pct": capacity_decision.participation_pct,
+                                    }
+                                )
+                            else:
+                                max_cash = portfolio.calculate_max_position_size(current_prices)
+                                if available_exposure is not None:
+                                    max_cash = min(max_cash, available_exposure)
+                                max_cash *= signal_buy_scale
+
+                            shares = LotSizeManager.calculate_buyable_shares(
+                                ticker, max_cash, entry_price
+                            )
 
                         if shares > 0:
                             buy_signal.metadata = entry_metadata
@@ -587,6 +643,23 @@ class PortfolioBacktestEngine:
                                 executed_buys.append(
                                     f"[BUY] {current_date.date()} {ticker}: {shares:,} shares @ {entry_price:,.2f}JPY "
                                     f"(Score: {score_display})"
+                                )
+                                self.last_execution_events.append(
+                                    {
+                                        "date": current_date.strftime("%Y-%m-%d"),
+                                        "ticker": ticker,
+                                        "signal_action": buy_signal.action.value,
+                                        "executed_action": "BUY",
+                                        "shares": int(shares),
+                                        "price": float(entry_price),
+                                        "reason": buy_signal.reasons[0]
+                                        if buy_signal.reasons
+                                        else "Unknown",
+                                        "strategy_name": buy_signal.strategy_name,
+                                        "signal_source": str(
+                                            (buy_signal.metadata or {}).get("source") or "generated_pending"
+                                        ),
+                                    }
                                 )
                                 new_positions_opened += 1
 
@@ -701,6 +774,8 @@ class PortfolioBacktestEngine:
 
             pending_buy_signals = buy_signals_today
             pending_sell_signals = sell_signals_today
+            self.last_pending_buy_signals = dict(pending_buy_signals)
+            self.last_pending_sell_signals = dict(pending_sell_signals)
 
             # ================================================================
             # STEP 4: 更新峰值价格
@@ -711,6 +786,16 @@ class PortfolioBacktestEngine:
             # STEP 5: 记录每日资产
             # ================================================================
             total_value = get_portfolio_total_value()
+            self.daily_snapshots.append(
+                self._build_daily_snapshot(
+                    current_date=current_date,
+                    portfolio=portfolio,
+                    current_prices=current_prices,
+                    pending_buy_signals=pending_buy_signals,
+                    pending_sell_signals=pending_sell_signals,
+                    total_value=total_value,
+                )
+            )
             daily_equity[current_date] = total_value
             equity_history_values.append(total_value)
 
@@ -740,6 +825,84 @@ class PortfolioBacktestEngine:
             capacity_participations=capacity_participations,
             capacity_cash_drag_jpy=capacity_cash_drag_jpy,
         )
+
+    def _build_daily_snapshot(
+        self,
+        current_date: pd.Timestamp,
+        portfolio: Portfolio,
+        current_prices: Dict[str, float],
+        pending_buy_signals: Dict[str, TradingSignal],
+        pending_sell_signals: Dict[str, TradingSignal],
+        total_value: float,
+    ) -> Dict[str, object]:
+        return {
+            "date": current_date.strftime("%Y-%m-%d"),
+            "cash_jpy": float(portfolio.cash),
+            "total_equity_jpy": float(total_value),
+            "open_positions": [
+                {
+                    "ticker": position.ticker,
+                    "quantity": int(position.quantity),
+                    "entry_price": float(position.entry_price),
+                    "signal_entry_price": float(
+                        position.signal_entry_price or position.entry_price
+                    ),
+                    "peak_price": float(position.peak_price_since_entry),
+                    "entry_date": str(pd.Timestamp(position.entry_date).date()),
+                    "current_price": float(
+                        current_prices.get(position.ticker, position.entry_price)
+                    ),
+                    "market_value": float(
+                        int(position.quantity)
+                        * float(current_prices.get(position.ticker, position.entry_price))
+                    ),
+                }
+                for position in portfolio.positions.values()
+            ],
+            "pending_buy_signals": [
+                self._serialize_snapshot_signal(ticker, signal)
+                for ticker, signal in pending_buy_signals.items()
+            ],
+            "pending_sell_signals": [
+                self._serialize_snapshot_signal(ticker, signal)
+                for ticker, signal in pending_sell_signals.items()
+            ],
+        }
+
+    @staticmethod
+    def _serialize_snapshot_signal(ticker: str, signal: TradingSignal) -> Dict[str, object]:
+        return {
+            "ticker": ticker,
+            "action": getattr(getattr(signal, "action", None), "value", None),
+            "confidence": float(getattr(signal, "confidence", 0.0) or 0.0),
+            "reasons": list(getattr(signal, "reasons", []) or []),
+            "strategy_name": str(getattr(signal, "strategy_name", "") or ""),
+            "metadata": PortfolioBacktestEngine._normalize_snapshot_value(
+                getattr(signal, "metadata", {}) or {}
+            ),
+        }
+
+    @staticmethod
+    def _normalize_snapshot_value(value):
+        if isinstance(value, dict):
+            return {
+                str(key): PortfolioBacktestEngine._normalize_snapshot_value(inner)
+                for key, inner in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [
+                PortfolioBacktestEngine._normalize_snapshot_value(inner)
+                for inner in value
+            ]
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            return float(value)
+        if isinstance(value, np.bool_):
+            return bool(value)
+        if isinstance(value, pd.Timestamp):
+            return value.isoformat()
+        return value
 
     def _extract_turnover_value(self, market_data: Optional[MarketData]) -> Optional[float]:
         if market_data is None or self.capacity_regime is None:
@@ -777,6 +940,36 @@ class PortfolioBacktestEngine:
             rounded_qty = min(total_qty, lot_size)
 
         return rounded_qty
+
+    @staticmethod
+    def _is_preloaded_pending_signal(signal: TradingSignal) -> bool:
+        metadata = signal.metadata or {}
+        return str(metadata.get("source") or "").strip().lower() == "replay_prior_signal"
+
+    def _uses_preloaded_pending_signals(
+        self,
+        pending_buy_signals: Dict[str, TradingSignal],
+    ) -> bool:
+        return bool(pending_buy_signals) and all(
+            self._is_preloaded_pending_signal(signal)
+            for signal in pending_buy_signals.values()
+        )
+
+    def _order_preloaded_pending_buy_signals(
+        self,
+        pending_buy_signals: Dict[str, TradingSignal],
+    ) -> List[tuple[str, TradingSignal, float]]:
+        ordered = []
+        for fallback_index, (ticker, signal) in enumerate(pending_buy_signals.items()):
+            priority = float(
+                (signal.metadata or {}).get(
+                    "replay_pending_order_priority",
+                    fallback_index,
+                )
+            )
+            ordered.append((ticker, signal, priority))
+        ordered.sort(key=lambda item: item[2])
+        return ordered
 
     def _load_stock_data(
         self,

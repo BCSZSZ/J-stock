@@ -110,6 +110,20 @@ async def run_daily(req: ProductionDailyRequest) -> StreamingResponse:
     return await _run_cli_streaming(args)
 
 
+@router.post("/check-price-all")
+async def run_check_price_all(req: ConfirmRequest) -> StreamingResponse:
+    if not req.confirm:
+        raise HTTPException(status_code=400, detail="Confirmation required")
+    return await _run_cli_streaming(["production", "--check-price", "all"])
+
+
+@router.post("/check-price-today")
+async def run_check_price_today(req: ConfirmRequest) -> StreamingResponse:
+    if not req.confirm:
+        raise HTTPException(status_code=400, detail="Confirmation required")
+    return await _run_cli_streaming(["production", "--check-price", "today"])
+
+
 @router.post("/set-cash")
 async def set_cash(req: SetCashRequest) -> dict[str, str]:
     if not req.confirm:

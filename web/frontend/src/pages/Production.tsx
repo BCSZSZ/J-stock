@@ -31,6 +31,7 @@ export default function Production() {
   const daily = useStreamExec();
   const fetchData = useStreamExec();
   const universe = useStreamExec();
+  const priceCheck = useStreamExec();
   const inputTrades = useStreamExec();
   const { confirm, dialog } = useConfirmDialog();
   const [trades, setTrades] = useState<TradeRow[]>([emptyTrade()]);
@@ -117,6 +118,21 @@ export default function Production() {
     universe.execute("/production/universe", { confirm: true });
   }
 
+  async function handleCheckPrice(scope: "all" | "today") {
+    const label = scope === "all" ? "Check All Price" : "Check Today";
+    const detail =
+      scope === "all"
+        ? "Scan all active lots and repair fallback signal_entry_price anchors using entry-date open prices?"
+        : "Scan today's active lots and repair fallback signal_entry_price anchors using entry-date open prices?";
+    const ok = await confirm(label, detail);
+    if (!ok) return;
+    const path =
+      scope === "all"
+        ? "/production/check-price-all"
+        : "/production/check-price-today";
+    priceCheck.execute(path, { confirm: true });
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Production</h2>
@@ -171,6 +187,20 @@ export default function Production() {
             >
               Universe Selection
             </button>
+            <button
+              onClick={() => handleCheckPrice("all")}
+              disabled={priceCheck.running}
+              className="px-4 py-2 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 rounded text-sm"
+            >
+              Check All Price
+            </button>
+            <button
+              onClick={() => handleCheckPrice("today")}
+              disabled={priceCheck.running}
+              className="px-4 py-2 bg-amber-900 hover:bg-amber-800 disabled:opacity-50 rounded text-sm"
+            >
+              Check Today
+            </button>
           </div>
           {fetchData.lines.length > 0 && (
             <LogOutput
@@ -184,6 +214,13 @@ export default function Production() {
               lines={universe.lines}
               running={universe.running}
               exitCode={universe.exitCode}
+            />
+          )}
+          {priceCheck.lines.length > 0 && (
+            <LogOutput
+              lines={priceCheck.lines}
+              running={priceCheck.running}
+              exitCode={priceCheck.exitCode}
             />
           )}
         </div>

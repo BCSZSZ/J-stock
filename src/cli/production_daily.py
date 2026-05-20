@@ -9,6 +9,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from src.capacity import compute_order_capacity, resolve_capacity_tier
+from src.cli.production_price_check import run_signal_price_check
 from src.cli.production_utils import load_monitor_tickers
 from src.config.runtime import (
     CONFIG_ENV_VAR,
@@ -19,6 +20,7 @@ from src.config.runtime import (
 from src.config.service import load_config
 from src.data.fetch_universe_builder import build_fetch_universe_file
 from src.data.sector_metrics_updater import update_sector_metrics
+from src.production.state_manager import build_state_as_of
 from src.utils.signal_sizing import extract_buy_size_multiplier
 
 
@@ -317,7 +319,6 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.overlays import OverlayContext, OverlayManager
     from src.production import ReportBuilder
     from src.production.report_builder import AbnormalSignalTicker
-    from src.production.state_manager import build_state_as_of
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
     from src.production.signal_generator import Signal
     from src.utils.strategy_loader import load_exit_strategy, load_strategy_pair
@@ -504,11 +505,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             + ", ".join(sorted(abnormal_ticker_set))
         )
 
-    effective_state = build_state_as_of(
-        base_state=state,
-        history_file=prod_cfg.history_file,
-        cash_history_file=prod_cfg.cash_history_file,
-        as_of_date=signal_date,
+    effective_state = _repair_and_build_effective_state(
+        prod_cfg=prod_cfg,
+        state=state,
+        signal_date=signal_date,
+        data_root=runtime_data_root,
     )
     capacity_mode = str(getattr(prod_cfg, "capacity_regime_mode", "off") or "off")
     capacity_regime = getattr(prod_cfg, "capacity_regime", None)
@@ -1665,3 +1666,26 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     report_file = prod_cfg.report_file_pattern.replace("{date}", signal_date)
     builder.save_report(report_md, report_file)
     print(f"  Report saved: {report_file}")
+
+
+def _repair_and_build_effective_state(
+    *,
+    prod_cfg,
+    state,
+    signal_date: str,
+    data_root: str | None,
+):
+    run_signal_price_check(
+        prod_cfg,
+        state,
+        scope="today",
+        target_date=signal_date,
+        data_root=data_root,
+        save_if_changed=True,
+    )
+    return build_state_as_of(
+        base_state=state,
+        history_file=prod_cfg.history_file,
+        cash_history_file=prod_cfg.cash_history_file,
+        as_of_date=signal_date,
+    )

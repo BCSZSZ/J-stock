@@ -125,6 +125,21 @@ def _build_buy_effect(position) -> dict:
     }
 
 
+def _resolve_signal_entry_price_with_warning(
+    ticker: str,
+    trade_date: str,
+    execution_price: float,
+) -> float | None:
+    signal_entry_price = resolve_signal_entry_price(ticker, trade_date)
+    if signal_entry_price is None:
+        print(
+            "  [WARN] signal_entry_price unavailable for "
+            f"{ticker} {trade_date}; state/history will temporarily fall back to "
+            f"entry_price {execution_price:.2f} until production --daily repairs it."
+        )
+    return signal_entry_price
+
+
 def _reverse_trade_event(target_group, history, old_trade) -> tuple[bool, str]:
     effects = old_trade.position_effects or []
     cash_delta = _trade_cash_delta(old_trade)
@@ -302,13 +317,18 @@ def run_input_workflow(args, prod_cfg, state) -> None:
 
             if action == "BUY":
                 cash_before = target_group.cash
+                signal_entry_price = _resolve_signal_entry_price_with_warning(
+                    ticker,
+                    effective_date,
+                    price,
+                )
                 new_position = target_group.add_position(
                     ticker=ticker,
                     quantity=qty,
                     entry_price=price,
                     entry_date=effective_date,
                     entry_score=0.0,
-                    signal_entry_price=resolve_signal_entry_price(ticker, effective_date),
+                    signal_entry_price=signal_entry_price,
                 )
                 new_trade = history.record_trade(
                     date=effective_date,
@@ -449,13 +469,18 @@ def run_input_workflow(args, prod_cfg, state) -> None:
             continue
 
         cash_before = group.cash
+        signal_entry_price = _resolve_signal_entry_price_with_warning(
+            ticker,
+            trade_date,
+            price,
+        )
         new_position = group.add_position(
             ticker=ticker,
             quantity=qty,
             entry_price=price,
             entry_date=trade_date,
             entry_score=float(sig.get("score", 0) or 0),
-            signal_entry_price=resolve_signal_entry_price(ticker, trade_date),
+            signal_entry_price=signal_entry_price,
         )
         history.record_trade(
             date=trade_date,

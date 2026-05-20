@@ -17,14 +17,29 @@ from collections import defaultdict
 
 import pandas as pd
 
+from src.analysis.signals import SignalAction, TradingSignal
+from src.backtest.lot_size_manager import LotSizeManager
 from src.backtest.entry_reference import normalize_entry_reference_mode
 from src.backtest.fill_buffer import normalize_fill_buffer_pct
-from src.evaluation.replay_seed import ReplaySeed, build_seeded_backtest_position
+from src.evaluation.replay_seed import (
+    ReplaySeed,
+    build_replay_pending_signal,
+    build_seeded_backtest_position,
+)
 from src.config.capacity import parse_capacity_regime, parse_evaluation_capacity_mode
 from src.config.service import load_config
 from src.config.runtime import CONFIG_ENV_VAR, GDRIVE_DEFAULT_CONFIG_FILE, get_config_file_path
+from src.data.market_data_builder import MarketDataBuilder
+from src.data.stock_data_manager import StockDataManager
 from src.evaluation.scoring import apply_prs_train_score, candidate_key_columns, positive_ratio, robust_inverse_norm, robust_norm, summarize_prs_train_metrics
 from src.overlays import OverlayManager
+from src.production.report_builder import ReportBuilder
+from src.production.signal_generator import Signal as ProductionSignal
+from src.production.state_manager import (
+    Position as ProductionPosition,
+    ProductionState,
+    StrategyGroupState,
+)
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
 
@@ -113,6 +128,82 @@ TRADE_EXPORT_COLUMNS = [
     "capacity_turnover_jpy",
     "capacity_participation_pct",
     "exit_metadata_json",
+]
+
+
+LAST_DAY_SIGNAL_COLUMNS = [
+    "period",
+    "requested_end_date",
+    "snapshot_date",
+    "entry_strategy",
+    "exit_strategy",
+    "entry_filter",
+    "ranking_strategy",
+    "signal_type",
+    "ticker",
+    "action",
+    "confidence",
+    "strategy_name",
+    "reasons_json",
+    "metadata_json",
+]
+
+
+LAST_DAY_POSITION_COLUMNS = [
+    "period",
+    "requested_end_date",
+    "snapshot_date",
+    "entry_strategy",
+    "exit_strategy",
+    "entry_filter",
+    "ranking_strategy",
+    "ticker",
+    "quantity",
+    "entry_date",
+    "entry_price",
+    "signal_entry_price",
+    "peak_price",
+    "current_price",
+    "market_value",
+]
+
+
+DAILY_SIGNAL_COLUMNS = [
+    "period",
+    "requested_end_date",
+    "snapshot_date",
+    "entry_strategy",
+    "exit_strategy",
+    "entry_filter",
+    "ranking_strategy",
+    "signal_type",
+    "ticker",
+    "action",
+    "confidence",
+    "strategy_name",
+    "reasons_json",
+    "metadata_json",
+]
+
+
+DAILY_POSITION_COLUMNS = [
+    "period",
+    "requested_end_date",
+    "snapshot_date",
+    "entry_strategy",
+    "exit_strategy",
+    "entry_filter",
+    "ranking_strategy",
+    "ticker",
+    "quantity",
+    "entry_date",
+    "entry_price",
+    "signal_entry_price",
+    "peak_price",
+    "current_price",
+    "market_value",
+    "cash_jpy",
+    "total_equity_jpy",
 ]
 
 
@@ -562,6 +653,8 @@ class StrategyEvaluator:
         self.overlay_config = overlay_config or {}
         self.ranking_strategies = ranking_strategies or ["default"]
         self.replay_run_snapshots: List[Dict[str, object]] = []
+        self.evaluation_run_snapshots: List[Dict[str, object]] = []
+        self.evaluation_daily_snapshots: List[Dict[str, object]] = []
         self.capacity_regime_mode_override = (
             str(parse_evaluation_capacity_mode(capacity_regime_mode_override))
             if capacity_regime_mode_override is not None
@@ -594,6 +687,21 @@ class StrategyEvaluator:
             build_seeded_backtest_position(position, strategy_name)
             for position in self.replay_seed.positions
         ]
+
+    def _build_initial_pending_signals(self):
+        if self.replay_seed is None:
+            return {}, {}
+
+        buy_signals = {}
+        sell_signals = {}
+        for priority, order in enumerate(self.replay_seed.pending_orders):
+            signal = build_replay_pending_signal(order, priority=priority)
+            if order.signal_type == "BUY":
+                buy_signals[order.ticker] = signal
+                continue
+            sell_signals[order.ticker] = signal
+
+        return buy_signals, sell_signals
 
     def _get_starting_capital(self) -> int:
         """
@@ -746,6 +854,8 @@ class StrategyEvaluator:
         self.trade_results = []
         self._results_df_cache = None
         self._trade_results_df_cache = None
+        self.evaluation_run_snapshots = []
+        self.evaluation_daily_snapshots = []
 
         # 默认使用全部策略
         if entry_strategies is None:
@@ -1150,6 +1260,9 @@ class StrategyEvaluator:
         else:
             max_positions, max_position_pct = self._get_portfolio_limits()
         phase_started = time.perf_counter()
+        initial_pending_buy_signals, initial_pending_sell_signals = (
+            self._build_initial_pending_signals()
+        )
         engine = PortfolioBacktestEngine(
             data_root=self.data_root,
             starting_capital=(
@@ -1176,6 +1289,8 @@ class StrategyEvaluator:
             entry_reference_mode=self.entry_reference_mode,
             fill_buffer_enabled=self.fill_buffer_enabled,
             fill_buffer_pct=self.fill_buffer_pct,
+            initial_pending_buy_signals=initial_pending_buy_signals,
+            initial_pending_sell_signals=initial_pending_sell_signals,
         )
         self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 
@@ -1204,25 +1319,42 @@ class StrategyEvaluator:
             ranking_strategy=ranking_strategy,
         )
 
+        run_snapshot = self._build_evaluation_run_snapshot(
+            engine=engine,
+            period_label=period_label,
+            start_date=start_date,
+            end_date=end_date,
+            entry_strategy=entry_strategy,
+            exit_strategy=exit_strategy,
+            entry_filter_name=entry_filter_name,
+            ranking_strategy=ranking_strategy,
+        )
+        self.evaluation_run_snapshots.append(run_snapshot)
+        self.evaluation_daily_snapshots.append(
+            {
+                "period": period_label,
+                "start_date": start_date,
+                "end_date": end_date,
+                "entry_strategy": entry_strategy,
+                "exit_strategy": exit_strategy,
+                "entry_filter": entry_filter_name,
+                "ranking_strategy": ranking_strategy,
+                "daily_snapshots": list(getattr(engine, "daily_snapshots", []) or []),
+            }
+        )
+
         if self.replay_seed is not None:
             self.replay_run_snapshots.append(
                 {
-                    "period": period_label,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "entry_strategy": entry_strategy,
-                    "exit_strategy": exit_strategy,
-                    "entry_filter": entry_filter_name,
-                    "ranking_strategy": ranking_strategy,
+                    **run_snapshot,
                     "starting_cash_jpy": float(self.replay_seed.starting_cash_jpy),
                     "baseline_total_equity_jpy": float(
                         self.replay_seed.baseline_total_equity_jpy
                     ),
-                    "final_cash_jpy": float(engine.last_final_cash_jpy),
-                    "final_open_positions": [
-                        asdict(position)
-                        for position in engine.last_final_open_positions
+                    "initial_pending_orders": [
+                        asdict(order) for order in self.replay_seed.pending_orders
                     ],
+                    "executed_orders": list(engine.last_execution_events),
                 }
             )
 
@@ -1271,6 +1403,38 @@ class StrategyEvaluator:
             fill_buffer_enabled=self.fill_buffer_enabled,
             fill_buffer_pct=self.fill_buffer_pct,
         )
+
+    def _build_evaluation_run_snapshot(
+        self,
+        engine,
+        period_label: str,
+        start_date: str,
+        end_date: str,
+        entry_strategy: str,
+        exit_strategy: str,
+        entry_filter_name: str,
+        ranking_strategy: str,
+    ) -> Dict[str, object]:
+        return {
+            "period": period_label,
+            "start_date": start_date,
+            "end_date": end_date,
+            "snapshot_date": engine.last_processed_date,
+            "entry_strategy": entry_strategy,
+            "exit_strategy": exit_strategy,
+            "entry_filter": entry_filter_name,
+            "ranking_strategy": ranking_strategy,
+            "next_pending_buy_signals": self._serialize_signal_map(
+                engine.last_pending_buy_signals
+            ),
+            "next_pending_sell_signals": self._serialize_signal_map(
+                engine.last_pending_sell_signals
+            ),
+            "final_cash_jpy": float(engine.last_final_cash_jpy),
+            "final_open_positions": [
+                asdict(position) for position in engine.last_final_open_positions
+            ],
+        }
 
     def _get_topix_return(self, start_date: str, end_date: str) -> Optional[float]:
         """
@@ -1392,6 +1556,544 @@ class StrategyEvaluator:
             )
         except Exception:
             return "{}"
+
+    @staticmethod
+    def _serialize_trading_signal(ticker: str, signal) -> Dict[str, Any]:
+        return {
+            "ticker": ticker,
+            "action": getattr(getattr(signal, "action", None), "value", None),
+            "confidence": float(getattr(signal, "confidence", 0.0) or 0.0),
+            "reasons": list(getattr(signal, "reasons", []) or []),
+            "strategy_name": str(getattr(signal, "strategy_name", "") or ""),
+            "metadata": json.loads(
+                StrategyEvaluator._safe_json_dumps(
+                    getattr(signal, "metadata", {}) or {}
+                )
+            ),
+        }
+
+    @staticmethod
+    def _serialize_signal_map(signal_map: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return [
+            StrategyEvaluator._serialize_trading_signal(ticker, signal)
+            for ticker, signal in signal_map.items()
+        ]
+
+    @staticmethod
+    def _load_replay_report_runtime_config() -> Dict[str, object]:
+        try:
+            return load_config()
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _extract_replay_report_buffers(raw_config: Dict[str, object]) -> Tuple[float, float]:
+        production_cfg = raw_config.get("production")
+        if not isinstance(production_cfg, dict):
+            production_cfg = {}
+
+        buy_price_buffer_pct = float(
+            production_cfg.get("report_buy_price_buffer_pct", 0.02) or 0.02
+        )
+        sell_price_buffer_pct = float(
+            production_cfg.get("report_sell_price_buffer_pct", 0.02) or 0.02
+        )
+        buy_price_buffer_pct = min(max(buy_price_buffer_pct, 0.0), 0.20)
+        sell_price_buffer_pct = min(max(sell_price_buffer_pct, 0.0), 0.20)
+        return buy_price_buffer_pct, sell_price_buffer_pct
+
+    def _get_replay_report_portfolio_limits(self) -> Tuple[int, float]:
+        max_positions, max_position_pct = self._get_portfolio_limits()
+        if not self.results:
+            return max_positions, max_position_pct
+
+        latest_result = self.results[-1]
+        if latest_result.capacity_effective_max_positions > 0:
+            max_positions = int(latest_result.capacity_effective_max_positions)
+        if latest_result.capacity_effective_max_position_pct > 0:
+            max_position_pct = float(latest_result.capacity_effective_max_position_pct)
+        return max_positions, max_position_pct
+
+    @staticmethod
+    def _load_replay_report_close_price(
+        df_features: pd.DataFrame,
+        report_date: str,
+    ) -> Optional[float]:
+        if df_features is None or df_features.empty:
+            return None
+
+        frame = df_features.copy()
+        if "Date" not in frame.columns:
+            frame = frame.reset_index()
+            index_name = frame.columns[0]
+            frame = frame.rename(columns={index_name: "Date"})
+
+        frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
+        frame = frame.dropna(subset=["Date"])
+        frame = frame[frame["Date"] <= pd.Timestamp(report_date)]
+        if frame.empty or "Close" not in frame.columns:
+            return None
+        return float(frame.sort_values("Date").iloc[-1]["Close"])
+
+    def _load_replay_report_ticker_contexts(
+        self,
+        data_manager: StockDataManager,
+        tickers: List[str],
+        report_date: str,
+    ) -> Dict[str, Dict[str, object]]:
+        contexts: Dict[str, Dict[str, object]] = {}
+        for ticker in tickers:
+            normalized = str(ticker).strip()
+            if not normalized:
+                continue
+
+            close_price = None
+            ticker_name = normalized
+            try:
+                df_features = data_manager.load_stock_features(normalized)
+                close_price = self._load_replay_report_close_price(df_features, report_date)
+            except Exception:
+                close_price = None
+
+            try:
+                metadata = data_manager.load_metadata(normalized) or {}
+                if isinstance(metadata, dict):
+                    ticker_name = str(metadata.get("company_name") or normalized)
+            except Exception:
+                ticker_name = normalized
+
+            contexts[normalized] = {
+                "ticker_name": ticker_name,
+                "close_price": close_price,
+            }
+
+        return contexts
+
+    @staticmethod
+    def _derive_sell_action_label(sell_percentage: float) -> str:
+        if sell_percentage >= 0.999:
+            return "SELL_100%"
+        if sell_percentage >= 0.74:
+            return "SELL_75%"
+        if sell_percentage >= 0.49:
+            return "SELL_50%"
+        if sell_percentage >= 0.24:
+            return "SELL_25%"
+        return "SELL"
+
+    @staticmethod
+    def _calculate_replay_report_sell_quantity(
+        ticker: str,
+        total_qty: int,
+        sell_pct: float,
+    ) -> int:
+        if total_qty <= 0:
+            return 0
+        if sell_pct >= 0.999:
+            return total_qty
+
+        lot_size = LotSizeManager.get_lot_size(ticker)
+        raw_qty = total_qty * max(sell_pct, 0.0)
+        lots = int((raw_qty + lot_size - 1) // lot_size)
+        qty = lots * lot_size
+        return min(total_qty, qty)
+
+    @staticmethod
+    def _calculate_replay_report_buy_quantity(
+        ticker: str,
+        planning_price: float,
+        available_cash: float,
+        total_portfolio_value: float,
+        max_position_pct: float,
+    ) -> Tuple[int, float, int]:
+        lot_size = LotSizeManager.get_lot_size(ticker)
+        if planning_price <= 0 or lot_size <= 0:
+            return 0, 0.0, lot_size
+
+        target_position_value = total_portfolio_value * max_position_pct
+        max_position_value = min(target_position_value, available_cash)
+        lot_value = planning_price * lot_size
+        lots = int(max_position_value // lot_value)
+        quantity = lots * lot_size
+        required_capital = quantity * planning_price
+        return quantity, required_capital, lot_size
+
+    def _rank_replay_report_buy_signals(
+        self,
+        buy_signals: List[Dict[str, Any]],
+        report_date: str,
+        ranking_strategy: str,
+        data_manager: StockDataManager,
+    ) -> Dict[str, Dict[str, float]]:
+        if not buy_signals:
+            return {}
+
+        from src.utils.strategy_loader import load_ranking_strategy
+
+        ranker = load_ranking_strategy(ranking_strategy or "default")
+        trading_signals: Dict[str, TradingSignal] = {}
+        for raw_signal in buy_signals:
+            ticker = str(raw_signal.get("ticker") or "").strip()
+            if not ticker:
+                continue
+            metadata = json.loads(
+                self._safe_json_dumps(raw_signal.get("metadata") or {})
+            )
+            trading_signals[ticker] = TradingSignal(
+                action=SignalAction.BUY,
+                confidence=float(raw_signal.get("confidence") or 0.0),
+                reasons=list(raw_signal.get("reasons") or []),
+                metadata=metadata,
+                strategy_name=str(raw_signal.get("strategy_name") or ""),
+            )
+
+        market_data_dict = {}
+        if ranker.requires_market_data():
+            for ticker in trading_signals:
+                market_data = MarketDataBuilder.build_from_manager(
+                    data_manager=data_manager,
+                    ticker=ticker,
+                    current_date=pd.Timestamp(report_date),
+                )
+                if market_data is not None:
+                    market_data_dict[ticker] = market_data
+
+        ranked = ranker.rank_buy_signals(trading_signals, market_data_dict)
+        return {
+            ticker: {
+                "rank": float(index + 1),
+                "rank_score": float(priority),
+            }
+            for index, (ticker, _signal, priority) in enumerate(ranked)
+        }
+
+    def _build_replay_last_day_production_style_signals(
+        self,
+        snapshot: Dict[str, Any],
+    ) -> List[ProductionSignal]:
+        if self.replay_seed is None:
+            return []
+
+        report_date = str(snapshot.get("end_date") or self.replay_seed.report_date)
+        raw_config = self._load_replay_report_runtime_config()
+        buy_price_buffer_pct, sell_price_buffer_pct = self._extract_replay_report_buffers(
+            raw_config
+        )
+        final_cash_jpy = float(snapshot.get("final_cash_jpy") or 0.0)
+        final_positions = list(snapshot.get("final_open_positions") or [])
+        raw_buy_signals = list(snapshot.get("next_pending_buy_signals") or [])
+        raw_sell_signals = list(snapshot.get("next_pending_sell_signals") or [])
+
+        tickers: List[str] = []
+        for position in final_positions:
+            ticker = str(position.get("ticker") or "").strip()
+            if ticker and ticker not in tickers:
+                tickers.append(ticker)
+        for raw_signal in raw_buy_signals + raw_sell_signals:
+            ticker = str(raw_signal.get("ticker") or "").strip()
+            if ticker and ticker not in tickers:
+                tickers.append(ticker)
+
+        data_manager = StockDataManager(api_key=None, data_root=self.data_root)
+        ticker_contexts = self._load_replay_report_ticker_contexts(
+            data_manager=data_manager,
+            tickers=tickers,
+            report_date=report_date,
+        )
+        rank_map = self._rank_replay_report_buy_signals(
+            buy_signals=raw_buy_signals,
+            report_date=report_date,
+            ranking_strategy=str(snapshot.get("ranking_strategy") or "default"),
+            data_manager=data_manager,
+        )
+
+        positions_by_ticker = {
+            str(position.get("ticker") or "").strip(): position
+            for position in final_positions
+            if str(position.get("ticker") or "").strip()
+        }
+        total_position_value = sum(
+            float(position.get("market_value") or 0.0) for position in final_positions
+        )
+        total_portfolio_value = final_cash_jpy + total_position_value
+
+        sell_signals: List[ProductionSignal] = []
+        projected_sell_proceeds = 0.0
+        projected_position_count = len(positions_by_ticker)
+        report_ts = pd.Timestamp(report_date)
+
+        for raw_signal in raw_sell_signals:
+            ticker = str(raw_signal.get("ticker") or "").strip()
+            if not ticker:
+                continue
+
+            position = positions_by_ticker.get(ticker)
+            if position is None:
+                continue
+
+            metadata = raw_signal.get("metadata") or {}
+            context = ticker_contexts.get(ticker, {})
+            close_price = context.get("close_price")
+            current_price = float(
+                close_price
+                if close_price is not None
+                else (position.get("current_price") or 0.0)
+            )
+            position_qty = int(position.get("quantity") or 0)
+            if position_qty <= 0 or current_price <= 0:
+                continue
+
+            sell_percentage = float(metadata.get("sell_percentage") or 1.0)
+            planned_sell_qty = metadata.get("planned_sell_quantity")
+            if planned_sell_qty is None:
+                planned_sell_qty = self._calculate_replay_report_sell_quantity(
+                    ticker=ticker,
+                    total_qty=position_qty,
+                    sell_pct=sell_percentage,
+                )
+            planned_sell_qty = max(0, int(planned_sell_qty or 0))
+            planned_sell_price = current_price * (1.0 - sell_price_buffer_pct)
+            planned_sell_value = planned_sell_qty * planned_sell_price
+            entry_price = float(position.get("entry_price") or 0.0)
+            entry_date = str(position.get("entry_date") or "")
+            holding_days = (
+                (report_ts - pd.Timestamp(entry_date)).days if entry_date else 0
+            )
+            unrealized_pl_pct = (
+                ((current_price - entry_price) / entry_price) * 100.0
+                if entry_price > 0
+                else None
+            )
+
+            signal = ProductionSignal(
+                group_id=self.replay_seed.group_id,
+                ticker=ticker,
+                ticker_name=str(context.get("ticker_name") or ticker),
+                signal_type="SELL",
+                action=self._derive_sell_action_label(sell_percentage),
+                confidence=float(raw_signal.get("confidence") or 0.0),
+                score=float(metadata.get("score") or 0.0),
+                reason="; ".join(raw_signal.get("reasons") or []) or "SELL",
+                current_price=current_price,
+                close_price=current_price,
+                planned_price=float(planned_sell_price),
+                planning_price_factor=float(1.0 + buy_price_buffer_pct),
+                sell_price_factor=float(1.0 - sell_price_buffer_pct),
+                position_qty=position_qty,
+                entry_price=entry_price,
+                entry_date=entry_date,
+                holding_days=holding_days,
+                unrealized_pl_pct=unrealized_pl_pct,
+                planned_sell_qty=planned_sell_qty,
+                planned_sell_value=float(planned_sell_value),
+                is_executable=planned_sell_qty > 0,
+                is_executable_sell=planned_sell_qty > 0,
+                strategy_name=str(raw_signal.get("strategy_name") or ""),
+                exit_trigger=(
+                    str(metadata.get("trigger"))
+                    if metadata.get("trigger") is not None
+                    else None
+                ),
+            )
+            sell_signals.append(signal)
+
+            if planned_sell_qty > 0:
+                projected_sell_proceeds += planned_sell_value
+                if planned_sell_qty >= position_qty:
+                    projected_position_count = max(0, projected_position_count - 1)
+
+        planning_cash = final_cash_jpy + projected_sell_proceeds
+        max_positions, max_position_pct = self._get_replay_report_portfolio_limits()
+
+        def _buy_sort_key(raw_signal: Dict[str, Any]) -> Tuple[float, float, str]:
+            ticker = str(raw_signal.get("ticker") or "").strip()
+            ranking = rank_map.get(ticker, {})
+            score = float((raw_signal.get("metadata") or {}).get("score") or 0.0)
+            return (
+                float(ranking.get("rank", 999999.0)),
+                -score,
+                ticker,
+            )
+
+        buy_signals: List[ProductionSignal] = []
+        new_positions_opened = 0
+        for raw_signal in sorted(raw_buy_signals, key=_buy_sort_key):
+            ticker = str(raw_signal.get("ticker") or "").strip()
+            if not ticker:
+                continue
+
+            metadata = raw_signal.get("metadata") or {}
+            context = ticker_contexts.get(ticker, {})
+            close_price_value = context.get("close_price")
+            close_price = (
+                float(close_price_value)
+                if close_price_value is not None
+                else None
+            )
+            planning_price = (
+                float(close_price) * (1.0 + buy_price_buffer_pct)
+                if close_price is not None
+                else None
+            )
+            rank_info = rank_map.get(ticker, {})
+            base_reason = "; ".join(raw_signal.get("reasons") or []) or "BUY"
+
+            suggested_qty = 0
+            required_capital = 0.0
+            lot_size = LotSizeManager.get_lot_size(ticker)
+            reason = base_reason
+
+            if ticker in positions_by_ticker:
+                reason = f"{base_reason}; Skipped: already in portfolio"
+            elif close_price is None or planning_price is None or planning_price <= 0:
+                reason = f"{base_reason}; Skipped: missing close price"
+            elif projected_position_count + new_positions_opened >= max_positions:
+                reason = (
+                    f"{base_reason}; Skipped: max positions ({max_positions}) reached"
+                )
+            else:
+                suggested_qty, required_capital, lot_size = (
+                    self._calculate_replay_report_buy_quantity(
+                        ticker=ticker,
+                        planning_price=float(planning_price),
+                        available_cash=planning_cash,
+                        total_portfolio_value=total_portfolio_value,
+                        max_position_pct=max_position_pct,
+                    )
+                )
+                if suggested_qty > 0:
+                    planning_cash = max(0.0, planning_cash - required_capital)
+                    new_positions_opened += 1
+                else:
+                    reason = (
+                        f"{base_reason}; SuggestedQty=0: projected cash insufficient "
+                        f"for lot size {lot_size}"
+                    )
+
+            signal = ProductionSignal(
+                group_id=self.replay_seed.group_id,
+                ticker=ticker,
+                ticker_name=str(context.get("ticker_name") or ticker),
+                signal_type="BUY",
+                action="BUY",
+                confidence=float(raw_signal.get("confidence") or 0.0),
+                score=float(metadata.get("score") or 0.0),
+                reason=reason,
+                current_price=float(planning_price or 0.0),
+                close_price=float(close_price or 0.0) if close_price is not None else None,
+                planned_price=float(planning_price or 0.0) if planning_price is not None else None,
+                planning_price_factor=float(1.0 + buy_price_buffer_pct),
+                sell_price_factor=float(1.0 - sell_price_buffer_pct),
+                suggested_qty=int(suggested_qty),
+                required_capital=float(required_capital),
+                rank=(
+                    int(rank_info["rank"])
+                    if rank_info.get("rank") is not None
+                    else None
+                ),
+                rank_score=(
+                    float(rank_info["rank_score"])
+                    if rank_info.get("rank_score") is not None
+                    else None
+                ),
+                is_executable=suggested_qty > 0,
+                is_executable_buy=suggested_qty > 0,
+                strategy_name=str(raw_signal.get("strategy_name") or ""),
+            )
+            buy_signals.append(signal)
+
+        return sell_signals + buy_signals
+
+    def _build_replay_last_day_production_style_state(
+        self,
+        snapshot: Dict[str, Any],
+    ) -> ProductionState:
+        if self.replay_seed is None:
+            raise ValueError("Replay seed is required to build replay production-style state")
+
+        baseline_total_equity_jpy = float(
+            snapshot.get("baseline_total_equity_jpy")
+            or self.replay_seed.baseline_total_equity_jpy
+        )
+        group = StrategyGroupState(
+            id=self.replay_seed.group_id,
+            name=self.replay_seed.group_name,
+            initial_capital=baseline_total_equity_jpy,
+            cash=float(snapshot.get("final_cash_jpy") or 0.0),
+            positions=[],
+        )
+        seeded_scores = {
+            position.ticker: float(position.entry_score)
+            for position in self.replay_seed.positions
+        }
+        for position in snapshot.get("final_open_positions") or []:
+            ticker = str(position.get("ticker") or "").strip()
+            if not ticker:
+                continue
+            group.positions.append(
+                ProductionPosition(
+                    ticker=ticker,
+                    quantity=int(position.get("quantity") or 0),
+                    entry_price=float(position.get("entry_price") or 0.0),
+                    entry_date=str(position.get("entry_date") or ""),
+                    entry_score=float(seeded_scores.get(ticker, 0.0)),
+                    peak_price=float(position.get("peak_price") or 0.0),
+                    signal_entry_price=float(
+                        position.get("signal_entry_price") or position.get("entry_price") or 0.0
+                    ),
+                )
+            )
+
+        virtual_state_file = self.output_dir / "__replay_virtual_state__.json"
+        state = ProductionState(state_file=str(virtual_state_file))
+        state.strategy_groups = {group.id: group}
+        return state
+
+    def _build_replay_last_day_production_style_artifact(
+        self,
+        prefix: str,
+        timestamp: str,
+    ) -> Optional[Dict[str, Any]]:
+        if self.replay_seed is None or not self.replay_run_snapshots:
+            return None
+
+        snapshot = self.replay_run_snapshots[-1]
+        report_date = str(snapshot.get("end_date") or self.replay_seed.report_date)
+        signals = self._build_replay_last_day_production_style_signals(snapshot)
+        state = self._build_replay_last_day_production_style_state(snapshot)
+        report_file = (
+            self.output_dir
+            / f"{prefix}_replay_last_day_production_style_report_{timestamp}.md"
+        )
+        builder = ReportBuilder(
+            state,
+            StockDataManager(api_key=None, data_root=self.data_root),
+            initial_capital_override=float(
+                snapshot.get("baseline_total_equity_jpy")
+                or self.replay_seed.baseline_total_equity_jpy
+            ),
+            strategy_groups=[
+                {
+                    "id": self.replay_seed.group_id,
+                    "name": self.replay_seed.group_name,
+                    "entry_strategy": str(snapshot.get("entry_strategy") or "N/A"),
+                    "exit_strategy": str(snapshot.get("exit_strategy") or "N/A"),
+                }
+            ],
+            default_entry_strategy=str(snapshot.get("entry_strategy") or "N/A"),
+            default_exit_strategy=str(snapshot.get("exit_strategy") or "N/A"),
+        )
+        report_md = builder.generate_daily_report(
+            signals=signals,
+            report_date=report_date,
+        )
+        builder.save_report(report_md, str(report_file))
+        return {
+            "report_date": report_date,
+            "report_file": str(report_file),
+            "signal_count": len(signals),
+            "signals": [asdict(signal) for signal in signals],
+        }
 
     def _record_trade_rows(
         self,
@@ -1609,6 +2311,158 @@ class StrategyEvaluator:
                 trade_df[col] = pd.NA
         self._trade_results_df_cache = trade_df[TRADE_EXPORT_COLUMNS]
         return self._trade_results_df_cache
+
+    def _create_last_day_signal_dataframe(self) -> pd.DataFrame:
+        rows: List[Dict[str, object]] = []
+        for snapshot in self.evaluation_run_snapshots:
+            for signal_type, key in (
+                ("BUY", "next_pending_buy_signals"),
+                ("SELL", "next_pending_sell_signals"),
+            ):
+                signal_rows = snapshot.get(key, []) or []
+                if not isinstance(signal_rows, list):
+                    continue
+                for signal_payload in signal_rows:
+                    payload = dict(signal_payload or {})
+                    rows.append(
+                        {
+                            "period": snapshot.get("period"),
+                            "requested_end_date": snapshot.get("end_date"),
+                            "snapshot_date": snapshot.get("snapshot_date"),
+                            "entry_strategy": snapshot.get("entry_strategy"),
+                            "exit_strategy": snapshot.get("exit_strategy"),
+                            "entry_filter": snapshot.get("entry_filter"),
+                            "ranking_strategy": snapshot.get("ranking_strategy"),
+                            "signal_type": signal_type,
+                            "ticker": payload.get("ticker"),
+                            "action": payload.get("action"),
+                            "confidence": payload.get("confidence"),
+                            "strategy_name": payload.get("strategy_name"),
+                            "reasons_json": self._safe_json_dumps(
+                                payload.get("reasons", [])
+                            ),
+                            "metadata_json": self._safe_json_dumps(
+                                payload.get("metadata", {})
+                            ),
+                        }
+                    )
+
+        signal_df = pd.DataFrame(rows)
+        for col in LAST_DAY_SIGNAL_COLUMNS:
+            if col not in signal_df.columns:
+                signal_df[col] = pd.NA
+        return signal_df[LAST_DAY_SIGNAL_COLUMNS]
+
+    def _create_last_day_position_dataframe(self) -> pd.DataFrame:
+        rows: List[Dict[str, object]] = []
+        for snapshot in self.evaluation_run_snapshots:
+            positions = snapshot.get("final_open_positions", []) or []
+            if not isinstance(positions, list):
+                continue
+            for position in positions:
+                payload = dict(position or {})
+                rows.append(
+                    {
+                        "period": snapshot.get("period"),
+                        "requested_end_date": snapshot.get("end_date"),
+                        "snapshot_date": snapshot.get("snapshot_date"),
+                        "entry_strategy": snapshot.get("entry_strategy"),
+                        "exit_strategy": snapshot.get("exit_strategy"),
+                        "entry_filter": snapshot.get("entry_filter"),
+                        "ranking_strategy": snapshot.get("ranking_strategy"),
+                        "ticker": payload.get("ticker"),
+                        "quantity": payload.get("quantity"),
+                        "entry_date": payload.get("entry_date"),
+                        "entry_price": payload.get("entry_price"),
+                        "signal_entry_price": payload.get("signal_entry_price"),
+                        "peak_price": payload.get("peak_price"),
+                        "current_price": payload.get("current_price"),
+                        "market_value": payload.get("market_value"),
+                    }
+                )
+
+        position_df = pd.DataFrame(rows)
+        for col in LAST_DAY_POSITION_COLUMNS:
+            if col not in position_df.columns:
+                position_df[col] = pd.NA
+        return position_df[LAST_DAY_POSITION_COLUMNS]
+
+    def _create_daily_signal_dataframe(self) -> pd.DataFrame:
+        rows: List[Dict[str, object]] = []
+        for run_snapshot in self.evaluation_daily_snapshots:
+            for daily_snapshot in run_snapshot.get("daily_snapshots", []) or []:
+                snapshot_date = daily_snapshot.get("date")
+                for signal_type, key in (
+                    ("BUY", "pending_buy_signals"),
+                    ("SELL", "pending_sell_signals"),
+                ):
+                    for signal_payload in daily_snapshot.get(key, []) or []:
+                        payload = dict(signal_payload or {})
+                        rows.append(
+                            {
+                                "period": run_snapshot.get("period"),
+                                "requested_end_date": run_snapshot.get("end_date"),
+                                "snapshot_date": snapshot_date,
+                                "entry_strategy": run_snapshot.get("entry_strategy"),
+                                "exit_strategy": run_snapshot.get("exit_strategy"),
+                                "entry_filter": run_snapshot.get("entry_filter"),
+                                "ranking_strategy": run_snapshot.get("ranking_strategy"),
+                                "signal_type": signal_type,
+                                "ticker": payload.get("ticker"),
+                                "action": payload.get("action"),
+                                "confidence": payload.get("confidence"),
+                                "strategy_name": payload.get("strategy_name"),
+                                "reasons_json": self._safe_json_dumps(
+                                    payload.get("reasons", [])
+                                ),
+                                "metadata_json": self._safe_json_dumps(
+                                    payload.get("metadata", {})
+                                ),
+                            }
+                        )
+
+        signal_df = pd.DataFrame(rows)
+        for col in DAILY_SIGNAL_COLUMNS:
+            if col not in signal_df.columns:
+                signal_df[col] = pd.NA
+        return signal_df[DAILY_SIGNAL_COLUMNS]
+
+    def _create_daily_position_dataframe(self) -> pd.DataFrame:
+        rows: List[Dict[str, object]] = []
+        for run_snapshot in self.evaluation_daily_snapshots:
+            for daily_snapshot in run_snapshot.get("daily_snapshots", []) or []:
+                snapshot_date = daily_snapshot.get("date")
+                cash_jpy = daily_snapshot.get("cash_jpy")
+                total_equity_jpy = daily_snapshot.get("total_equity_jpy")
+                for position in daily_snapshot.get("open_positions", []) or []:
+                    payload = dict(position or {})
+                    rows.append(
+                        {
+                            "period": run_snapshot.get("period"),
+                            "requested_end_date": run_snapshot.get("end_date"),
+                            "snapshot_date": snapshot_date,
+                            "entry_strategy": run_snapshot.get("entry_strategy"),
+                            "exit_strategy": run_snapshot.get("exit_strategy"),
+                            "entry_filter": run_snapshot.get("entry_filter"),
+                            "ranking_strategy": run_snapshot.get("ranking_strategy"),
+                            "ticker": payload.get("ticker"),
+                            "quantity": payload.get("quantity"),
+                            "entry_date": payload.get("entry_date"),
+                            "entry_price": payload.get("entry_price"),
+                            "signal_entry_price": payload.get("signal_entry_price"),
+                            "peak_price": payload.get("peak_price"),
+                            "current_price": payload.get("current_price"),
+                            "market_value": payload.get("market_value"),
+                            "cash_jpy": cash_jpy,
+                            "total_equity_jpy": total_equity_jpy,
+                        }
+                    )
+
+        position_df = pd.DataFrame(rows)
+        for col in DAILY_POSITION_COLUMNS:
+            if col not in position_df.columns:
+                position_df[col] = pd.NA
+        return position_df[DAILY_POSITION_COLUMNS]
 
     @staticmethod
     def _coerce_full_exit_flags(values: pd.Series) -> pd.Series:
@@ -2213,6 +3067,62 @@ class StrategyEvaluator:
         print(f"✅ 原始交易明细已保存: {trades_file}")
         files["trades"] = str(trades_file)
 
+        last_day_signal_df = self._create_last_day_signal_dataframe()
+        last_day_signal_file = self.output_dir / f"{prefix}_last_day_signals_{timestamp}.csv"
+        last_day_signal_df.to_csv(
+            last_day_signal_file,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"✅ 最后一天待执行信号已保存: {last_day_signal_file}")
+        files["last_day_signals"] = str(last_day_signal_file)
+
+        last_day_position_df = self._create_last_day_position_dataframe()
+        last_day_position_file = self.output_dir / f"{prefix}_last_day_positions_{timestamp}.csv"
+        last_day_position_df.to_csv(
+            last_day_position_file,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"✅ 最后一天持仓快照已保存: {last_day_position_file}")
+        files["last_day_positions"] = str(last_day_position_file)
+
+        last_day_snapshot_file = self.output_dir / f"{prefix}_last_day_snapshot_{timestamp}.json"
+        last_day_snapshot_file.write_text(
+            json.dumps(self.evaluation_run_snapshots, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        print(f"✅ 最后一天快照已保存: {last_day_snapshot_file}")
+        files["last_day_snapshot"] = str(last_day_snapshot_file)
+
+        daily_signal_df = self._create_daily_signal_dataframe()
+        daily_signal_file = self.output_dir / f"{prefix}_daily_signals_{timestamp}.csv"
+        daily_signal_df.to_csv(
+            daily_signal_file,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"✅ 全流程日级信号已保存: {daily_signal_file}")
+        files["daily_signals"] = str(daily_signal_file)
+
+        daily_position_df = self._create_daily_position_dataframe()
+        daily_position_file = self.output_dir / f"{prefix}_daily_positions_{timestamp}.csv"
+        daily_position_df.to_csv(
+            daily_position_file,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"✅ 全流程日级持仓已保存: {daily_position_file}")
+        files["daily_positions"] = str(daily_position_file)
+
+        daily_snapshot_file = self.output_dir / f"{prefix}_daily_snapshots_{timestamp}.json"
+        daily_snapshot_file.write_text(
+            json.dumps(self.evaluation_daily_snapshots, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        print(f"✅ 全流程日级快照已保存: {daily_snapshot_file}")
+        files["daily_snapshots"] = str(daily_snapshot_file)
+
         exit_reason_detail_df = self.build_exit_reason_detail_df(
             trade_df,
             full_exit_only=False,
@@ -2293,6 +3203,23 @@ class StrategyEvaluator:
         print(f"✅ 报告已保存: {report_file}")
         files["report"] = str(report_file)
 
+        replay_last_day_production_style = None
+        if self.replay_seed is not None:
+            replay_last_day_production_style = (
+                self._build_replay_last_day_production_style_artifact(
+                    prefix=prefix,
+                    timestamp=timestamp,
+                )
+            )
+            if replay_last_day_production_style is not None:
+                print(
+                    "✅ Replay最后一天 production-style 报告已保存: "
+                    f"{replay_last_day_production_style['report_file']}"
+                )
+                files["replay_last_day_production_style_report"] = str(
+                    replay_last_day_production_style["report_file"]
+                )
+
         if self.replay_seed is not None:
             replay_sidecar_file = self.output_dir / f"{prefix}_replay_sidecar_{timestamp}.json"
             replay_payload = {
@@ -2304,9 +3231,14 @@ class StrategyEvaluator:
                     "group_name": self.replay_seed.group_name,
                     "starting_cash_jpy": self.replay_seed.starting_cash_jpy,
                     "baseline_total_equity_jpy": self.replay_seed.baseline_total_equity_jpy,
+                    "prior_signal_file": self.replay_seed.prior_signal_file,
+                    "pending_orders": [
+                        asdict(order) for order in self.replay_seed.pending_orders
+                    ],
                     "positions": [asdict(position) for position in self.replay_seed.positions],
                 },
                 "runs": self.replay_run_snapshots,
+                "last_day_production_style": replay_last_day_production_style,
             }
             replay_sidecar_file.write_text(
                 json.dumps(replay_payload, indent=2, ensure_ascii=False),

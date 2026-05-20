@@ -12,6 +12,7 @@ import pandas as pd
 from src.analysis.signals import SignalAction, TradingSignal
 from src.aws.jpx_holidays import next_trading_day
 from src.backtest.portfolio import Position as BacktestPosition
+from src.cli.production_utils import get_signal_date_from_path, parse_signal_payload
 from src.data.stock_data_manager import StockDataManager
 from src.production.state_manager import (
     ProductionState,
@@ -55,6 +56,26 @@ class ReplaySeedPosition:
 
 
 @dataclass(frozen=True)
+class ReplayPendingOrder:
+    group_id: str
+    signal_date: str
+    signal_type: str
+    action: str
+    ticker: str
+    planned_quantity: int
+    position_quantity: int | None
+    sell_percentage: float | None
+    current_price: float | None
+    planned_price: float | None
+    required_capital: float | None
+    confidence: float
+    score: float
+    reason: str
+    strategy_name: str
+    signal_payload: dict[str, object]
+
+
+@dataclass(frozen=True)
 class ReplaySeed:
     report_file: str
     report_date: str
@@ -64,6 +85,8 @@ class ReplaySeed:
     starting_cash_jpy: float
     baseline_total_equity_jpy: float
     positions: tuple[ReplaySeedPosition, ...]
+    prior_signal_file: str
+    pending_orders: tuple[ReplayPendingOrder, ...]
 
 
 def extract_report_date(report_file: Path) -> str:
@@ -125,11 +148,43 @@ def build_seeded_backtest_position(
     )
 
 
+def build_replay_pending_signal(
+    order: ReplayPendingOrder,
+    priority: int | None = None,
+) -> TradingSignal:
+    metadata = {
+        "score": float(order.score),
+        "source": "replay_prior_signal",
+        "signal_date": order.signal_date,
+        "planned_quantity": int(order.planned_quantity),
+        "planned_price": order.planned_price,
+        "required_capital": order.required_capital,
+        "signal_payload": dict(order.signal_payload),
+    }
+    if priority is not None:
+        metadata["replay_pending_order_priority"] = int(priority)
+    if order.signal_type == "SELL":
+        metadata["planned_sell_quantity"] = int(order.planned_quantity)
+        if order.position_quantity is not None:
+            metadata["position_quantity"] = int(order.position_quantity)
+        if order.sell_percentage is not None:
+            metadata["sell_percentage"] = float(order.sell_percentage)
+
+    return TradingSignal(
+        action=SignalAction.BUY if order.signal_type == "BUY" else SignalAction.SELL,
+        confidence=float(order.confidence),
+        reasons=[order.reason or f"Replay pending {order.signal_type} order"],
+        metadata=metadata,
+        strategy_name=order.strategy_name or "ReplayPendingOrder",
+    )
+
+
 def load_replay_seed(
     report_file: Path,
     state_file: Path,
     history_file: Path | None,
     cash_history_file: Path | None,
+    prior_signal_file: Path,
     data_root: str = "data",
 ) -> ReplaySeed:
     if not report_file.exists():
@@ -153,6 +208,11 @@ def load_replay_seed(
     )
     seed_group = _select_replay_group(state_snapshot, report_file=report_file)
     _ensure_single_lot_per_ticker(seed_group, report_file=report_file)
+    pending_orders = _load_pending_orders(
+        signal_file=prior_signal_file,
+        report_date=report_date,
+        group_id=seed_group.id,
+    )
 
     price_manager = StockDataManager(api_key=None, data_root=data_root)
     seed_positions = _build_seed_positions(
@@ -176,6 +236,8 @@ def load_replay_seed(
         starting_cash_jpy=float(seed_group.cash),
         baseline_total_equity_jpy=float(seed_group.cash + total_market_value),
         positions=tuple(seed_positions),
+        prior_signal_file=str(prior_signal_file),
+        pending_orders=tuple(pending_orders),
     )
 
 
@@ -303,6 +365,130 @@ def _build_seed_positions(
             )
         )
     return seed_positions
+
+
+def _load_pending_orders(
+    signal_file: Path,
+    report_date: str,
+    group_id: str,
+) -> list[ReplayPendingOrder]:
+    if not signal_file.exists():
+        raise ReplaySeedValidationError(
+            "Replay requires prior-day production signals file.",
+            context={
+                "report_date": report_date,
+                "signal_file": str(signal_file),
+            },
+        )
+
+    signal_date = get_signal_date_from_path(signal_file)
+    if signal_date and signal_date != report_date:
+        raise ReplaySeedValidationError(
+            "Replay prior-day signals file date does not match report date.",
+            context={
+                "report_date": report_date,
+                "signal_file": str(signal_file),
+                "signal_date": signal_date,
+            },
+        )
+
+    raw_signals = parse_signal_payload(signal_file)
+    pending_orders: list[ReplayPendingOrder] = []
+    for raw_signal in raw_signals:
+        raw_group_id = str(raw_signal.get("group_id") or "").strip()
+        if raw_group_id != group_id:
+            continue
+
+        if not _is_executable_signal(raw_signal):
+            continue
+
+        signal_type = str(raw_signal.get("signal_type") or raw_signal.get("action") or "").upper()
+        if signal_type not in {"BUY", "SELL"}:
+            continue
+
+        planned_quantity = _resolve_planned_quantity(signal_type, raw_signal)
+        if planned_quantity <= 0:
+            continue
+
+        position_quantity = _safe_int(raw_signal.get("position_qty"))
+        pending_orders.append(
+            ReplayPendingOrder(
+                group_id=raw_group_id,
+                signal_date=signal_date or report_date,
+                signal_type=signal_type,
+                action=str(raw_signal.get("action") or signal_type),
+                ticker=str(raw_signal.get("ticker") or "").strip(),
+                planned_quantity=planned_quantity,
+                position_quantity=position_quantity,
+                sell_percentage=_resolve_sell_percentage(
+                    action=str(raw_signal.get("action") or signal_type),
+                    planned_quantity=planned_quantity,
+                    position_quantity=position_quantity,
+                ),
+                current_price=_safe_float(raw_signal.get("current_price")),
+                planned_price=_safe_float(raw_signal.get("planned_price")),
+                required_capital=_safe_float(raw_signal.get("required_capital")),
+                confidence=float(raw_signal.get("confidence") or 0.0),
+                score=float(raw_signal.get("score") or 0.0),
+                reason=str(raw_signal.get("reason") or ""),
+                strategy_name=str(raw_signal.get("strategy_name") or ""),
+                signal_payload=dict(raw_signal),
+            )
+        )
+
+    return pending_orders
+
+
+def _is_executable_signal(raw_signal: dict[str, object]) -> bool:
+    return bool(
+        raw_signal.get("is_executable")
+        or raw_signal.get("is_executable_buy")
+        or raw_signal.get("is_executable_sell")
+    )
+
+
+def _resolve_planned_quantity(signal_type: str, raw_signal: dict[str, object]) -> int:
+    if signal_type == "BUY":
+        return _safe_int(raw_signal.get("suggested_qty")) or 0
+    return _safe_int(raw_signal.get("planned_sell_qty")) or 0
+
+
+def _resolve_sell_percentage(
+    action: str,
+    planned_quantity: int,
+    position_quantity: int | None,
+) -> float | None:
+    if position_quantity and position_quantity > 0:
+        return max(0.0, min(1.0, float(planned_quantity) / float(position_quantity)))
+
+    normalized = action.strip().upper()
+    if "25" in normalized:
+        return 0.25
+    if "50" in normalized:
+        return 0.5
+    if "75" in normalized:
+        return 0.75
+    if "100" in normalized or normalized == "SELL":
+        return 1.0
+    return None
+
+
+def _safe_int(value: object) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _load_report_close_price(

@@ -476,6 +476,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar=("GROUP_ID", "TICKER", "QTY", "PRICE"),
         help="工具命令：覆盖某分组某股票持仓（管理员修正）",
     )
+    production_mode.add_argument(
+        "--check-price",
+        choices=["all", "today"],
+        metavar="SCOPE",
+        help="工具命令：审计并修正 signal_entry_price 锚点（all|today）",
+    )
     production_parser.add_argument(
         "--signal-date",
         help="配合 --input 使用：指定读取信号日期 YYYY-MM-DD（默认最近一份）",

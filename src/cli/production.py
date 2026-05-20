@@ -1,5 +1,6 @@
 from src.cli.production_daily import run_daily_workflow
 from src.cli.production_input import run_input_workflow
+from src.cli.production_price_check import run_signal_price_check_command
 from src.cli.production_status import (
     run_add_cash,
     run_set_cash,
@@ -49,6 +50,10 @@ def cmd_production(args):
 
     if args.set_position:
         run_set_position(args, state)
+        return
+
+    if getattr(args, "check_price", None):
+        run_signal_price_check_command(args, prod_cfg, state)
         return
 
     if args.input:
