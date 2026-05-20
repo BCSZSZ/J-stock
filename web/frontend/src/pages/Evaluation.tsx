@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import MultiDatePicker from "../components/MultiDatePicker";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import LogOutput from "../components/LogOutput";
 import { useStreamExec } from "../hooks/useStreamExec";
@@ -8,7 +9,8 @@ import { useStreamExec } from "../hooks/useStreamExec";
 type EvaluationCommand =
   | "evaluate"
   | "pos-evaluation"
-  | "walk-forward-evaluate";
+  | "walk-forward-evaluate"
+  | "replay-evaluation";
 type EvaluationMode = "annual" | "quarterly" | "monthly" | "custom";
 type EntryFilterMode = "off" | "single" | "grid" | "auto";
 type BuyFillMode = "next_open" | "next_close";
@@ -39,6 +41,7 @@ interface EvaluationDefaults {
   universe_files: string[];
   position_file: string;
   profile_names: string[];
+  report_file: string;
   min_train_years: number;
 }
 
@@ -61,6 +64,7 @@ interface EvaluationOptionsResponse {
     exit_strategy: string;
     ranking_strategy: string;
     monitor_list_file: string;
+    report_file_pattern: string;
   };
   defaults: EvaluationDefaults;
 }
@@ -69,6 +73,12 @@ interface EvaluationResultFile {
   name: string;
   type: string;
   size: string;
+}
+
+interface ReplayReportContext {
+  report_file: string;
+  entry_strategy: string;
+  exit_strategy: string;
 }
 
 interface CheckboxListProps {
@@ -298,6 +308,7 @@ export default function Evaluation() {
   const [years, setYears] = useState(DEFAULT_YEARS);
   const [months, setMonths] = useState("");
   const [customPeriods, setCustomPeriods] = useState("");
+  const [launchDates, setLaunchDates] = useState<string[]>([]);
   const [exitConfirmDays, setExitConfirmDays] = useState("");
   const [entryFilterMode, setEntryFilterMode] =
     useState<EntryFilterMode>("off");
@@ -313,7 +324,10 @@ export default function Evaluation() {
   const [minTrainYears, setMinTrainYears] = useState("2");
   const [positionFile, setPositionFile] = useState("");
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
+  const [reportFile, setReportFile] = useState("");
   const [overrideStrategies, setOverrideStrategies] = useState(false);
+  const [autoAppliedReplayReportFile, setAutoAppliedReplayReportFile] =
+    useState("");
   const [initializedFromOptions, setInitializedFromOptions] = useState(false);
 
   const exec = useStreamExec();
@@ -329,11 +343,23 @@ export default function Evaluation() {
     queryKey: ["eval-results", resolvedOutputDir],
     queryFn: () => api.evalResults(resolvedOutputDir),
   });
-
+  const reportDates = useQuery<string[]>({
+    queryKey: ["report-dates"],
+    queryFn: api.reportDates,
+  });
   const isWalkForward = command === "walk-forward-evaluate";
   const isPosEvaluation = command === "pos-evaluation";
-  const showMonths = !isWalkForward && mode === "monthly";
-  const showCustomPeriods = !isWalkForward && mode === "custom";
+  const isReplayEvaluation = command === "replay-evaluation";
+  const replayReportContext = useQuery<ReplayReportContext>({
+    queryKey: ["eval-report-context", reportFile],
+    queryFn: () => api.evalReportContext(reportFile.trim()),
+    enabled:
+      command === "replay-evaluation" &&
+      reportFile.trim().toLowerCase().endsWith(".md"),
+    retry: false,
+  });
+  const showMonths = !isWalkForward && !isReplayEvaluation && mode === "monthly";
+  const showCustomPeriods = !isWalkForward && !isReplayEvaluation && mode === "custom";
   const modeOptions = (options.data?.modes ?? []).filter(
     (item) => !isWalkForward || item === "annual" || item === "quarterly",
   );
@@ -353,6 +379,8 @@ export default function Evaluation() {
   const productionRankingStrategy =
     options.data?.production.ranking_strategy ?? "";
   const productionUniverse = options.data?.production.monitor_list_file ?? "";
+  const productionReportPattern =
+    options.data?.production.report_file_pattern ?? "";
   const buyFillModeOptions = (options.data?.buy_fill_modes ?? [
     "next_open",
     "next_close",
@@ -419,6 +447,8 @@ export default function Evaluation() {
     setMinTrainYears(String(defaults.min_train_years ?? 2));
     setPositionFile(defaults.position_file ?? "");
     setSelectedProfiles(defaults.profile_names ?? []);
+    setReportFile(defaults.report_file ?? "");
+    setLaunchDates([]);
     setInitializedFromOptions(true);
   }, [options.data, initializedFromOptions]);
 
@@ -434,11 +464,48 @@ export default function Evaluation() {
     }
   }, [isWalkForward, mode]);
 
+  useEffect(() => {
+    if (!isReplayEvaluation || reportFile.trim()) {
+      return;
+    }
+    const latestReportDate = reportDates.data?.[0];
+    if (!latestReportDate || !productionReportPattern.includes("{date}")) {
+      return;
+    }
+    setReportFile(productionReportPattern.replace("{date}", latestReportDate));
+  }, [
+    isReplayEvaluation,
+    productionReportPattern,
+    reportDates.data,
+    reportFile,
+  ]);
+
+  useEffect(() => {
+    if (!isReplayEvaluation || !replayReportContext.data) {
+      return;
+    }
+    if (autoAppliedReplayReportFile === replayReportContext.data.report_file) {
+      return;
+    }
+
+    setSelectedEntry([replayReportContext.data.entry_strategy]);
+    setSelectedExit([replayReportContext.data.exit_strategy]);
+    setOverrideStrategies(true);
+    setAutoAppliedReplayReportFile(replayReportContext.data.report_file);
+  }, [
+    autoAppliedReplayReportFile,
+    isReplayEvaluation,
+    replayReportContext.data,
+  ]);
+
   async function handleRun() {
     if (selectedBuyFillModes.length === 0) {
       return;
     }
     if (selectedEntryReferenceModes.length === 0) {
+      return;
+    }
+    if (isReplayEvaluation && !reportFile.trim()) {
       return;
     }
     if (fillBufferPctInvalid) {
@@ -451,7 +518,6 @@ export default function Evaluation() {
 
     const payload: Record<string, unknown> = {
       command,
-      mode,
       buy_fill_modes: selectedBuyFillModes,
       entry_reference_modes: selectedEntryReferenceModes,
       fill_buffer_enabled: fillBufferEnabled,
@@ -462,7 +528,11 @@ export default function Evaluation() {
         overrideStrategies && selectedEntry.length > 0 ? selectedEntry : undefined,
       exit_strategies:
         overrideStrategies && selectedExit.length > 0 ? selectedExit : undefined,
-      years: parseIntegerList(years),
+      years: isReplayEvaluation ? undefined : parseIntegerList(years),
+      launch_dates:
+        !isWalkForward && !isReplayEvaluation && launchDates.length > 0
+          ? launchDates
+          : undefined,
       exit_confirm_days: parseOptionalInt(exitConfirmDays),
       entry_filter_mode: entryFilterMode,
       entry_filter_names:
@@ -473,9 +543,15 @@ export default function Evaluation() {
       ranking_mode: rankingMode || undefined,
     };
 
+    if (!isReplayEvaluation) {
+      payload.mode = mode;
+    } else {
+      payload.report_file = reportFile.trim() || undefined;
+    }
+
     if (isWalkForward) {
       payload.min_train_years = parseOptionalInt(minTrainYears) ?? 2;
-    } else {
+    } else if (!isReplayEvaluation) {
       if (showMonths) {
         payload.months = parseIntegerList(months);
       }
@@ -503,16 +579,21 @@ export default function Evaluation() {
         `Fill Buffer: ${fillBufferEnabled ? `ON (${(normalizedFillBufferPct * 100).toFixed(2)}%)` : `OFF (${(normalizedFillBufferPct * 100).toFixed(2)}% configured)`}`,
         `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
+        isReplayEvaluation
+          ? `Report Anchor: ${reportFile.trim() || "(missing)"}`
+          : undefined,
         isWalkForward
           ? `Mode: ${mode} | Initial Train Years: ${payload.min_train_years}`
-          : `Mode: ${mode}`,
+          : isReplayEvaluation
+            ? "Mode: replay"
+            : `Mode: ${mode}`,
         `Entry: ${overrideStrategies && selectedEntry.length > 0 ? selectedEntry.join(", ") : productionEntry}`,
         `Exit: ${overrideStrategies && selectedExit.length > 0 ? selectedExit.join(", ") : productionExit}`,
         `Signal Ranking Strategy: ${productionRankingStrategy || "(config default)"}`,
         `Universe: ${productionUniverse || "(production monitor list)"}`,
         `Output Root: ${resolvedOutputDir ?? "(config default)"}`,
         "Output Layout: YYYYMMDD/<entry+exit+timestamp>/...",
-      ].join("\n"),
+      ].filter(Boolean).join("\n"),
     );
     if (!ok) return;
     await exec.execute("/evaluation/run", payload);
@@ -573,23 +654,25 @@ export default function Evaluation() {
             </select>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Mode</label>
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as EvaluationMode)}
-              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-            >
-              {modeOptions.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-            {isWalkForward && mode === "quarterly" && (
-              <p className="mt-2 text-xs text-gray-500">
-                Years define the covered year range. Quarterly walk-forward expands quarter by quarter within those years, current year uses only completed quarters, and Initial Train Years still sets the starting training span in years.
-              </p>
-            )}
-          </div>
+          {!isReplayEvaluation && (
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Mode</label>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as EvaluationMode)}
+                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+              >
+                {modeOptions.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+              {isWalkForward && mode === "quarterly" && (
+                <p className="mt-2 text-xs text-gray-500">
+                  Years define the covered year range. Quarterly walk-forward expands quarter by quarter within those years, current year uses only completed quarters, and Initial Train Years still sets the starting training span in years.
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="text-xs text-gray-500 block mb-1">
@@ -689,17 +772,101 @@ export default function Evaluation() {
             </div>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">
-              Years (comma or newline separated)
-            </label>
-            <textarea
-              value={years}
-              onChange={(e) => setYears(e.target.value)}
-              rows={2}
-              className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm w-full"
-            />
-          </div>
+          {!isReplayEvaluation && (
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">
+                Years (comma or newline separated)
+              </label>
+              <textarea
+                value={years}
+                onChange={(e) => setYears(e.target.value)}
+                rows={2}
+                className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm w-full"
+              />
+            </div>
+          )}
+
+          {!isWalkForward && !isReplayEvaluation && (
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">
+                Launch Dates
+              </label>
+              <MultiDatePicker value={launchDates} onChange={setLaunchDates} />
+              <p className="mt-2 text-xs text-gray-500">
+                Each selected launch date expands the run set once. Selecting {" "}
+                <span className="text-gray-300">N</span> launch dates runs roughly {" "}
+                <span className="text-gray-300">N×</span> strategy combinations for evaluate and pos-evaluation.
+              </p>
+            </div>
+          )}
+
+          {isReplayEvaluation && (
+            <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3 space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">
+                  Replay Report File
+                </label>
+                <input
+                  value={reportFile}
+                  onChange={(e) => setReportFile(e.target.value)}
+                  placeholder="G:\\My Drive\\AI-Stock-Sync\\reports\\2026-05-15.md"
+                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+                />
+                {!reportFile.trim() && (
+                  <p className="mt-2 text-xs text-red-400">
+                    Replay requires a concrete report markdown path.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">
+                  Quick Select Existing Reports
+                </label>
+                <select
+                  value={
+                    (reportDates.data ?? []).some(
+                      (date) =>
+                        productionReportPattern.includes("{date}") &&
+                        productionReportPattern.replace("{date}", date) === reportFile,
+                    )
+                      ? reportFile
+                      : ""
+                  }
+                  onChange={(e) => setReportFile(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+                >
+                  <option value="">Use typed path</option>
+                  {(reportDates.data ?? []).map((date) => {
+                    const resolvedPath = productionReportPattern.includes("{date}")
+                      ? productionReportPattern.replace("{date}", date)
+                      : date;
+                    return (
+                      <option key={date} value={resolvedPath}>
+                        {date}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <p className="text-xs text-gray-500">
+                Replay reconstructs the historical production state from the selected report date, then continues from the next trading day.
+              </p>
+
+              {replayReportContext.data && (
+                <div className="rounded border border-emerald-900 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
+                  Auto-applied report strategy combo: {replayReportContext.data.entry_strategy} × {replayReportContext.data.exit_strategy}
+                </div>
+              )}
+
+              {replayReportContext.isError && reportFile.trim() && (
+                <p className="text-xs text-yellow-300">
+                  Failed to extract strategy combo from the selected report. Current strategy selection was left unchanged.
+                </p>
+              )}
+            </div>
+          )}
 
           {showMonths && (
             <div>
@@ -1054,16 +1221,16 @@ export default function Evaluation() {
                   Close
                 </button>
               </div>
-              {viewResult.type === "csv" ? (
-                <div className="overflow-x-auto max-h-60 text-xs">
-                  <pre className="text-gray-300">
-                    {JSON.stringify(viewResult.data, null, 2).slice(0, 5000)}
-                  </pre>
-                </div>
-              ) : (
+              {viewResult.type === "markdown" ? (
                 <div className="prose prose-invert prose-sm max-h-60 overflow-y-auto">
                   <pre className="text-gray-300 whitespace-pre-wrap text-xs">
                     {viewResult.content as string}
+                  </pre>
+                </div>
+              ) : (
+                <div className="overflow-x-auto max-h-60 text-xs">
+                  <pre className="text-gray-300">
+                    {JSON.stringify(viewResult.data ?? viewResult, null, 2).slice(0, 12000)}
                   </pre>
                 </div>
               )}

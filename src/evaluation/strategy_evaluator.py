@@ -19,6 +19,7 @@ import pandas as pd
 
 from src.backtest.entry_reference import normalize_entry_reference_mode
 from src.backtest.fill_buffer import normalize_fill_buffer_pct
+from src.evaluation.replay_seed import ReplaySeed, build_seeded_backtest_position
 from src.config.capacity import parse_capacity_regime, parse_evaluation_capacity_mode
 from src.config.service import load_config
 from src.config.runtime import CONFIG_ENV_VAR, GDRIVE_DEFAULT_CONFIG_FILE, get_config_file_path
@@ -508,6 +509,7 @@ class StrategyEvaluator:
         data_root: str = "data",
         output_dir: str = "strategy_evaluation",
         monitor_list_file: Optional[str] = None,
+        replay_seed: Optional[ReplaySeed] = None,
         verbose: bool = False,
         exit_confirmation_days: int = 1,
         overlay_config: Optional[Dict] = None,
@@ -551,6 +553,7 @@ class StrategyEvaluator:
         self.fill_buffer_enabled = bool(fill_buffer_enabled)
         self.fill_buffer_pct = normalize_fill_buffer_pct(fill_buffer_pct)
         self.monitor_list_file = monitor_list_file
+        self.replay_seed = replay_seed
         self.entry_filter_config = entry_filter_config or {}
         self.entry_filter_variants = self._normalize_entry_filter_variants(
             entry_filter_variants
@@ -558,6 +561,7 @@ class StrategyEvaluator:
         self.portfolio_overrides = portfolio_overrides or {}
         self.overlay_config = overlay_config or {}
         self.ranking_strategies = ranking_strategies or ["default"]
+        self.replay_run_snapshots: List[Dict[str, object]] = []
         self.capacity_regime_mode_override = (
             str(parse_evaluation_capacity_mode(capacity_regime_mode_override))
             if capacity_regime_mode_override is not None
@@ -581,6 +585,15 @@ class StrategyEvaluator:
         self._starting_capital_cache: Optional[int] = None
         self._capacity_mode_cache: Optional[str] = None
         self._capacity_regime_cache = None
+
+    def _build_seeded_positions(self, strategy_name: str):
+        if self.replay_seed is None:
+            return []
+
+        return [
+            build_seeded_backtest_position(position, strategy_name)
+            for position in self.replay_seed.positions
+        ]
 
     def _get_starting_capital(self) -> int:
         """
@@ -1139,7 +1152,17 @@ class StrategyEvaluator:
         phase_started = time.perf_counter()
         engine = PortfolioBacktestEngine(
             data_root=self.data_root,
-            starting_capital=self._get_starting_capital(),
+            starting_capital=(
+                self.replay_seed.baseline_total_equity_jpy
+                if self.replay_seed is not None
+                else self._get_starting_capital()
+            ),
+            initial_cash=(
+                self.replay_seed.starting_cash_jpy
+                if self.replay_seed is not None
+                else None
+            ),
+            seeded_positions=self._build_seeded_positions(entry.strategy_name),
             max_positions=max_positions,
             max_position_pct=max_position_pct,
             capacity_regime=capacity_regime,
@@ -1180,6 +1203,28 @@ class StrategyEvaluator:
             entry_filter_name=entry_filter_name,
             ranking_strategy=ranking_strategy,
         )
+
+        if self.replay_seed is not None:
+            self.replay_run_snapshots.append(
+                {
+                    "period": period_label,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "entry_strategy": entry_strategy,
+                    "exit_strategy": exit_strategy,
+                    "entry_filter": entry_filter_name,
+                    "ranking_strategy": ranking_strategy,
+                    "starting_cash_jpy": float(self.replay_seed.starting_cash_jpy),
+                    "baseline_total_equity_jpy": float(
+                        self.replay_seed.baseline_total_equity_jpy
+                    ),
+                    "final_cash_jpy": float(engine.last_final_cash_jpy),
+                    "final_open_positions": [
+                        asdict(position)
+                        for position in engine.last_final_open_positions
+                    ],
+                }
+            )
 
         # 计算alpha：如果没有TOPIX数据，则设为None
         alpha = None
@@ -1252,6 +1297,19 @@ class StrategyEvaluator:
         if self._monitor_list_cache is not None:
             return self._monitor_list_cache
 
+        seeded_tickers = [
+            position.ticker for position in (self.replay_seed.positions if self.replay_seed else ())
+        ]
+
+        def _merge_seeded_tickers(base_tickers: List[str]) -> List[str]:
+            merged: List[str] = []
+            for ticker in list(base_tickers) + seeded_tickers:
+                normalized = str(ticker).strip()
+                if normalized and normalized not in merged:
+                    merged.append(normalized)
+            self._monitor_list_cache = merged
+            return self._monitor_list_cache
+
         # 从 config.json 读取配置
         try:
             if self.monitor_list_file:
@@ -1290,8 +1348,7 @@ class StrategyEvaluator:
                             tickers.append(str(item["code"]).strip())
                         elif item is not None:
                             tickers.append(str(item).strip())
-                self._monitor_list_cache = [ticker for ticker in tickers if ticker]
-                return self._monitor_list_cache
+                return _merge_seeded_tickers([ticker for ticker in tickers if ticker])
 
         # CSV format
         if monitor_file.suffix == ".csv":
@@ -1299,8 +1356,7 @@ class StrategyEvaluator:
             for col in ["code", "Code", "ticker", "Ticker", "symbol", "Symbol"]:
                 if col in df.columns:
                     values = [str(v).strip() for v in df[col].tolist() if pd.notna(v)]
-                    self._monitor_list_cache = [v for v in values if v]
-                    return self._monitor_list_cache
+                    return _merge_seeded_tickers([v for v in values if v])
             raise ValueError(
                 f"CSV股票池文件缺少代码列（支持 code/Code/ticker/Ticker/symbol/Symbol）: {monitor_file}"
             )
@@ -1312,8 +1368,7 @@ class StrategyEvaluator:
                 line = line.strip()
                 if line and not line.startswith("#"):
                     tickers.append(line)
-        self._monitor_list_cache = tickers
-        return self._monitor_list_cache
+        return _merge_seeded_tickers(tickers)
 
     def _create_results_dataframe(self) -> pd.DataFrame:
         """将结果转换为DataFrame"""
@@ -2237,6 +2292,28 @@ class StrategyEvaluator:
         self._generate_markdown_report(report_file, ranking_mode=ranking_mode)
         print(f"✅ 报告已保存: {report_file}")
         files["report"] = str(report_file)
+
+        if self.replay_seed is not None:
+            replay_sidecar_file = self.output_dir / f"{prefix}_replay_sidecar_{timestamp}.json"
+            replay_payload = {
+                "replay_seed": {
+                    "report_file": self.replay_seed.report_file,
+                    "report_date": self.replay_seed.report_date,
+                    "replay_start_date": self.replay_seed.replay_start_date,
+                    "group_id": self.replay_seed.group_id,
+                    "group_name": self.replay_seed.group_name,
+                    "starting_cash_jpy": self.replay_seed.starting_cash_jpy,
+                    "baseline_total_equity_jpy": self.replay_seed.baseline_total_equity_jpy,
+                    "positions": [asdict(position) for position in self.replay_seed.positions],
+                },
+                "runs": self.replay_run_snapshots,
+            }
+            replay_sidecar_file.write_text(
+                json.dumps(replay_payload, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            print(f"✅ Replay sidecar已保存: {replay_sidecar_file}")
+            files["replay_sidecar"] = str(replay_sidecar_file)
         return files
 
     def _generate_markdown_report(self, output_file: Path, ranking_mode: str = "target20"):

@@ -1,7 +1,7 @@
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -16,9 +16,11 @@ from src.evaluation import (
     create_monthly_periods,
     create_quarterly_periods,
 )
+from src.evaluation.replay_seed import ReplaySeed, load_replay_seed, resolve_latest_available_end_date
 from src.evaluation.strategy_evaluator import select_rank_df_for_mode
 from src.evaluation.scoring import candidate_key_columns, rank_final_prs, summarize_prs_train_metrics
-from src.config.runtime import is_local_path
+from src.config.runtime import get_config_file_path, is_local_path
+from src.production.config_manager import ConfigManager
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
 from .common import load_config
@@ -282,6 +284,8 @@ def _build_periods(args):
     if not periods:
         raise ValueError("没有有效的时间段")
 
+    periods = _apply_launch_date_clip(periods, getattr(args, "launch_date", None))
+
     print("\n📊 时间段列表:")
     for label, start, end in periods[:5]:
         print(f"   {label}: {start} ~ {end}")
@@ -289,6 +293,77 @@ def _build_periods(args):
         print(f"   ... 共 {len(periods)} 个时间段")
 
     return periods
+
+
+def _apply_launch_date_clip(
+    periods: List[Tuple[str, str, str]],
+    launch_date: str | List[str] | None,
+) -> List[Tuple[str, str, str]]:
+    launch_dates = _parse_launch_dates(launch_date)
+    if not launch_dates:
+        return periods
+
+    clipped: List[Tuple[str, str, str]] = []
+    adjusted = 0
+    skipped = 0
+    multi_launch_mode = len(launch_dates) > 1
+
+    for selected_launch_date, launch_dt in launch_dates:
+        for label, start, end in periods:
+            start_dt = datetime.strptime(start, "%Y-%m-%d").date()
+            end_dt = datetime.strptime(end, "%Y-%m-%d").date()
+            if launch_dt > end_dt:
+                skipped += 1
+                continue
+
+            clipped_start_dt = max(start_dt, launch_dt)
+            clipped_start = clipped_start_dt.isoformat()
+            clipped_label = label
+            if multi_launch_mode:
+                clipped_label = f"{label}_launch_{selected_launch_date}"
+                if clipped_start != start:
+                    adjusted += 1
+                    clipped_label = f"{clipped_label}_from_{clipped_start}"
+            elif clipped_start != start:
+                adjusted += 1
+                clipped_label = f"{label}_from_{clipped_start}"
+            clipped.append((clipped_label, clipped_start, end))
+
+    if not clipped:
+        raise ValueError("launch_date 晚于所有评估时间段的结束日期，没有可运行区间")
+
+    print("\n🚀 启动日裁剪:")
+    print(f"   launch_dates: {', '.join(raw for raw, _ in launch_dates)}")
+    if multi_launch_mode:
+        print(f"   启动日个数: {len(launch_dates)}")
+    print(f"   调整区间数: {adjusted}")
+    if skipped:
+        print(f"   跳过区间数: {skipped}")
+
+    return clipped
+
+
+def _parse_launch_dates(
+    launch_date: str | List[str] | None,
+) -> List[Tuple[str, date]]:
+    if not launch_date:
+        return []
+
+    raw_values = [launch_date] if isinstance(launch_date, str) else list(launch_date)
+    parsed_dates: List[Tuple[str, date]] = []
+    seen: set[str] = set()
+    for raw_value in raw_values:
+        value = str(raw_value).strip()
+        if not value or value in seen:
+            continue
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("--launch-date 必须是 YYYY-MM-DD 格式") from exc
+        parsed_dates.append((value, parsed))
+        seen.add(value)
+
+    return parsed_dates
 
 
 def _build_segmented_continuous_periods(args, periods: List[Tuple[str, str, str]]):
@@ -428,6 +503,23 @@ def _prepare_walk_forward_inputs(args, config):
     return entry_filter_variants, years, base_periods, universe_variants
 
 
+def _prepare_replay_inputs(args, config):
+    """Resolve entry filters and universe variants for replay evaluation."""
+    selected_filter_names = _dedupe_preserve_order(args.entry_filter_name or [])
+
+    if args.list_entry_filters:
+        _print_available_entry_filters(config)
+        return None
+
+    entry_filter_variants = _resolve_entry_filter_variants(
+        config,
+        mode=args.entry_filter_mode,
+        selected_names=selected_filter_names,
+    )
+    universe_variants = _resolve_universe_variants(args.universe_file)
+    return entry_filter_variants, universe_variants
+
+
 def _resolve_exit_confirm_days(args, eval_cfg) -> int:
     """Resolve exit confirmation days with CLI override precedence."""
     exit_confirm_days = getattr(args, "exit_confirm_days", None)
@@ -493,6 +585,7 @@ def _build_evaluator(
     enable_overlay,
     exit_confirm_days,
     entry_filter_variants,
+    replay_seed: Optional[ReplaySeed] = None,
 ):
     """Create a StrategyEvaluator with the shared runtime settings."""
     _, overlay_config = _resolve_overlay_config(
@@ -507,6 +600,7 @@ def _build_evaluator(
         data_root="data",
         output_dir=output_dir,
         monitor_list_file=monitor_list_file,
+        replay_seed=replay_seed,
         verbose=args.verbose,
         exit_confirmation_days=exit_confirm_days,
         buy_fill_mode=getattr(args, "buy_fill_mode", "next_open"),
@@ -1681,6 +1775,7 @@ def _precompute_walk_forward_panel(
         enable_overlay=enable_overlay,
         exit_confirm_days=exit_confirm_days,
         entry_filter_variants=entry_filter_variants,
+        replay_seed=None,
     )
 
     _log_step(
@@ -2784,6 +2879,7 @@ def _run_contexts(
             portfolio_overrides=context.portfolio_overrides,
             enable_overlay=context.enable_overlay,
             ranking_mode=ranking_mode,
+            replay_seed=None,
         )
         if bundle:
             results.append((context, bundle))
@@ -2801,6 +2897,7 @@ def _run_context_bundle(
     portfolio_overrides=None,
     enable_overlay: bool = None,
     ranking_mode: str = "target20",
+    replay_seed: Optional[ReplaySeed] = None,
 ):
     segmented_files = _run_once(
         args=args,
@@ -2813,6 +2910,7 @@ def _run_context_bundle(
         portfolio_overrides=portfolio_overrides,
         enable_overlay=enable_overlay,
         ranking_mode=ranking_mode,
+        replay_seed=replay_seed,
     )
     if not segmented_files:
         return None
@@ -2847,6 +2945,7 @@ def _run_context_bundle(
         portfolio_overrides=portfolio_overrides,
         enable_overlay=enable_overlay,
         ranking_mode=ranking_mode,
+        replay_seed=replay_seed,
     )
     if continuous_files:
         bundle.continuous = continuous_files
@@ -2943,6 +3042,7 @@ def _run_once(
     portfolio_overrides=None,
     enable_overlay: bool = None,
     ranking_mode: str = "target20",
+    replay_seed: Optional[ReplaySeed] = None,
 ):
     _log_step("_run_once: 开始解析本轮参数")
     run_started = time.perf_counter()
@@ -2978,6 +3078,7 @@ def _run_once(
         enable_overlay=enable_overlay,
         exit_confirm_days=exit_confirm_days,
         entry_filter_variants=entry_filter_variants,
+        replay_seed=replay_seed,
     )
     _log_step("_run_once: StrategyEvaluator 初始化完成")
 
@@ -3250,6 +3351,159 @@ def cmd_walk_forward_evaluate(args):
         print(f"  📝 综合报告: {files['report']}")
         if files.get("final_review"):
             print(f"  📘 中文整合最终报告: {files['final_review']}")
+    print(f"{'=' * 80}\n")
+
+
+def cmd_replay_evaluation(args):
+    """Replay historical production state forward from a report anchor."""
+    print("\n" + "=" * 80)
+    print("⏪ Replay Evaluation")
+    print("=" * 80 + "\n")
+    _log_step("replay-evaluation: 命令开始")
+
+    config = load_config()
+    eval_cfg = config.get("evaluation", {})
+
+    try:
+        resolved = _prepare_replay_inputs(args, config)
+        if resolved is None:
+            return
+        entry_filter_variants, universe_variants = resolved
+    except ValueError as e:
+        print(f"❌ 错误: {e}")
+        return
+
+    report_file = Path(args.report_file)
+    if not is_local_path(str(report_file)):
+        print(f"❌ 错误: replay 仅支持本地 report 文件: {report_file}")
+        return
+
+    try:
+        config_mgr = ConfigManager(str(get_config_file_path()))
+        prod_cfg = config_mgr.get_production_config()
+        replay_seed = load_replay_seed(
+            report_file=report_file,
+            state_file=Path(prod_cfg.state_file),
+            history_file=Path(prod_cfg.history_file),
+            cash_history_file=Path(prod_cfg.cash_history_file),
+            data_root="data",
+        )
+    except ValueError as e:
+        print(f"❌ 错误: {e}")
+        return
+
+    output_dir = _resolve_output_dir(
+        "replay-evaluation",
+        args,
+        args.output_dir,
+        eval_cfg,
+    )
+    ranking_mode = _resolve_ranking_mode(config, args)
+    effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
+
+    contexts = []
+    for universe_name, universe_file in universe_variants:
+        prefix = "replay_evaluation"
+        if len(universe_variants) > 1 or universe_file is not None:
+            prefix = f"replay_evaluation_universe_{_sanitize_name(universe_name)}"
+        contexts.append(
+            EvaluationRunContext(
+                name=universe_name,
+                prefix=prefix,
+                monitor_list_file=universe_file,
+                portfolio_overrides=None,
+                enable_overlay=effective_overlay_on,
+                metadata={"universe_file": universe_file},
+            )
+        )
+
+    print(f"📄 Report anchor: {report_file}")
+    print(f"📅 Report date: {replay_seed.report_date}")
+    print(f"▶️ Replay start: {replay_seed.replay_start_date}")
+    print(f"💼 Seed group: {replay_seed.group_id} ({replay_seed.group_name})")
+    print(f"💰 Seed cash: ¥{replay_seed.starting_cash_jpy:,.0f}")
+    print(f"📊 Seed baseline equity: ¥{replay_seed.baseline_total_equity_jpy:,.0f}")
+    print(f"📦 Seed positions: {len(replay_seed.positions)}")
+    print(f"🧺 股票池变体: {len(universe_variants)} 个")
+    print(f"   {', '.join(name for name, _ in universe_variants)}")
+    print(f"🧭 Overlay: {'ENABLED' if effective_overlay_on else 'DISABLED'}")
+    print(f"🏁 Ranking Mode: {ranking_mode}")
+
+    all_files: List[Tuple[EvaluationRunContext, EvaluationOutputBundle, Tuple[str, str, str]]] = []
+    for context in contexts:
+        temp_evaluator = StrategyEvaluator(
+            data_root="data",
+            output_dir=output_dir,
+            monitor_list_file=context.monitor_list_file,
+            replay_seed=replay_seed,
+        )
+        tickers = temp_evaluator._load_monitor_list()
+        try:
+            replay_end_date = resolve_latest_available_end_date(tickers, data_root="data")
+        except ValueError as e:
+            print(f"❌ 股票池 {context.name} 无法解析最新可用日期: {e}")
+            continue
+
+        if replay_end_date < replay_seed.replay_start_date:
+            print(
+                "❌ 错误: replay 终点早于起点: "
+                f"start={replay_seed.replay_start_date}, end={replay_end_date}"
+            )
+            continue
+
+        periods = [
+            (
+                f"replay_{replay_seed.replay_start_date}_to_{replay_end_date}",
+                replay_seed.replay_start_date,
+                replay_end_date,
+            )
+        ]
+
+        print("\n" + "-" * 80)
+        print(
+            f"🧺 股票池: {context.name}"
+            + (
+                f" ({context.monitor_list_file})"
+                if context.monitor_list_file
+                else " (config默认 + seeded)"
+            )
+        )
+        print(f"📅 Replay 区间: {periods[0][1]} ~ {periods[0][2]}")
+        print("-" * 80)
+
+        bundle = _run_context_bundle(
+            args=args,
+            config=config,
+            periods=periods,
+            entry_filter_variants=entry_filter_variants,
+            output_dir=output_dir,
+            prefix=context.prefix,
+            monitor_list_file=context.monitor_list_file,
+            portfolio_overrides=None,
+            enable_overlay=context.enable_overlay,
+            ranking_mode=ranking_mode,
+            replay_seed=replay_seed,
+        )
+        if bundle:
+            all_files.append((context, bundle, periods[0]))
+
+    if not all_files:
+        print("❌ Replay evaluation 失败: 没有生成任何结果")
+        return
+
+    print(f"\n{'=' * 80}")
+    print("✅ Replay evaluation 完成！")
+    print(f"{'=' * 80}")
+    for context, bundle, period in all_files:
+        universe_file = context.metadata.get("universe_file")
+        print(f"[股票池: {context.name}] {universe_file or '(config默认 + seeded)'}")
+        print(f"  ⏱️ Replay区间: {period[1]} ~ {period[2]}")
+        print(f"  📄 原始结果: {bundle.segmented['raw']}")
+        print(f"  📊 市场环境分析: {bundle.segmented['regime']}")
+        print(f"  🧾 原始交易明细: {bundle.segmented['trades']}")
+        print(f"  📝 综合报告: {bundle.segmented['report']}")
+        if bundle.final_report:
+            print(f"  📘 中文整合最终报告: {bundle.final_report}")
     print(f"{'=' * 80}\n")
 
 

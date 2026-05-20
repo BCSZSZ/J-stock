@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import threading
+from datetime import date, datetime
 from pathlib import Path
 from queue import Queue, Empty
 from typing import Any
@@ -24,7 +26,12 @@ from web.api.schemas import EvaluationRunRequest
 
 router = APIRouter(prefix="/api/evaluation", tags=["evaluation"])
 
-COMMANDS = ["evaluate", "pos-evaluation", "walk-forward-evaluate"]
+COMMANDS = [
+    "evaluate",
+    "pos-evaluation",
+    "walk-forward-evaluate",
+    "replay-evaluation",
+]
 EVALUATION_MODES = ["annual", "quarterly", "monthly", "custom"]
 ENTRY_FILTER_MODES = ["off", "single", "grid", "auto"]
 RANKING_MODES = ["prs_train"]
@@ -32,6 +39,15 @@ OVERLAY_MODES = ["off", "on"]
 BUY_FILL_MODES = ["next_open", "next_close"]
 ENTRY_REFERENCE_MODES = [RAW_FILL_ENTRY_REFERENCE, BUFFERED_FILL_ENTRY_REFERENCE]
 CAPACITY_REGIME_MODES = ["off", "enforce"]
+REPORT_ENTRY_STRATEGY_RE = re.compile(r"\*\*Entry Strategy:\*\*\s*`([^`]+)`")
+REPORT_EXIT_STRATEGY_RE = re.compile(r"\*\*Exit Strategy:\*\*\s*`([^`]+)`")
+REPORT_PAIR_STRATEGY_RE = re.compile(r"([A-Za-z0-9_]+)__PAIR__([A-Za-z0-9_]+)")
+REPORT_BUY_STRATEGY_ROW_RE = re.compile(
+    r"^\|\s*\d+\s*\|(?:[^|\n]*\|){1,5}\s*([A-Za-z][A-Za-z0-9_]*(?:Entry|Strategy))\s*\|\s*-?\d+(?:\.\d+)?\s*\|",
+    re.MULTILINE,
+)
+REPORT_DATE_RE = re.compile(r"\*\*Date:\*\*\s*(\d{4}-\d{2}-\d{2})")
+CONFIG_SNAPSHOT_NAME_RE = re.compile(r"config_(\d{8})_(\d{6})\.json$")
 
 
 def _resolve_local_path(path_value: str | None) -> Path | None:
@@ -92,6 +108,167 @@ def _load_position_profiles(raw_config: dict[str, Any]) -> tuple[str, list[str],
     return default_position_file, default_profile_names, names
 
 
+def _extract_report_strategy_context(report_content: str) -> dict[str, str]:
+    context: dict[str, str] = {}
+
+    entry_match = REPORT_ENTRY_STRATEGY_RE.search(report_content)
+    if entry_match is not None:
+        context["entry_strategy"] = entry_match.group(1).strip()
+
+    exit_match = REPORT_EXIT_STRATEGY_RE.search(report_content)
+    if exit_match is not None:
+        context["exit_strategy"] = exit_match.group(1).strip()
+
+    pair_match = REPORT_PAIR_STRATEGY_RE.search(report_content)
+    if pair_match is not None:
+        context.setdefault("entry_strategy", pair_match.group(1).strip())
+        context.setdefault("exit_strategy", pair_match.group(2).strip())
+
+    if "entry_strategy" not in context:
+        buy_strategy_match = REPORT_BUY_STRATEGY_ROW_RE.search(report_content)
+        if buy_strategy_match is not None:
+            context["entry_strategy"] = buy_strategy_match.group(1).strip()
+
+    return context
+
+
+def _extract_report_date(report_file: Path, report_content: str) -> date | None:
+    try:
+        return datetime.strptime(report_file.stem, "%Y-%m-%d").date()
+    except ValueError:
+        pass
+
+    date_match = REPORT_DATE_RE.search(report_content)
+    if date_match is None:
+        return None
+
+    try:
+        return datetime.strptime(date_match.group(1), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _load_strategy_context_from_config_payload(payload: dict[str, Any]) -> dict[str, str]:
+    resolved: dict[str, str] = {}
+
+    production = payload.get("production", {})
+    if isinstance(production, dict):
+        strategy_groups = production.get("strategy_groups")
+        if isinstance(strategy_groups, list):
+            preferred_group: dict[str, Any] | None = None
+            for item in strategy_groups:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("id", "")) == "group_main":
+                    preferred_group = item
+                    break
+                if preferred_group is None:
+                    preferred_group = item
+            if preferred_group is not None:
+                entry_strategy = preferred_group.get("entry_strategy")
+                exit_strategy = preferred_group.get("exit_strategy")
+                if entry_strategy:
+                    resolved["entry_strategy"] = str(entry_strategy).strip()
+                if exit_strategy:
+                    resolved["exit_strategy"] = str(exit_strategy).strip()
+
+    default_strategies = payload.get("default_strategies", {})
+    if isinstance(default_strategies, dict):
+        entry_strategy = default_strategies.get("entry")
+        exit_strategy = default_strategies.get("exit")
+        if entry_strategy:
+            resolved.setdefault("entry_strategy", str(entry_strategy).strip())
+        if exit_strategy:
+            resolved.setdefault("exit_strategy", str(exit_strategy).strip())
+
+    return resolved
+
+
+def _parse_snapshot_timestamp(path: Path) -> datetime | None:
+    match = CONFIG_SNAPSHOT_NAME_RE.match(path.name)
+    if match is None:
+        return None
+    try:
+        return datetime.strptime("".join(match.groups()), "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
+
+
+def _candidate_config_paths_for_report(report_file: Path, report_date: date | None) -> list[Path]:
+    report_root = report_file.parent.parent if report_file.parent.name == "reports" else report_file.parent
+    current_config = report_root / "config.json"
+    old_dir = report_root / "old"
+
+    candidates: list[Path] = []
+    snapshots: list[tuple[datetime, Path]] = []
+    if old_dir.exists():
+        for path in old_dir.glob("config_*.json"):
+            snapshot_dt = _parse_snapshot_timestamp(path)
+            if snapshot_dt is not None:
+                snapshots.append((snapshot_dt, path))
+
+    if snapshots:
+        snapshots.sort(key=lambda item: item[0])
+        chosen_snapshot: Path | None = None
+        if report_date is not None:
+            report_dt = datetime.combine(report_date, datetime.min.time())
+            before = [item for item in snapshots if item[0] <= report_dt]
+            if before:
+                chosen_snapshot = before[-1][1]
+            else:
+                chosen_snapshot = min(
+                    snapshots,
+                    key=lambda item: abs(item[0] - report_dt),
+                )[1]
+        else:
+            chosen_snapshot = snapshots[-1][1]
+
+        if chosen_snapshot is not None:
+            candidates.append(chosen_snapshot)
+
+    if current_config.exists():
+        candidates.append(current_config)
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in candidates:
+        normalized = os.path.normcase(str(path))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(path)
+    return deduped
+
+
+def _resolve_strategy_context_from_configs(
+    report_file: Path,
+    report_date: date | None,
+    existing: dict[str, str],
+) -> dict[str, str]:
+    resolved = dict(existing)
+    if "entry_strategy" in resolved and "exit_strategy" in resolved:
+        return resolved
+
+    for config_path in _candidate_config_paths_for_report(report_file, report_date):
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        context = _load_strategy_context_from_config_payload(payload)
+        if not context:
+            continue
+        if "entry_strategy" not in resolved and context.get("entry_strategy"):
+            resolved["entry_strategy"] = context["entry_strategy"]
+        if "exit_strategy" not in resolved and context.get("exit_strategy"):
+            resolved["exit_strategy"] = context["exit_strategy"]
+        if "entry_strategy" in resolved and "exit_strategy" in resolved:
+            break
+
+    return resolved
+
+
 def _append_multi_flag(args: list[str], flag: str, values: list[str] | list[int] | None) -> None:
     if not values:
         return
@@ -102,6 +279,16 @@ def _append_multi_flag(args: list[str], flag: str, values: list[str] | list[int]
 
     args.append(flag)
     args.extend(normalized)
+
+
+def _resolve_requested_launch_dates(req: EvaluationRunRequest) -> list[str]:
+    requested_dates = req.launch_dates or ([req.launch_date] if req.launch_date else [])
+    resolved: list[str] = []
+    for value in requested_dates:
+        normalized = str(value).strip()
+        if normalized and normalized not in resolved:
+            resolved.append(normalized)
+    return resolved
 
 
 def _resolve_production_ranking_strategy(raw_config: dict[str, Any]) -> str:
@@ -205,6 +392,15 @@ def _build_cli_args(
             )
         args.extend(["--mode", req.mode])
 
+    if req.command == "replay-evaluation":
+        report_file = _resolve_local_path(req.report_file)
+        if report_file is None:
+            raise HTTPException(
+                status_code=400,
+                detail="replay-evaluation requires a local report_file.",
+            )
+        args.extend(["--report-file", str(report_file)])
+
     args.extend(["--buy-fill-mode", buy_fill_mode or req.buy_fill_mode])
     args.extend(
         ["--entry-reference-mode", entry_reference_mode or req.entry_reference_mode]
@@ -216,8 +412,12 @@ def _build_cli_args(
     if req.capacity_regime_mode:
         args.extend(["--capacity-regime-mode", req.capacity_regime_mode])
 
-    if req.years:
+    if req.command in {"evaluate", "pos-evaluation", "walk-forward-evaluate"} and req.years:
         _append_multi_flag(args, "--years", req.years)
+
+    launch_dates = _resolve_requested_launch_dates(req)
+    if req.command in {"evaluate", "pos-evaluation"} and launch_dates:
+        _append_multi_flag(args, "--launch-date", launch_dates)
 
     if req.command in {"evaluate", "pos-evaluation"} and req.mode == "monthly":
         _append_multi_flag(args, "--months", req.months)
@@ -262,7 +462,7 @@ def _build_cli_args(
     if req.verbose:
         args.append("--verbose")
 
-    if req.command in {"evaluate", "walk-forward-evaluate"} and req.enable_overlay:
+    if req.command in {"evaluate", "walk-forward-evaluate", "replay-evaluation"} and req.enable_overlay:
         args.append("--enable-overlay")
 
     if req.ranking_mode:
@@ -281,6 +481,37 @@ def _build_cli_args(
         _append_multi_flag(args, "--overlay-modes", req.overlay_modes)
 
     return args
+
+
+@router.get("/report-context")
+def get_report_context(report_file: str = Query(...)) -> dict[str, str]:
+    path = _resolve_local_path(report_file)
+    if path is None:
+        raise HTTPException(status_code=400, detail="report_file must be a local path.")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail=f"Report not found: {report_file}")
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read report: {exc}") from exc
+
+    report_date = _extract_report_date(path, content)
+    context = _resolve_strategy_context_from_configs(
+        path,
+        report_date,
+        _extract_report_strategy_context(content),
+    )
+    if "entry_strategy" not in context or "exit_strategy" not in context:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not parse entry/exit strategy from report.",
+        )
+
+    return {
+        "report_file": str(path),
+        **context,
+    }
 
 
 @router.get("/options")
@@ -319,6 +550,7 @@ def get_options() -> dict[str, object]:
             "exit_strategy": production_exit,
             "ranking_strategy": str(default_ranking_strategy or ""),
             "monitor_list_file": str(default_universe_file or ""),
+            "report_file_pattern": str(getattr(prod_cfg, "report_file_pattern", "") or ""),
         },
         "defaults": {
             "command": "evaluate",
@@ -348,6 +580,7 @@ def get_options() -> dict[str, object]:
             ),
             "position_file": default_position_file,
             "profile_names": default_profile_names,
+            "report_file": "",
             "min_train_years": 2,
         },
     }
@@ -462,7 +695,7 @@ def _iter_result_files(output_root: Path) -> list[Path]:
     files = [
         path
         for path in output_root.rglob("*")
-        if path.is_file() and path.suffix in (".csv", ".md")
+        if path.is_file() and path.suffix in (".csv", ".md", ".json")
     ]
     files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     return files
@@ -506,6 +739,9 @@ def get_result(filename: str, output_dir: str | None = Query(default=None)) -> d
         import pandas as pd
         df = pd.read_csv(path)
         return {"type": "csv", "name": display_name, "data": df.to_dict(orient="records")}
+    if path.suffix == ".json":
+        content = json.loads(path.read_text(encoding="utf-8"))
+        return {"type": "json", "name": display_name, "data": content}
     else:
         content = path.read_text(encoding="utf-8")
         return {"type": "markdown", "name": display_name, "content": content}

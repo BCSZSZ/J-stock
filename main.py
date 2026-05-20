@@ -38,6 +38,12 @@ def _cmd_walk_forward_evaluate(args):
     return cmd_walk_forward_evaluate(args)
 
 
+def _cmd_replay_evaluation(args):
+    from src.cli.evaluate import cmd_replay_evaluation
+
+    return cmd_replay_evaluation(args)
+
+
 def _add_fill_buffer_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--fill-buffer-enabled",
@@ -97,6 +103,16 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         "--custom-periods",
         type=str,
         help='自定义时间段（JSON格式）: [["2021-Q1","2021-01-01","2021-03-31"], ...]',
+    )
+    parser.add_argument(
+        "--launch-date",
+        nargs="+",
+        type=str,
+        default=None,
+        help=(
+            "将评估时间窗的开始日裁剪到一个或多个日期（YYYY-MM-DD）。"
+            "指定多个日期时，会按所选日期数扩展组合数。"
+        ),
     )
     parser.add_argument(
         "--entry-strategies", nargs="+", help="指定入场策略（默认全部）"
@@ -257,6 +273,96 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         default=None,
         help=(
             "训练阶段策略排序模式: legacy=旧版跨市场平均排名, "
+            "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%, "
+            "prs_train=生产稳健训练评分"
+        ),
+    )
+    parser.add_argument(
+        "--ranking-strategies",
+        nargs="+",
+        default=None,
+        help=(
+            "信号排序策略（默认: default）。"
+            "可选: default, random, score_only, confidence_weighted, "
+            "risk_adjusted, composite, momentum, volatility_penalty, trend_alignment"
+        ),
+    )
+
+
+def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--report-file",
+        required=True,
+        help="作为 replay 锚点的日报文件路径（本地 Markdown 文件）",
+    )
+    parser.add_argument(
+        "--buy-fill-mode",
+        choices=["next_open", "next_close"],
+        default="next_open",
+        help="买入成交模式: next_open=次日开盘成交, next_close=次日收盘成交",
+    )
+    _add_entry_reference_arguments(parser)
+    _add_fill_buffer_arguments(parser)
+    parser.add_argument(
+        "--capacity-regime-mode",
+        choices=["off", "enforce"],
+        default=None,
+        help="evaluation资金容量分层模式: off=关闭, enforce=按资金tier启用动态仓位与流动性约束",
+    )
+    parser.add_argument(
+        "--entry-strategies", nargs="+", help="指定入场策略（默认读取evaluation默认配置）"
+    )
+    parser.add_argument(
+        "--exit-strategies", nargs="+", help="指定出场策略（默认读取evaluation默认配置）"
+    )
+    parser.add_argument(
+        "--exit-confirm-days",
+        type=int,
+        default=None,
+        help="出场确认天数（连续N天出现SELL才执行，默认读取evaluation.exit_confirmation_days）",
+    )
+    parser.add_argument(
+        "--entry-filter-mode",
+        choices=["auto", "off", "single", "grid"],
+        default="auto",
+        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
+    )
+    parser.add_argument(
+        "--entry-filter-name",
+        nargs="+",
+        help="指定entry_filters中的过滤器名称（single选1个，grid可选多个）",
+    )
+    parser.add_argument(
+        "--list-entry-filters",
+        action="store_true",
+        help="仅列出可用的entry filter并退出",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
+    )
+    parser.add_argument(
+        "--universe-file",
+        nargs="+",
+        default=None,
+        help="股票池文件路径（支持多个，用于 replay universe 比较；支持 json/csv/txt）",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="详细输出模式（显示每个回测的详细进度）"
+    )
+    parser.add_argument(
+        "--enable-overlay",
+        action="store_true",
+        default=None,
+        help="按需启用overlay参与evaluation（默认关闭，仅用于overlay对比研究；详见instruction.md）",
+    )
+    parser.add_argument(
+        "--ranking-mode",
+        choices=["legacy", "target20", "risk60_profit40", "prs_train"],
+        default=None,
+        help=(
+            "最终策略排序模式: legacy=旧版跨市场平均排名, "
             "target20=年度20%%目标导向, risk60_profit40=风险60%%/收益40%%, "
             "prs_train=生产稳健训练评分"
         ),
@@ -673,6 +779,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_walk_forward_evaluation_arguments(walk_forward_parser)
     walk_forward_parser.set_defaults(func=_cmd_walk_forward_evaluate)
+
+    replay_evaluate_parser = subparsers.add_parser(
+        "replay-evaluation",
+        help="从某个历史 report 状态继续回放到最新可用数据日",
+    )
+    _add_replay_evaluation_arguments(replay_evaluate_parser)
+    replay_evaluate_parser.set_defaults(func=_cmd_replay_evaluation)
 
     pos_evaluate_parser = subparsers.add_parser(
         "pos-evaluation", help="仓位参数批量评价（读取evaluation-position.json）"

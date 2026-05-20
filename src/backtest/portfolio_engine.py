@@ -6,7 +6,7 @@ Backtests portfolio strategies with multiple concurrent positions
 import logging
 import math
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -32,7 +32,7 @@ from .entry_reference import (
     resolve_signal_entry_price,
 )
 from .lot_size_manager import LotSizeManager
-from .models import BacktestResult, Trade
+from .models import BacktestResult, OpenPositionSnapshot, Trade
 from .portfolio import Portfolio, Position
 from .signal_ranker import DefaultSignalRanker, SignalRanker
 
@@ -53,6 +53,8 @@ class PortfolioBacktestEngine:
     def __init__(
         self,
         starting_capital: float,
+        initial_cash: Optional[float] = None,
+        seeded_positions: Optional[Sequence[Position]] = None,
         max_positions: int = 5,
         max_position_pct: float = 0.30,
         min_position_pct: float = 0.05,
@@ -91,6 +93,12 @@ class PortfolioBacktestEngine:
             entry_reference_mode: 信号语义使用的入场参考价模式（raw_fill 或 buffered_fill）
         """
         self.starting_capital = starting_capital
+        self.initial_cash = (
+            float(initial_cash) if initial_cash is not None else float(starting_capital)
+        )
+        self.seeded_positions = list(seeded_positions or [])
+        self.last_final_cash_jpy: float = self.initial_cash
+        self.last_final_open_positions: List[OpenPositionSnapshot] = []
         self.max_positions = max_positions
         self.max_position_pct = max_position_pct
         self.min_position_pct = min_position_pct
@@ -162,11 +170,18 @@ class PortfolioBacktestEngine:
 
         # 创建组合
         portfolio = Portfolio(
-            starting_cash=self.starting_capital,
+            starting_cash=self.initial_cash,
             max_positions=self.max_positions,
             max_position_pct=self.max_position_pct,
             min_position_pct=self.min_position_pct,
         )
+
+        for seeded_position in self.seeded_positions:
+            if not portfolio.restore_position(seeded_position):
+                logger.warning(
+                    "Failed to restore seeded position for %s",
+                    seeded_position.ticker,
+                )
 
         # 加载所有股票数据
         all_data = {}
@@ -1073,6 +1088,27 @@ class PortfolioBacktestEngine:
         """构建组合回测结果"""
 
         final_value = portfolio.get_total_value(current_prices)
+        self.last_final_cash_jpy = float(portfolio.cash)
+        self.last_final_open_positions = [
+            OpenPositionSnapshot(
+                ticker=position.ticker,
+                quantity=int(position.quantity),
+                entry_price=float(position.entry_price),
+                signal_entry_price=float(
+                    position.signal_entry_price or position.entry_price
+                ),
+                peak_price=float(position.peak_price_since_entry),
+                entry_date=str(pd.Timestamp(position.entry_date).date()),
+                current_price=float(
+                    current_prices.get(position.ticker, position.entry_price)
+                ),
+                market_value=float(
+                    int(position.quantity)
+                    * float(current_prices.get(position.ticker, position.entry_price))
+                ),
+            )
+            for position in portfolio.positions.values()
+        ]
         total_return_pct = ((final_value / self.starting_capital) - 1) * 100
 
         # 计算年化回报

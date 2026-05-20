@@ -120,7 +120,12 @@ class StrategyInfo(BaseModel):
 
 
 class EvaluationRunRequest(BaseModel):
-    command: Literal["evaluate", "pos-evaluation", "walk-forward-evaluate"] = (
+    command: Literal[
+        "evaluate",
+        "pos-evaluation",
+        "walk-forward-evaluate",
+        "replay-evaluation",
+    ] = (
         "evaluate"
     )
     buy_fill_mode: Literal["next_open", "next_close"] = "next_open"
@@ -137,6 +142,8 @@ class EvaluationRunRequest(BaseModel):
     years: list[int] | None = None
     months: list[int] | None = None
     custom_periods: str | None = None
+    launch_date: str | None = None
+    launch_dates: list[str] | None = None
     min_train_years: int | None = None
     ranking_mode: Literal["prs_train"] | None = "prs_train"
     ranking_strategies: list[str] | None = None
@@ -147,6 +154,7 @@ class EvaluationRunRequest(BaseModel):
     entry_filter_names: list[str] | None = None
     position_file: str | None = None
     profile_names: list[str] | None = None
+    report_file: str | None = None
     universe_files: list[str] | None = None
     output_dir: str | None = None
     verbose: bool = False

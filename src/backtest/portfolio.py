@@ -196,6 +196,14 @@ class Portfolio:
         self.cash -= cost
         self.positions[position.ticker] = position
         return True
+
+    def restore_position(self, position: Position) -> bool:
+        """Restore an existing holding without consuming cash again."""
+        if self.has_position(position.ticker):
+            return False
+
+        self.positions[position.ticker] = position
+        return True
     
     def close_position(self, ticker: str, exit_price: float) -> Optional[float]:
         """

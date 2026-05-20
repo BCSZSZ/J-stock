@@ -38,6 +38,18 @@ class Trade:
 
 
 @dataclass
+class OpenPositionSnapshot:
+    ticker: str
+    quantity: int
+    entry_price: float
+    signal_entry_price: float
+    peak_price: float
+    entry_date: str
+    current_price: float
+    market_value: float
+
+
+@dataclass
 class BacktestResult:
     """Complete backtest results for one strategy on one ticker."""
 

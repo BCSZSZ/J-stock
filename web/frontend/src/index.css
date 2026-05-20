@@ -6,3 +6,45 @@ body {
   @apply bg-gray-950 text-gray-100;
   font-family: "Inter", system-ui, -apple-system, sans-serif;
 }
+
+.launch-date-picker .rdp-root {
+  --rdp-accent-color: #34d399;
+  --rdp-accent-background-color: rgba(16, 185, 129, 0.18);
+  --rdp-day_button-border-radius: 0.75rem;
+  --rdp-day_button-border: 1px solid transparent;
+  --rdp-selected-border: 1px solid #6ee7b7;
+  --rdp-today-color: #a7f3d0;
+  --rdp-nav_button-width: 2rem;
+  --rdp-nav_button-height: 2rem;
+  --rdp-disabled-opacity: 0.28;
+  --rdp-outside-opacity: 0.35;
+  --rdp-weekday-opacity: 0.7;
+  margin: 0;
+  color: #e5e7eb;
+}
+
+.launch-date-picker .rdp-day_button {
+  color: #e5e7eb;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.launch-date-picker .rdp-day_button:hover:not([disabled]):not(.rdp-selected) {
+  background-color: rgba(31, 41, 55, 0.9);
+  border-color: rgba(75, 85, 99, 0.9);
+}
+
+.launch-date-picker .rdp-button_previous,
+.launch-date-picker .rdp-button_next {
+  border-radius: 0.5rem;
+  color: #d1d5db;
+}
+
+.launch-date-picker .rdp-button_previous:hover,
+.launch-date-picker .rdp-button_next:hover {
+  background-color: rgba(31, 41, 55, 0.9);
+}
+
+.launch-date-picker .rdp-caption_label,
+.launch-date-picker .rdp-weekday {
+  color: #9ca3af;
+}

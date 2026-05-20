@@ -212,6 +212,7 @@ export const api = {
         exit_strategy: string;
         ranking_strategy: string;
         monitor_list_file: string;
+        report_file_pattern: string;
       };
       defaults: {
         command: string;
@@ -237,9 +238,18 @@ export const api = {
         universe_files: string[];
         position_file: string;
         profile_names: string[];
+        report_file: string;
         min_train_years: number;
       };
     }>("/evaluation/options"),
+  evalReportContext: (reportFile: string) =>
+    request<{
+      report_file: string;
+      entry_strategy: string;
+      exit_strategy: string;
+    }>(
+      `/evaluation/report-context?${new URLSearchParams({ report_file: reportFile }).toString()}`,
+    ),
 
   evalResults: (outputDir?: string) =>
     request<Array<{ name: string; type: string; size: string }>>(
