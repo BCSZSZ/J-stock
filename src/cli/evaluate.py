@@ -24,6 +24,7 @@ from src.evaluation.replay_seed import (
 )
 from src.evaluation.strategy_evaluator import select_rank_df_for_mode
 from src.evaluation.scoring import candidate_key_columns, rank_final_prs, summarize_prs_train_metrics
+from src.evaluation.trade_indicator_enrichment import write_enriched_trades_sidecar
 from src.config.runtime import get_config_file_path, is_local_path
 from src.production.config_manager import ConfigManager
 from src.utils.strategy_loader import get_strategy_complexity_penalty
@@ -628,6 +629,8 @@ def _print_saved_files(files: Dict[str, str], indent: str = "  ") -> None:
     print(f"{indent}📊 市场环境分析: {files['regime']}")
     if files.get("trades"):
         print(f"{indent}🧾 原始交易明细: {files['trades']}")
+    if files.get("trades_indicators"):
+        print(f"{indent}🧪 交易指标快照: {files['trades_indicators']}")
     if files.get("exit_trigger_summary"):
         print(f"{indent}🚪 第一层退出原因明细: {files['exit_trigger_summary']}")
     if files.get("exit_urgency_summary"):
@@ -1664,6 +1667,7 @@ def _append_combined_context_frame(
 
 def _write_combined_position_output_family(
     output_dir: str,
+    data_root: str,
     family_prefix: str,
     raw_frames: List[pd.DataFrame],
     regime_frames: List[pd.DataFrame],
@@ -1696,6 +1700,18 @@ def _write_combined_position_output_family(
         combined_trades.to_csv(combined_trades_path, index=False, encoding="utf-8-sig")
         print(f"📦 合并Trade结果: {combined_trades_path}")
         files["trades"] = str(combined_trades_path)
+
+        try:
+            indicator_file = write_enriched_trades_sidecar(
+                trades_csv=combined_trades_path,
+                data_root=data_root,
+                trades_df=combined_trades,
+            )
+        except Exception as e:
+            print(f"⚠️ 合并Trade指标 sidecar 生成失败: {e}")
+        else:
+            print(f"📦 合并Trade指标快照: {indicator_file}")
+            files["trades_indicators"] = str(indicator_file)
 
         combined_reason_detail = StrategyEvaluator.build_exit_reason_detail_df(
             combined_trades,
@@ -3698,6 +3714,7 @@ def cmd_pos_evaluation(args):
 
     combined_segmented_files = _write_combined_position_output_family(
         output_dir=output_dir,
+        data_root="data",
         family_prefix="position_eval_combined",
         raw_frames=combined_raw_frames,
         regime_frames=combined_regime_frames,
@@ -3705,6 +3722,7 @@ def cmd_pos_evaluation(args):
     )
     combined_continuous_files = _write_combined_position_output_family(
         output_dir=output_dir,
+        data_root="data",
         family_prefix="position_eval_combined_continuous",
         raw_frames=combined_continuous_raw_frames,
         regime_frames=combined_continuous_regime_frames,

@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { to: "/production", label: "Production", icon: "🚀" },
   { to: "/evaluation", label: "Evaluation", icon: "📈" },
   { to: "/evaluation-insight", label: "Evaluation Insight", icon: "🧾" },
+  { to: "/entry-analysis", label: "Entry Analysis", icon: "🎯" },
   { to: "/portfolio", label: "Portfolio", icon: "💼" },
   { to: "/trade-history", label: "Trade History", icon: "📋" },
   { to: "/signals", label: "Signals", icon: "📡" },

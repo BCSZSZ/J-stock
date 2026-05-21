@@ -86,6 +86,7 @@ class Signal:
     # Metadata
     strategy_name: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    signal_metadata: Dict = field(default_factory=dict)
 
     # Exit strategy evaluation details (for report display)
     evaluation_details: Optional[Dict] = None
@@ -483,6 +484,7 @@ class SignalGenerator:
                     suggested_qty=suggested_qty,
                     required_capital=required_capital,
                     strategy_name=entry_strategy.strategy_name,
+                    signal_metadata=dict(trading_signal.metadata or {}),
                 )
             else:
                 # Below threshold or HOLD

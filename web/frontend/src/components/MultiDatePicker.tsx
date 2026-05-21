@@ -4,6 +4,7 @@ import "react-day-picker/style.css";
 interface MultiDatePickerProps {
   value: string[];
   onChange: (dates: string[]) => void;
+  className?: string;
 }
 
 function toDate(value: string): Date {
@@ -36,13 +37,14 @@ function sortDates(values: string[]): string[] {
 export default function MultiDatePicker({
   value,
   onChange,
+  className,
 }: MultiDatePickerProps) {
   const selectedDates = value
     .map(toDate)
     .filter((date) => !Number.isNaN(date.getTime()));
 
   return (
-    <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3">
+    <div className={`rounded border border-gray-800 bg-gray-950/40 px-3 py-3 ${className ?? ""}`.trim()}>
       <div className="launch-date-picker overflow-x-auto">
         <DayPicker
           animate

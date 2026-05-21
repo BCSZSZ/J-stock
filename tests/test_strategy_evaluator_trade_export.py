@@ -8,6 +8,28 @@ from src.backtest.models import Trade
 from src.evaluation.strategy_evaluator import AnnualStrategyResult, StrategyEvaluator
 
 
+def _write_features(data_root: Path, ticker: str) -> None:
+    features_dir = data_root / "features"
+    features_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2025-01-10", "2025-01-20", "2025-02-10", "2025-03-18"]),
+            "RSI": [52.0, 61.0, 64.0, 58.0],
+            "RSI_9": [53.0, 62.0, 65.0, 59.0],
+            "RSI_14": [52.0, 61.0, 64.0, 58.0],
+            "RSI_22": [51.0, 60.0, 63.0, 57.0],
+            "EMA_20": [101.0, 108.0, 111.0, 209.0],
+            "EMA_50": [99.0, 104.0, 107.0, 205.0],
+            "EMA_200": [90.0, 94.0, 95.0, 180.0],
+            "ATR": [2.1, 2.5, 2.7, 3.1],
+            "ADX_14": [19.0, 25.0, 26.0, 21.0],
+            "MACD": [0.2, 0.8, 0.9, 0.4],
+            "MACD_Signal": [0.1, 0.6, 0.7, 0.2],
+            "MACD_Hist": [0.1, 0.2, 0.2, 0.2],
+        }
+    ).to_parquet(features_dir / f"{ticker}_features.parquet", index=False)
+
+
 def _make_trade(
     *,
     ticker: str,
@@ -88,6 +110,7 @@ def test_record_trade_rows_captures_partial_and_full_exit_flags(tmp_path):
         entry_strategy="MACDCrossoverStrategy",
         exit_strategy="MVX_N2_R3p4_T1p6_D18_B20p0",
         entry_filter_name="default",
+        ranking_strategy="default",
     )
 
     trade_df = evaluator._create_trade_results_dataframe()
@@ -105,8 +128,16 @@ def test_record_trade_rows_captures_partial_and_full_exit_flags(tmp_path):
     assert float(tp2_row["exit_sell_percentage"]) == 1.0
 
 
-def test_save_results_writes_trade_exports_and_includes_partial_exits_in_summary(tmp_path):
-    evaluator = StrategyEvaluator(output_dir=str(tmp_path), verbose=False)
+def test_save_results_writes_trade_exports_and_indicator_sidecar(tmp_path):
+    data_root = tmp_path / "data"
+    _write_features(data_root, "7203")
+    _write_features(data_root, "6501")
+
+    evaluator = StrategyEvaluator(
+        data_root=str(data_root),
+        output_dir=str(tmp_path),
+        verbose=False,
+    )
     evaluator.results = [
         AnnualStrategyResult(
             period="2025",
@@ -229,17 +260,20 @@ def test_save_results_writes_trade_exports_and_includes_partial_exits_in_summary
     files = evaluator.save_results(prefix="unit_eval")
 
     trades_path = Path(files["trades"])
+    indicators_path = Path(files["trades_indicators"])
     summary_path = Path(files["exit_trigger_summary"])
     urgency_summary_path = Path(files["exit_urgency_summary"])
     contribution_path = Path(files["exit_urgency_contribution"])
     exit_summary_report_path = Path(files["exit_summary_report"])
     assert trades_path.exists()
+    assert indicators_path.exists()
     assert summary_path.exists()
     assert urgency_summary_path.exists()
     assert contribution_path.exists()
     assert exit_summary_report_path.exists()
 
     trades_df = pd.read_csv(trades_path)
+    indicators_df = pd.read_csv(indicators_path)
     summary_df = pd.read_csv(summary_path)
     urgency_summary_df = pd.read_csv(urgency_summary_path)
     contribution_df = pd.read_csv(contribution_path)
@@ -256,6 +290,8 @@ def test_save_results_writes_trade_exports_and_includes_partial_exits_in_summary
     assert set(recomputed_df["trade_scope"]) == {"full_sell_signal_only"}
     assert set(urgency_summary_df["trade_scope"]) == {"all_trades"}
     assert set(contribution_df["trade_scope"]) == {"all_trades"}
+    assert "entry_exec_RSI" in indicators_df.columns
+    assert indicators_df["entry_exec_indicator_quality"].mean() > 0.0
 
     report_text = exit_summary_report_path.read_text(encoding="utf-8")
     assert "# 退出结果整理与分析" in report_text

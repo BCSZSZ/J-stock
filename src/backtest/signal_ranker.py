@@ -8,7 +8,7 @@ SignalRanker wrapper for backward compatibility.
 
 import heapq
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from ..analysis.signals import MarketData, SignalAction, TradingSignal
 
@@ -18,7 +18,7 @@ from ..analysis.signals import MarketData, SignalAction, TradingSignal
 
 def _filter_and_rank(
     signals: Dict[str, TradingSignal],
-    score_fn: "callable",
+    score_fn: Callable[[str, TradingSignal], float],
     top_k: Optional[int] = None,
 ) -> List[Tuple[str, TradingSignal, float]]:
     """BUY信号のみ抽出しスコア計算後ソート。"""
@@ -32,6 +32,39 @@ def _filter_and_rank(
         return heapq.nlargest(top_k, scored, key=lambda x: x[2])
     scored.sort(key=lambda x: x[2], reverse=True)
     return scored
+
+
+def _momentum_score(
+    ticker: str,
+    market_data_dict: Dict[str, MarketData],
+    short_window: int,
+    long_window: int,
+    short_weight: float,
+) -> float:
+    md = market_data_dict.get(ticker)
+    if md is None:
+        return 0.0
+    df = md.df_features
+    if df.empty or "Close" not in df.columns:
+        return 0.0
+    closes = df["Close"]
+    cur = closes.iloc[-1]
+    if cur == 0:
+        return 0.0
+    short_ret = (cur / closes.iloc[-short_window] - 1) * 100 if len(closes) >= short_window else 0.0
+    long_ret = (cur / closes.iloc[-long_window] - 1) * 100 if len(closes) >= long_window else 0.0
+    return short_ret * short_weight + long_ret * (1.0 - short_weight)
+
+
+def _is_stale_buy_signal(signal: TradingSignal) -> bool:
+    metadata = signal.metadata or {}
+    if bool(metadata.get("stale_buy_signal", False)):
+        return True
+    streak_days = metadata.get("buy_signal_streak_days")
+    try:
+        return int(streak_days) >= 2
+    except (TypeError, ValueError):
+        return False
 
 
 # ==================== Concrete Rankers ====================
@@ -242,21 +275,47 @@ class MomentumRanker:
         top_k: Optional[int] = None,
     ) -> List[Tuple[str, TradingSignal, float]]:
         def _score(ticker: str, signal: TradingSignal) -> float:
-            md = market_data_dict.get(ticker)
-            if md is None:
-                return 0.0
-            df = md.df_features
-            if df.empty or "Close" not in df.columns:
-                return 0.0
-            closes = df["Close"]
-            cur = closes.iloc[-1]
-            if cur == 0:
-                return 0.0
-            short_ret = (cur / closes.iloc[-self._short] - 1) * 100 if len(closes) >= self._short else 0.0
-            long_ret = (cur / closes.iloc[-self._long] - 1) * 100 if len(closes) >= self._long else 0.0
-            return short_ret * self._sw + long_ret * self._lw
+            return _momentum_score(
+                ticker,
+                market_data_dict,
+                self._short,
+                self._long,
+                self._sw,
+            )
 
         return _filter_and_rank(signals, _score, top_k)
+
+
+class FreshMomentumRanker(MomentumRanker):
+    """Momentum ranking that places fresh BUY signals ahead of stale repeats."""
+
+    @property
+    def name(self) -> str:
+        return "fresh_momentum"
+
+    def rank_buy_signals(
+        self,
+        signals: Dict[str, TradingSignal],
+        market_data_dict: Dict[str, MarketData],
+        top_k: Optional[int] = None,
+    ) -> List[Tuple[str, TradingSignal, float]]:
+        scored: List[Tuple[str, TradingSignal, float, bool]] = []
+        for ticker, signal in signals.items():
+            if signal.action != SignalAction.BUY:
+                continue
+            momentum_score = _momentum_score(
+                ticker,
+                market_data_dict,
+                self._short,
+                self._long,
+                self._sw,
+            )
+            scored.append((ticker, signal, momentum_score, _is_stale_buy_signal(signal)))
+
+        scored.sort(key=lambda x: (not x[3], x[2]), reverse=True)
+        if top_k is not None and top_k > 0:
+            scored = scored[:top_k]
+        return [(ticker, signal, score) for ticker, signal, score, _stale in scored]
 
 
 class VolatilityPenaltyRanker:
@@ -374,6 +433,7 @@ class SignalRanker:
         "composite": CompositeRanker,
         "random": RandomSignalRanker,
         "momentum": MomentumRanker,
+        "fresh_momentum": FreshMomentumRanker,
         "volatility_penalty": VolatilityPenaltyRanker,
         "trend_alignment": TrendAlignmentRanker,
         "score_only": ScoreOnlyRanker,

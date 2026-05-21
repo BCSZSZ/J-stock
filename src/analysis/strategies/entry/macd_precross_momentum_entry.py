@@ -18,6 +18,13 @@ def _rising_for_window(series: pd.Series, window: int) -> pd.Series:
     return diff_positive.rolling(window - 1, min_periods=window - 1).sum().eq(window - 1)
 
 
+def _true_streak_days(series: pd.Series) -> pd.Series:
+    mask = series.fillna(False).astype(bool)
+    segment_id = mask.ne(mask.shift(fill_value=False)).cumsum()
+    streak = mask.groupby(segment_id).cumcount() + 1
+    return streak.where(mask, 0).astype(int)
+
+
 def _peak_at_window_start(macd_hist: pd.Series, window: int) -> pd.Series:
     numeric = pd.to_numeric(macd_hist, errors="coerce")
     window = max(2, int(window))
@@ -48,6 +55,7 @@ def build_precross_momentum_flags(
     df: pd.DataFrame,
     hist_rise_days: int = 3,
     price_rise_days: int = 3,
+    require_price_rising: bool = True,
     require_hist_below_zero: bool = True,
     max_hist_abs_norm: float | None = None,
     min_hist_delta_norm: float | None = None,
@@ -57,6 +65,7 @@ def build_precross_momentum_flags(
     max_return_5d: float | None = None,
     min_adx_14: float | None = None,
     max_bias_pct: float | None = None,
+    max_buy_signal_streak_days: int | None = None,
 ) -> pd.DataFrame:
     close = pd.to_numeric(df["Close"], errors="coerce")
     macd_hist = pd.to_numeric(df["MACD_Hist"], errors="coerce")
@@ -151,11 +160,16 @@ def build_precross_momentum_flags(
         peak_ok = flags["peak_at_window_start"]
     else:
         peak_ok = pd.Series(True, index=df.index, dtype="boolean")
+    if require_price_rising:
+        price_rising_ok = flags["price_rising"]
+    else:
+        price_rising_ok = pd.Series(True, index=df.index, dtype="boolean")
     flags["peak_ok"] = peak_ok
-    flags["signal"] = flags[
+    flags["price_rising_ok"] = price_rising_ok
+    raw_signal = flags[
         [
             "hist_rising",
-            "price_rising",
+            "price_rising_ok",
             "hist_below_zero",
             "near_zero_ok",
             "hist_delta_ok",
@@ -167,10 +181,21 @@ def build_precross_momentum_flags(
             "bias_ok",
         ]
     ].all(axis=1)
+    streak_days = _true_streak_days(raw_signal)
+    flags["raw_entry_signal"] = raw_signal
+    flags["buy_signal_streak_days"] = streak_days
+    flags["is_fresh_buy_signal"] = raw_signal & streak_days.eq(1)
+    flags["stale_buy_signal"] = raw_signal & streak_days.gt(1)
+    if max_buy_signal_streak_days is None:
+        fresh_gate = pd.Series(True, index=df.index, dtype="boolean")
+    else:
+        fresh_gate = streak_days.le(max(1, int(max_buy_signal_streak_days)))
+    flags["fresh_buy_signal_ok"] = fresh_gate
+    flags["signal"] = raw_signal & fresh_gate
     return flags
 
 
-def _latest_precross_momentum_flags(
+def _compute_latest_precross_raw_flags(
     df: pd.DataFrame,
     hist_rise_days: int = 3,
     price_rise_days: int = 3,
@@ -299,7 +324,7 @@ def _latest_precross_momentum_flags(
 
     price_rising_ok = price_rising if require_price_rising else True
     peak_ok = peak_at_window_start if require_peak_at_window_start else True
-    signal = all(
+    raw_signal = all(
         [
             hist_rising,
             price_rising_ok,
@@ -336,8 +361,89 @@ def _latest_precross_momentum_flags(
         "bias_reference": bias_reference,
         "volume_ratio": volume_ratio,
         "peak_ok": peak_ok,
-        "signal": signal,
+        "price_rising_ok": price_rising_ok,
+        "raw_entry_signal": raw_signal,
     }
+
+
+def _latest_precross_momentum_flags(
+    df: pd.DataFrame,
+    hist_rise_days: int = 3,
+    price_rise_days: int = 3,
+    require_price_rising: bool = True,
+    require_hist_below_zero: bool = True,
+    max_hist_abs_norm: float | None = None,
+    min_hist_delta_norm: float | None = None,
+    require_above_ema200: bool = False,
+    require_peak_at_window_start: bool = False,
+    max_gap_above_ema20_pct: float | None = None,
+    max_return_5d: float | None = None,
+    min_adx_14: float | None = None,
+    max_bias_pct: float | None = None,
+    max_buy_signal_streak_days: int | None = None,
+    previous_raw_signal: bool | None = None,
+    previous_streak_days: int | None = None,
+) -> dict:
+    latest_flags = _compute_latest_precross_raw_flags(
+        df,
+        hist_rise_days=hist_rise_days,
+        price_rise_days=price_rise_days,
+        require_price_rising=require_price_rising,
+        require_hist_below_zero=require_hist_below_zero,
+        max_hist_abs_norm=max_hist_abs_norm,
+        min_hist_delta_norm=min_hist_delta_norm,
+        require_above_ema200=require_above_ema200,
+        require_peak_at_window_start=require_peak_at_window_start,
+        max_gap_above_ema20_pct=max_gap_above_ema20_pct,
+        max_return_5d=max_return_5d,
+        min_adx_14=min_adx_14,
+        max_bias_pct=max_bias_pct,
+    )
+
+    raw_signal = bool(latest_flags["raw_entry_signal"])
+    if raw_signal:
+        if previous_raw_signal is not None and previous_streak_days is not None:
+            buy_signal_streak_days = (
+                int(previous_streak_days) + 1 if bool(previous_raw_signal) else 1
+            )
+        else:
+            batch_flags = build_precross_momentum_flags(
+                df,
+                hist_rise_days=hist_rise_days,
+                price_rise_days=price_rise_days,
+                require_price_rising=require_price_rising,
+                require_hist_below_zero=require_hist_below_zero,
+                max_hist_abs_norm=max_hist_abs_norm,
+                min_hist_delta_norm=min_hist_delta_norm,
+                require_above_ema200=require_above_ema200,
+                require_peak_at_window_start=require_peak_at_window_start,
+                max_gap_above_ema20_pct=max_gap_above_ema20_pct,
+                max_return_5d=max_return_5d,
+                min_adx_14=min_adx_14,
+                max_bias_pct=max_bias_pct,
+                max_buy_signal_streak_days=max_buy_signal_streak_days,
+            ).iloc[-1]
+            buy_signal_streak_days = int(batch_flags.get("buy_signal_streak_days", 0))
+    else:
+        buy_signal_streak_days = 0
+
+    is_fresh_buy_signal = raw_signal and buy_signal_streak_days == 1
+    stale_buy_signal = raw_signal and buy_signal_streak_days > 1
+    if max_buy_signal_streak_days is None:
+        fresh_buy_signal_ok = True
+    else:
+        fresh_buy_signal_ok = buy_signal_streak_days <= max(1, int(max_buy_signal_streak_days))
+
+    latest_flags.update(
+        {
+            "buy_signal_streak_days": buy_signal_streak_days,
+            "is_fresh_buy_signal": is_fresh_buy_signal,
+            "stale_buy_signal": stale_buy_signal,
+            "fresh_buy_signal_ok": fresh_buy_signal_ok,
+            "signal": bool(raw_signal and fresh_buy_signal_ok),
+        }
+    )
+    return latest_flags
 
 
 class MACDPreCrossMomentumEntry(BaseEntryStrategy):
@@ -366,6 +472,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         follow_exit_bias_pct: bool = False,
         fallback_bias_pct: float = 15.0,
         min_confidence: float = 0.6,
+        max_buy_signal_streak_days: int | None = None,
     ):
         super().__init__(strategy_name="MACDPreCrossMomentumEntry")
         self.hist_rise_days = max(2, int(hist_rise_days))
@@ -401,6 +508,12 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         )
         self.bound_exit_strategy_name = None
         self.min_confidence = float(min_confidence)
+        self.max_buy_signal_streak_days = (
+            None
+            if max_buy_signal_streak_days is None
+            else max(1, int(max_buy_signal_streak_days))
+        )
+        self._latest_flag_state_by_ticker: dict[str, dict[str, object]] = {}
 
     def bind_exit_bias_threshold(self, exit_strategy: object | None) -> None:
         if not self.follow_exit_bias_pct:
@@ -443,6 +556,18 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
                 strategy_name=self.strategy_name,
             )
 
+        previous_state = self._latest_flag_state_by_ticker.get(market_data.ticker)
+        previous_raw_signal = None
+        previous_streak_days = None
+        if previous_state is not None:
+            previous_len = int(previous_state.get("row_count", 0))
+            previous_date = previous_state.get("last_date")
+            if previous_len == len(df) - 1 and len(df) >= 2 and previous_date == df.index[-2]:
+                previous_raw_signal = bool(previous_state.get("raw_entry_signal", False))
+                previous_streak_days = int(previous_state.get("buy_signal_streak_days", 0))
+            else:
+                self._latest_flag_state_by_ticker.pop(market_data.ticker, None)
+
         latest_flags = _latest_precross_momentum_flags(
             df,
             hist_rise_days=self.hist_rise_days,
@@ -457,11 +582,26 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             max_return_5d=self.max_return_5d,
             min_adx_14=self.min_adx_14,
             max_bias_pct=self.max_bias_pct,
+            max_buy_signal_streak_days=self.max_buy_signal_streak_days,
+            previous_raw_signal=previous_raw_signal,
+            previous_streak_days=previous_streak_days,
         )
+        self._latest_flag_state_by_ticker[market_data.ticker] = {
+            "row_count": len(df),
+            "last_date": df.index[-1],
+            "raw_entry_signal": bool(latest_flags.get("raw_entry_signal", False)),
+            "buy_signal_streak_days": int(latest_flags.get("buy_signal_streak_days", 0)),
+        }
         latest = df.iloc[-1]
 
+        entry_stage = "NONE"
+        if bool(latest_flags["signal"]):
+            entry_stage = "PRE_CROSS_MOMENTUM"
+        elif bool(latest_flags.get("raw_entry_signal", False)):
+            entry_stage = "STALE_PRE_CROSS_MOMENTUM"
+
         metadata = {
-            "entry_stage": "PRE_CROSS_MOMENTUM" if bool(latest_flags["signal"]) else "NONE",
+            "entry_stage": entry_stage,
             "hist_rise_days": self.hist_rise_days,
             "price_rise_days": self.price_rise_days,
             "require_price_rising": self.require_price_rising,
@@ -478,6 +618,11 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             "fallback_bias_pct": self.fallback_bias_pct,
             "bias_threshold_source": self.bias_threshold_source,
             "bound_exit_strategy_name": self.bound_exit_strategy_name,
+            "max_buy_signal_streak_days": self.max_buy_signal_streak_days,
+            "raw_entry_signal": bool(latest_flags.get("raw_entry_signal", False)),
+            "buy_signal_streak_days": int(latest_flags.get("buy_signal_streak_days", 0)),
+            "is_fresh_buy_signal": bool(latest_flags.get("is_fresh_buy_signal", False)),
+            "stale_buy_signal": bool(latest_flags.get("stale_buy_signal", False)),
             "macd_hist": float(pd.to_numeric(latest.get("MACD_Hist"), errors="coerce")),
             "macd_hist_prev": float(pd.to_numeric(df.iloc[-2].get("MACD_Hist"), errors="coerce")),
             "macd": float(pd.to_numeric(latest.get("MACD"), errors="coerce")),
@@ -498,6 +643,15 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
 
         if not bool(latest_flags["signal"]):
             reasons = []
+            if (
+                self.max_buy_signal_streak_days is not None
+                and bool(latest_flags.get("raw_entry_signal", False))
+                and not bool(latest_flags.get("fresh_buy_signal_ok", True))
+            ):
+                streak_days = int(latest_flags.get("buy_signal_streak_days", 0))
+                reasons.append(
+                    f"BUY signal stale: streak {streak_days} days > max {self.max_buy_signal_streak_days}"
+                )
             if not bool(latest_flags["hist_rising"]):
                 reasons.append("MACD histogram not rising consecutively")
             if self.require_price_rising and not bool(latest_flags["price_rising"]):
@@ -784,6 +938,26 @@ class MACDHist2BarAnySignEntry(MACDPreCrossMomentumEntry):
             require_hist_below_zero=False,
         )
         self.strategy_name = "MACDHist2BarAnySignEntry"
+
+
+class MACDHist2BarAnySignStrictFreshEntry(MACDPreCrossMomentumEntry):
+    """2-bar any-sign histogram entry that only accepts the first raw BUY day."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=2,
+        extra_filter_count=1,
+        conditional_rule_count=2,
+    )
+
+    def __init__(self):
+        super().__init__(
+            hist_rise_days=2,
+            price_rise_days=2,
+            require_price_rising=False,
+            require_hist_below_zero=False,
+            max_buy_signal_streak_days=1,
+        )
+        self.strategy_name = "MACDHist2BarAnySignStrictFreshEntry"
 
 
 class MACDHist2BarAnySignMaxBiasPct15Entry(MACDPreCrossMomentumEntry):
@@ -1092,6 +1266,102 @@ class MACD3BarAnySignMaxBiasPct20Entry(MACDPreCrossMomentumEntry):
         self.strategy_name = "MACD3BarAnySignMaxBiasPct20Entry"
 
 
+_STRICT_FRESH_PARAM_NAMES = (
+    "hist_rise_days",
+    "price_rise_days",
+    "require_price_rising",
+    "require_hist_below_zero",
+    "max_hist_abs_norm",
+    "min_hist_delta_norm",
+    "require_above_ema200",
+    "require_peak_at_window_start",
+    "max_gap_above_ema20_pct",
+    "max_return_5d",
+    "min_adx_14",
+    "max_bias_pct",
+    "follow_exit_bias_pct",
+    "fallback_bias_pct",
+    "min_confidence",
+)
+
+
+def _strict_fresh_strategy_name(base_cls: type[MACDPreCrossMomentumEntry]) -> str:
+    base_name = base_cls.__name__
+    if not base_name.endswith("Entry"):
+        raise ValueError(f"Strict fresh variant requires an Entry class name: {base_name}")
+    return f"{base_name.removesuffix('Entry')}StrictFreshEntry"
+
+
+def _strict_fresh_complexity(base_cls: type[MACDPreCrossMomentumEntry]) -> StrategyComplexity:
+    base_complexity = getattr(base_cls, "complexity", StrategyComplexity())
+    return StrategyComplexity(
+        numeric_param_count=base_complexity.numeric_param_count + 1,
+        extra_filter_count=base_complexity.extra_filter_count + 1,
+        conditional_rule_count=base_complexity.conditional_rule_count + 1,
+    )
+
+
+def _create_strict_fresh_variant(
+    base_cls: type[MACDPreCrossMomentumEntry],
+) -> type[MACDPreCrossMomentumEntry]:
+    strategy_name = _strict_fresh_strategy_name(base_cls)
+    base_instance = base_cls()
+    base_params = {
+        name: getattr(base_instance, name)
+        for name in _STRICT_FRESH_PARAM_NAMES
+    }
+
+    def __init__(self) -> None:
+        MACDPreCrossMomentumEntry.__init__(
+            self,
+            **base_params,
+            max_buy_signal_streak_days=1,
+        )
+        self.strategy_name = strategy_name
+
+    strict_doc = (
+        ((base_cls.__doc__ or base_cls.__name__).rstrip("."))
+        + " with strict fresh gating that only accepts the first raw BUY day."
+    )
+    strict_cls = type(
+        strategy_name,
+        (MACDPreCrossMomentumEntry,),
+        {
+            "__doc__": strict_doc,
+            "__init__": __init__,
+            "complexity": _strict_fresh_complexity(base_cls),
+        },
+    )
+    strict_cls.__module__ = __name__
+    return strict_cls
+
+
+_STRICT_FRESH_VARIANT_BASE_CLASSES = (
+    MACDHist2BarAnySignMaxBiasPct10Entry,
+    MACDHist2BarAnySignMaxBiasPct15Entry,
+    MACDHist2BarAnySignMaxBiasPct20Entry,
+    MACDHist2BarAnySignMaxBiasPct25Entry,
+    MACDHist2BarAnySignMaxBiasPct30Entry,
+    MACDHist2BarAnySignFollowExitBiasEntry,
+    MACD2BarAnySignEntry,
+    MACD2BarAnySignMaxBiasPct20Entry,
+    MACDPreCrossHist3BarEntry,
+    MACDPreCrossHist3BarMaxBiasPct20Entry,
+    MACDHist3BarAnySignEntry,
+    MACDHist3BarAnySignMaxBiasPct20Entry,
+    MACDPreCross3BarEntry,
+    MACDPreCross3BarMaxBiasPct20Entry,
+    MACD3BarAnySignEntry,
+    MACD3BarAnySignMaxBiasPct20Entry,
+)
+
+GENERATED_STRICT_FRESH_VARIANT_NAMES: tuple[str, ...] = ()
+for _base_cls in _STRICT_FRESH_VARIANT_BASE_CLASSES:
+    _strict_cls = _create_strict_fresh_variant(_base_cls)
+    globals()[_strict_cls.__name__] = _strict_cls
+    GENERATED_STRICT_FRESH_VARIANT_NAMES += (_strict_cls.__name__,)
+
+
 __all__ = [
     "MACDPreCrossMomentumEntry",
     "MACDPreCross2BarEntry",
@@ -1105,6 +1375,7 @@ __all__ = [
     "MACDPreCrossHist2BarEntry",
     "MACDPreCrossHist2BarMaxBiasPct20Entry",
     "MACDHist2BarAnySignEntry",
+    "MACDHist2BarAnySignStrictFreshEntry",
     "MACDHist2BarAnySignMaxBiasPct10Entry",
     "MACDHist2BarAnySignMaxBiasPct15Entry",
     "MACDHist2BarAnySignMaxBiasPct20Entry",
@@ -1121,5 +1392,6 @@ __all__ = [
     "MACDPreCross3BarMaxBiasPct20Entry",
     "MACD3BarAnySignEntry",
     "MACD3BarAnySignMaxBiasPct20Entry",
+    *GENERATED_STRICT_FRESH_VARIANT_NAMES,
     "build_precross_momentum_flags",
 ]

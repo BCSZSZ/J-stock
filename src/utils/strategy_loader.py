@@ -25,6 +25,7 @@ ENTRY_STRATEGIES = {
     "MACDPreCrossHist2BarEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossHist2BarEntry",
     "MACDPreCrossHist2BarMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDPreCrossHist2BarMaxBiasPct20Entry",
     "MACDHist2BarAnySignEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignEntry",
+    "MACDHist2BarAnySignStrictFreshEntry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignStrictFreshEntry",
     "MACDHist2BarAnySignMaxBiasPct10Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignMaxBiasPct10Entry",
     "MACDHist2BarAnySignMaxBiasPct15Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignMaxBiasPct15Entry",
     "MACDHist2BarAnySignMaxBiasPct20Entry": "src.analysis.strategies.entry.macd_precross_momentum_entry.MACDHist2BarAnySignMaxBiasPct20Entry",
@@ -62,6 +63,36 @@ ENTRY_STRATEGIES = {
     "MACDHistHysteresisPreCrossEntry": "src.analysis.strategies.entry.macd_hysteresis_entry.MACDHistHysteresisPreCrossEntry",
     "MovingAverageCrossoverEntry": "src.analysis.strategies.entry.moving_average_crossover_entry.MovingAverageCrossoverEntry",
 }
+
+_PRE_CROSS_STRICT_FRESH_ENTRY_NAMES = (
+    "MACDHist2BarAnySignStrictFreshEntry",
+    "MACDHist2BarAnySignMaxBiasPct10StrictFreshEntry",
+    "MACDHist2BarAnySignMaxBiasPct15StrictFreshEntry",
+    "MACDHist2BarAnySignMaxBiasPct20StrictFreshEntry",
+    "MACDHist2BarAnySignMaxBiasPct25StrictFreshEntry",
+    "MACDHist2BarAnySignMaxBiasPct30StrictFreshEntry",
+    "MACDHist2BarAnySignFollowExitBiasStrictFreshEntry",
+    "MACD2BarAnySignStrictFreshEntry",
+    "MACD2BarAnySignMaxBiasPct20StrictFreshEntry",
+    "MACDPreCrossHist3BarStrictFreshEntry",
+    "MACDPreCrossHist3BarMaxBiasPct20StrictFreshEntry",
+    "MACDHist3BarAnySignStrictFreshEntry",
+    "MACDHist3BarAnySignMaxBiasPct20StrictFreshEntry",
+    "MACDPreCross3BarStrictFreshEntry",
+    "MACDPreCross3BarMaxBiasPct20StrictFreshEntry",
+    "MACD3BarAnySignStrictFreshEntry",
+    "MACD3BarAnySignMaxBiasPct20StrictFreshEntry",
+)
+
+ENTRY_STRATEGIES.update(
+    {
+        name: (
+            "src.analysis.strategies.entry.macd_precross_momentum_entry."
+            f"{name}"
+        )
+        for name in _PRE_CROSS_STRICT_FRESH_ENTRY_NAMES
+    }
+)
 
 try:
     from src.analysis.strategies.entry.macd_hysteresis_entry import (
@@ -458,6 +489,7 @@ def get_available_ranking_strategies() -> List[str]:
         "risk_adjusted",
         "composite",
         "momentum",
+        "fresh_momentum",
         "volatility_penalty",
         "trend_alignment",
         "simple_score",

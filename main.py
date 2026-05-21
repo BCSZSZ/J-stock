@@ -44,6 +44,12 @@ def _cmd_replay_evaluation(args):
     return cmd_replay_evaluation(args)
 
 
+def _cmd_entry_analysis(args):
+    from src.cli.entry_analysis import cmd_entry_analysis
+
+    return cmd_entry_analysis(args)
+
+
 def _add_fill_buffer_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--fill-buffer-enabled",
@@ -179,7 +185,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             "信号排序策略（默认: default）。"
             "可选: default, random, score_only, confidence_weighted, "
-            "risk_adjusted, composite, momentum, volatility_penalty, trend_alignment"
+            "risk_adjusted, composite, momentum, fresh_momentum, volatility_penalty, trend_alignment"
         ),
     )
 
@@ -284,7 +290,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         help=(
             "信号排序策略（默认: default）。"
             "可选: default, random, score_only, confidence_weighted, "
-            "risk_adjusted, composite, momentum, volatility_penalty, trend_alignment"
+            "risk_adjusted, composite, momentum, fresh_momentum, volatility_penalty, trend_alignment"
         ),
     )
 
@@ -374,7 +380,7 @@ def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         help=(
             "信号排序策略（默认: default）。"
             "可选: default, random, score_only, confidence_weighted, "
-            "risk_adjusted, composite, momentum, volatility_penalty, trend_alignment"
+            "risk_adjusted, composite, momentum, fresh_momentum, volatility_penalty, trend_alignment"
         ),
     )
 
@@ -792,6 +798,97 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_replay_evaluation_arguments(replay_evaluate_parser)
     replay_evaluate_parser.set_defaults(func=_cmd_replay_evaluation)
+
+    entry_analysis_parser = subparsers.add_parser(
+        "entry-analysis",
+        help="Entry signal analysis without exit logic (all BUY signals + fixed forward returns)",
+    )
+    entry_analysis_parser.add_argument(
+        "--entry-strategies",
+        nargs="+",
+        help="入场策略列表（默认读取 evaluation.default_entry_strategies）",
+    )
+    entry_analysis_parser.add_argument(
+        "--universe-file",
+        nargs="+",
+        default=None,
+        help="股票池文件路径（支持 json/csv/txt，可多个）",
+    )
+    entry_analysis_parser.add_argument("--start", help="开始日期 YYYY-MM-DD")
+    entry_analysis_parser.add_argument("--end", help="结束日期 YYYY-MM-DD")
+    entry_analysis_parser.add_argument(
+        "--years",
+        nargs="+",
+        type=int,
+        help="年份列表；指定后覆盖 --start/--end，例如 2024 2025",
+    )
+    entry_analysis_parser.add_argument(
+        "--horizons",
+        nargs="+",
+        type=int,
+        default=[3, 5, 10],
+        help="前向收益交易日窗口（默认: 3 5 10）",
+    )
+    entry_analysis_parser.add_argument(
+        "--primary-horizon",
+        type=int,
+        default=5,
+        help="报告排序主窗口（默认: 5）",
+    )
+    entry_analysis_parser.add_argument(
+        "--indicator-columns",
+        nargs="+",
+        default=None,
+        help="要附加的 feature 列；默认 RSI/EMA/ATR/ADX/MACD 等已有指标",
+    )
+    entry_analysis_parser.add_argument(
+        "--rules-json",
+        help="分组规则 JSON 字符串或文件路径；未指定时使用 preset rules",
+    )
+    entry_analysis_parser.add_argument(
+        "--preset-rules",
+        default="none",
+        help="可选批量聚合规则集：default/rsi_adx_ema/none（默认: none，只生成 BUY signal dataset）",
+    )
+    entry_analysis_parser.add_argument(
+        "--label-mode",
+        choices=["signal_close", "next_open"],
+        default="signal_close",
+        help="前向收益标签起点：signal_close 或 next_open（默认: signal_close）",
+    )
+    entry_analysis_parser.add_argument(
+        "--min-samples",
+        type=int,
+        default=30,
+        help="聚合 bucket 最小样本数（默认: 30）",
+    )
+    entry_analysis_parser.add_argument(
+        "--no-joint",
+        action="store_true",
+        help="只输出单指标 marginal 聚合，不输出多指标 joint 聚合",
+    )
+    entry_analysis_parser.add_argument(
+        "--no-save-candidates",
+        action="store_true",
+        help="兼容旧参数；Entry Analysis dataset 模式始终保存 BUY candidate 明细 CSV",
+    )
+    entry_analysis_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="仅扫描前 N 个 ticker（调试/冒烟用）",
+    )
+    entry_analysis_parser.add_argument(
+        "--data-root",
+        default="data",
+        help="数据根目录（默认: data）",
+    )
+    entry_analysis_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="输出目录（默认: entry_analysis 或 config.entry_analysis.output_dir）",
+    )
+    entry_analysis_parser.set_defaults(func=_cmd_entry_analysis)
 
     pos_evaluate_parser = subparsers.add_parser(
         "pos-evaluation", help="仓位参数批量评价（读取evaluation-position.json）"

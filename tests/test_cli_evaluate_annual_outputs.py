@@ -7,6 +7,28 @@ from src.cli import evaluate as evaluate_cli
 from src.evaluation.strategy_evaluator import StrategyEvaluator
 
 
+def _write_features(data_root: Path, ticker: str) -> None:
+    features_dir = data_root / "features"
+    features_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2025-01-10", "2025-01-20"]),
+            "RSI": [52.0, 61.0],
+            "RSI_9": [53.0, 62.0],
+            "RSI_14": [52.0, 61.0],
+            "RSI_22": [51.0, 60.0],
+            "EMA_20": [101.0, 108.0],
+            "EMA_50": [99.0, 104.0],
+            "EMA_200": [90.0, 94.0],
+            "ATR": [2.1, 2.5],
+            "ADX_14": [19.0, 25.0],
+            "MACD": [0.2, 0.8],
+            "MACD_Signal": [0.1, 0.6],
+            "MACD_Hist": [0.1, 0.2],
+        }
+    ).to_parquet(features_dir / f"{ticker}_features.parquet", index=False)
+
+
 def test_build_annual_continuous_periods_returns_full_span_for_multi_year_mode():
     args = SimpleNamespace(mode="annual", years=[2023, 2021, 2022])
     periods = [
@@ -15,7 +37,7 @@ def test_build_annual_continuous_periods_returns_full_span_for_multi_year_mode()
         ("2023", "2023-01-01", "2023-12-31"),
     ]
 
-    assert evaluate_cli._build_annual_continuous_periods(args, periods) == [
+    assert evaluate_cli._build_segmented_continuous_periods(args, periods) == [
         ("2021-2023_continuous", "2021-01-01", "2023-12-31")
     ]
 
@@ -201,6 +223,77 @@ def test_write_annual_continuous_stability_rank_writes_csv_and_report(tmp_path):
     assert Path(files["continuous_stability_report"]).exists()
 
 
+def test_write_combined_position_output_family_writes_indicator_sidecar(tmp_path):
+    data_root = tmp_path / "data"
+    _write_features(data_root, "7203")
+
+    trade_frames = [
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "7203",
+                    "entry_date": "2025-01-10",
+                    "entry_metadata_json": '{"entry_signal_date": "2025-01-10"}',
+                    "exit_date": "2025-01-20",
+                    "exit_metadata_json": '{"exit_signal_date": "2025-01-20"}',
+                    "entry_strategy": "EntryA",
+                    "exit_strategy": "ExitA",
+                    "entry_filter": "off",
+                    "period": "2025",
+                    "start_date": "2025-01-01",
+                    "end_date": "2025-12-31",
+                    "market_regime": "温和牛市 (TOPIX 0-25%)",
+                    "topix_return_pct": 12.0,
+                    "exit_confirmation_days": 1,
+                    "buy_fill_mode": "next_open",
+                    "entry_reference_mode": "raw_fill",
+                    "fill_buffer_enabled": False,
+                    "fill_buffer_pct": 0.0,
+                    "entry_price": 100.0,
+                    "entry_score": 70.0,
+                    "entry_confidence": 0.8,
+                    "exit_price": 110.0,
+                    "exit_reason": "TP1 hit: +1.0R",
+                    "exit_urgency": "P_TP1",
+                    "holding_days": 10,
+                    "shares": 100,
+                    "return_pct": 5.0,
+                    "return_jpy": 5000.0,
+                    "peak_price": 112.0,
+                    "position_quantity_before_exit": 100,
+                    "position_quantity_after_exit": 0,
+                    "exit_sell_percentage": 1.0,
+                    "exit_is_full_exit": True,
+                    "exit_is_partial_exit": False,
+                    "capacity_regime_version": "",
+                    "capacity_tier_name": "",
+                    "capacity_effective_equity_jpy": 0.0,
+                    "capacity_order_cap_jpy": 0.0,
+                    "capacity_turnover_jpy": 0.0,
+                    "capacity_participation_pct": 0.0,
+                    "ranking_strategy": "default",
+                }
+            ]
+        )
+    ]
+
+    files = evaluate_cli._write_combined_position_output_family(
+        output_dir=str(tmp_path),
+        data_root=str(data_root),
+        family_prefix="position_eval_combined",
+        raw_frames=[],
+        regime_frames=[],
+        trade_frames=trade_frames,
+    )
+
+    assert Path(files["trades"]).exists()
+    assert Path(files["trades_indicators"]).exists()
+
+    indicators_df = pd.read_csv(files["trades_indicators"])
+    assert "entry_exec_RSI" in indicators_df.columns
+    assert indicators_df.iloc[0]["exit_exec_MACD"] == 0.8
+
+
 def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_path):
     segmented_path = tmp_path / "segmented.csv"
     trades_path = tmp_path / "trades.csv"
@@ -372,10 +465,10 @@ def test_write_localized_annual_final_review_includes_opening_metric_tables(tmp_
     assert "### 全策略组合 × 年度收益率" in report_text
     assert "### 全策略组合 × 年度胜率" in report_text
     assert "### 全策略组合 × 年度最大回撤" in report_text
-    assert "| 入场策略 | 出场策略 | 入场过滤器 | 出场确认天数 | 买入成交模式 | 成交价缓冲 | 缓冲比例 | 2021 | 2022 | 全期间平均收益率 |" in report_text
-    assert "| EntryA | ExitA | off | 1 | next_open | on | 2.00% | 10.00% | 20.00% | 15.00% |" in report_text
-    assert "| EntryA | ExitA | off | 1 | next_open | on | 2.00% | 50.00% | 70.00% | 60.00% |" in report_text
-    assert "| EntryA | ExitA | off | 1 | next_open | on | 2.00% | 5.00% | 7.00% | 6.00% |" in report_text
+    assert "| 入场策略 | 出场策略 | 入场过滤器 | 出场确认天数 | 买入成交模式 | 入场参考价模式 | 成交价缓冲 | 缓冲比例 | 2021 | 2022 | 全期间平均收益率 |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | raw_fill | on | 2.00% | 10.00% | 20.00% | 15.00% |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | raw_fill | on | 2.00% | 50.00% | 70.00% | 60.00% |" in report_text
+    assert "| EntryA | ExitA | off | 1 | next_open | raw_fill | on | 2.00% | 5.00% | 7.00% | 6.00% |" in report_text
     assert report_text.index("## 全策略组合年度总览") < report_text.index("## 策略组合 1")
     assert "### 年度总览" in report_text
 

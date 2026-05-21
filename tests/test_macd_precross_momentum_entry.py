@@ -1,4 +1,5 @@
 import pandas as pd
+import src.analysis.strategies.entry.macd_precross_momentum_entry as precross_entry_module
 
 from src.analysis.signals import MarketData, SignalAction
 from src.analysis.strategies.entry.macd_precross_momentum_entry import (
@@ -13,6 +14,7 @@ from src.analysis.strategies.entry.macd_precross_momentum_entry import (
     MACDHist2BarAnySignEntry,
     MACDHist2BarAnySignFollowExitBiasEntry,
     MACDHist2BarAnySignMaxBiasPct15Entry,
+    MACDHist2BarAnySignStrictFreshEntry,
     MACDPreCrossMomentumEntry,
     _latest_precross_momentum_flags,
     build_precross_momentum_flags,
@@ -152,6 +154,122 @@ def test_precross_two_bar_variant_triggers_with_two_bar_rise():
     assert sig.metadata.get("hist_rise_days") == 2
     assert sig.metadata.get("price_rise_days") == 2
 
+
+def test_hist2bar_anysign_marks_repeated_buy_signal_as_stale_but_still_buys():
+    df = pd.DataFrame(
+        {
+            "Close": [100.0, 101.0, 102.0],
+            "MACD_Hist": [-0.30, -0.20, -0.10],
+            "MACD": [-0.50, -0.35, -0.20],
+            "MACD_Signal": [-0.40, -0.30, -0.15],
+        }
+    )
+    st = MACDHist2BarAnySignEntry()
+
+    sig = st.generate_entry_signal(_mk_market_data(df))
+
+    assert sig.action == SignalAction.BUY
+    assert sig.metadata.get("raw_entry_signal") is True
+    assert sig.metadata.get("buy_signal_streak_days") == 2
+    assert sig.metadata.get("stale_buy_signal") is True
+
+
+def test_hist2bar_anysign_strict_fresh_buys_only_first_raw_buy_day():
+    fresh_df = pd.DataFrame(
+        {
+            "Close": [100.0, 101.0],
+            "MACD_Hist": [-0.30, -0.20],
+            "MACD": [-0.50, -0.35],
+            "MACD_Signal": [-0.40, -0.30],
+        }
+    )
+    stale_df = pd.DataFrame(
+        {
+            "Close": [100.0, 101.0, 102.0],
+            "MACD_Hist": [-0.30, -0.20, -0.10],
+            "MACD": [-0.50, -0.35, -0.20],
+            "MACD_Signal": [-0.40, -0.30, -0.15],
+        }
+    )
+    st = MACDHist2BarAnySignStrictFreshEntry()
+
+    fresh_sig = st.generate_entry_signal(_mk_market_data(fresh_df))
+    stale_sig = st.generate_entry_signal(_mk_market_data(stale_df))
+
+    assert fresh_sig.action == SignalAction.BUY
+    assert fresh_sig.metadata.get("buy_signal_streak_days") == 1
+    assert fresh_sig.metadata.get("is_fresh_buy_signal") is True
+    assert stale_sig.action == SignalAction.HOLD
+    assert stale_sig.metadata.get("entry_stage") == "STALE_PRE_CROSS_MOMENTUM"
+    assert stale_sig.metadata.get("buy_signal_streak_days") == 2
+    assert stale_sig.metadata.get("stale_buy_signal") is True
+    assert any("BUY signal stale" in reason for reason in stale_sig.reasons)
+
+
+def test_batch_and_latest_flags_track_strict_fresh_streak_for_hist_only_entry():
+    df = pd.DataFrame(
+        {
+            "Close": [100.0, 99.0, 98.0],
+            "MACD_Hist": [-0.30, -0.20, -0.10],
+        }
+    )
+
+    batch_flags = build_precross_momentum_flags(
+        df,
+        hist_rise_days=2,
+        price_rise_days=2,
+        require_price_rising=False,
+        require_hist_below_zero=False,
+        max_buy_signal_streak_days=1,
+    ).iloc[-1]
+    latest_flags = _latest_precross_momentum_flags(
+        df,
+        hist_rise_days=2,
+        price_rise_days=2,
+        require_price_rising=False,
+        require_hist_below_zero=False,
+        max_buy_signal_streak_days=1,
+    )
+
+    assert bool(batch_flags["raw_entry_signal"]) is True
+    assert bool(batch_flags["signal"]) is False
+    assert int(batch_flags["buy_signal_streak_days"]) == 2
+    assert latest_flags["buy_signal_streak_days"] == 2
+    assert bool(latest_flags["raw_entry_signal"]) == bool(batch_flags["raw_entry_signal"])
+    assert bool(latest_flags["signal"]) == bool(batch_flags["signal"])
+
+
+def test_generate_entry_signal_reuses_previous_streak_state_without_batch_recompute(
+    monkeypatch,
+):
+    df = pd.DataFrame(
+        {
+            "Close": [100.0, 99.0, 98.0],
+            "MACD_Hist": [-0.30, -0.20, -0.10],
+            "MACD": [-0.50, -0.40, -0.20],
+            "MACD_Signal": [-0.45, -0.35, -0.15],
+        }
+    )
+
+    strategy = MACDHist2BarAnySignStrictFreshEntry()
+    first_signal = strategy.generate_entry_signal(_mk_market_data(df.iloc[:2]))
+    assert first_signal.metadata.get("buy_signal_streak_days") == 1
+    assert first_signal.action == SignalAction.BUY
+
+    def _unexpected_batch_recompute(*args, **kwargs):
+        raise AssertionError("cached hot path should not invoke build_precross_momentum_flags")
+
+    monkeypatch.setattr(
+        precross_entry_module,
+        "build_precross_momentum_flags",
+        _unexpected_batch_recompute,
+    )
+
+    stale_signal = strategy.generate_entry_signal(_mk_market_data(df))
+
+    assert stale_signal.metadata.get("buy_signal_streak_days") == 2
+    assert bool(stale_signal.metadata.get("raw_entry_signal")) is True
+    assert stale_signal.action == SignalAction.HOLD
 
 def test_peak_constraint_requires_window_to_start_at_negative_peak():
     df = pd.DataFrame(
@@ -341,6 +459,7 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     min_delta_002 = MACDPreCross2BarMinHistDeltaNorm002Entry()
     lite = MACDPreCross2BarLiteComboEntry()
     max_bias = MACDHist2BarAnySignMaxBiasPct15Entry()
+    strict_fresh = MACDHist2BarAnySignStrictFreshEntry()
     follow_exit_bias = MACDHist2BarAnySignFollowExitBiasEntry()
 
     assert plain.strategy_name == "MACDPreCross2BarEntry"
@@ -375,6 +494,11 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     assert max_bias.max_bias_pct == 15.0
     assert max_bias.require_hist_below_zero is False
 
+    assert strict_fresh.strategy_name == "MACDHist2BarAnySignStrictFreshEntry"
+    assert strict_fresh.max_buy_signal_streak_days == 1
+    assert strict_fresh.require_price_rising is False
+    assert strict_fresh.require_hist_below_zero is False
+
     assert follow_exit_bias.strategy_name == "MACDHist2BarAnySignFollowExitBiasEntry"
     assert follow_exit_bias.max_bias_pct == 15.0
     assert follow_exit_bias.follow_exit_bias_pct is True
@@ -384,6 +508,7 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     assert "MACDPreCross2BarMinHistDeltaNorm0015Entry" in ENTRY_STRATEGIES
     assert "MACDPreCross2BarMinHistDeltaNorm002Entry" in ENTRY_STRATEGIES
     assert "MACDHist2BarAnySignMaxBiasPct15Entry" in ENTRY_STRATEGIES
+    assert "MACDHist2BarAnySignStrictFreshEntry" in ENTRY_STRATEGIES
     assert "MACDHist2BarAnySignFollowExitBiasEntry" in ENTRY_STRATEGIES
     assert create_strategy_instance(
         "MACDPreCross2BarMinHistDeltaNorm0005Entry", "entry"
@@ -399,6 +524,9 @@ def test_cli_friendly_precross_variants_are_registered_with_fixed_params():
     ) is not None
     assert create_strategy_instance(
         "MACDHist2BarAnySignMaxBiasPct15Entry", "entry"
+    ) is not None
+    assert create_strategy_instance(
+        "MACDHist2BarAnySignStrictFreshEntry", "entry"
     ) is not None
     assert create_strategy_instance(
         "MACDHist2BarAnySignFollowExitBiasEntry", "entry"
@@ -451,6 +579,74 @@ def test_hist2bar_anysign_max_bias_family_is_registered_with_expected_thresholds
         assert strategy.require_price_rising is False
         assert strategy.require_hist_below_zero is False
         assert strategy.max_bias_pct == max_bias_pct
+
+
+def test_requested_strict_fresh_variants_are_registered_with_inherited_flags():
+    base_names = (
+        "MACDHist2BarAnySignEntry",
+        "MACDHist2BarAnySignMaxBiasPct10Entry",
+        "MACDHist2BarAnySignMaxBiasPct15Entry",
+        "MACDHist2BarAnySignMaxBiasPct20Entry",
+        "MACDHist2BarAnySignMaxBiasPct25Entry",
+        "MACDHist2BarAnySignMaxBiasPct30Entry",
+        "MACDHist2BarAnySignFollowExitBiasEntry",
+        "MACD2BarAnySignEntry",
+        "MACD2BarAnySignMaxBiasPct20Entry",
+        "MACDPreCrossHist3BarEntry",
+        "MACDPreCrossHist3BarMaxBiasPct20Entry",
+        "MACDHist3BarAnySignEntry",
+        "MACDHist3BarAnySignMaxBiasPct20Entry",
+        "MACDPreCross3BarEntry",
+        "MACDPreCross3BarMaxBiasPct20Entry",
+        "MACD3BarAnySignEntry",
+        "MACD3BarAnySignMaxBiasPct20Entry",
+    )
+
+    for base_name in base_names:
+        strict_name = f"{base_name.removesuffix('Entry')}StrictFreshEntry"
+        assert strict_name in ENTRY_STRATEGIES
+
+        base_strategy = create_strategy_instance(base_name, "entry")
+        strict_strategy = create_strategy_instance(strict_name, "entry")
+
+        assert strict_strategy.strategy_name == strict_name
+        assert strict_strategy.max_buy_signal_streak_days == 1
+        assert strict_strategy.hist_rise_days == base_strategy.hist_rise_days
+        assert strict_strategy.price_rise_days == base_strategy.price_rise_days
+        assert (
+            strict_strategy.require_price_rising
+            is base_strategy.require_price_rising
+        )
+        assert (
+            strict_strategy.require_hist_below_zero
+            is base_strategy.require_hist_below_zero
+        )
+        assert strict_strategy.max_hist_abs_norm == base_strategy.max_hist_abs_norm
+        assert (
+            strict_strategy.min_hist_delta_norm
+            == base_strategy.min_hist_delta_norm
+        )
+        assert strict_strategy.max_gap_above_ema20_pct == base_strategy.max_gap_above_ema20_pct
+        assert strict_strategy.max_return_5d == base_strategy.max_return_5d
+        assert strict_strategy.min_adx_14 == base_strategy.min_adx_14
+        assert strict_strategy.max_bias_pct == base_strategy.max_bias_pct
+        assert (
+            strict_strategy.follow_exit_bias_pct
+            is base_strategy.follow_exit_bias_pct
+        )
+        assert strict_strategy.fallback_bias_pct == base_strategy.fallback_bias_pct
+        assert (
+            strict_strategy.complexity.numeric_param_count
+            == base_strategy.complexity.numeric_param_count + 1
+        )
+        assert (
+            strict_strategy.complexity.extra_filter_count
+            == base_strategy.complexity.extra_filter_count + 1
+        )
+        assert (
+            strict_strategy.complexity.conditional_rule_count
+            == base_strategy.complexity.conditional_rule_count + 1
+        )
 
 
 def test_min_hist_delta_norm_blocks_tiny_histogram_rise():

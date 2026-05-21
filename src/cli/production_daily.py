@@ -1393,11 +1393,13 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 # Convert production Signals → TradingSignal dict for ranker
                 ts_dict = {}
                 for s in buy_signals:
+                    metadata = dict(getattr(s, "signal_metadata", {}) or {})
+                    metadata.setdefault("score", s.score)
                     ts_dict[s.ticker] = _TS(
                         action=_SA.BUY,
                         confidence=s.confidence,
                         reasons=[s.reason],
-                        metadata={"score": s.score},
+                        metadata=metadata,
                         strategy_name=s.strategy_name,
                     )
 

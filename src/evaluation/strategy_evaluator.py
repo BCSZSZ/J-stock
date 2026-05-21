@@ -21,6 +21,7 @@ from src.analysis.signals import SignalAction, TradingSignal
 from src.backtest.lot_size_manager import LotSizeManager
 from src.backtest.entry_reference import normalize_entry_reference_mode
 from src.backtest.fill_buffer import normalize_fill_buffer_pct
+from src.evaluation.trade_indicator_enrichment import write_enriched_trades_sidecar
 from src.evaluation.replay_seed import (
     ReplaySeed,
     build_replay_pending_signal,
@@ -3066,6 +3067,18 @@ class StrategyEvaluator:
         trade_df.to_csv(trades_file, index=False, encoding="utf-8-sig")
         print(f"✅ 原始交易明细已保存: {trades_file}")
         files["trades"] = str(trades_file)
+
+        try:
+            indicator_file = write_enriched_trades_sidecar(
+                trades_csv=trades_file,
+                data_root=self.data_root,
+                trades_df=trade_df,
+            )
+        except Exception as e:
+            print(f"⚠️ 交易指标 sidecar 生成失败: {e}")
+        else:
+            print(f"✅ 交易指标 sidecar 已保存: {indicator_file}")
+            files["trades_indicators"] = str(indicator_file)
 
         last_day_signal_df = self._create_last_day_signal_dataframe()
         last_day_signal_file = self.output_dir / f"{prefix}_last_day_signals_{timestamp}.csv"

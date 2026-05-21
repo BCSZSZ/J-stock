@@ -1,6 +1,7 @@
-import { useDeferredValue, useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import StrategyMultiSelect from "../components/StrategyMultiSelect";
 import MultiDatePicker from "../components/MultiDatePicker";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import LogOutput from "../components/LogOutput";
@@ -69,12 +70,6 @@ interface EvaluationOptionsResponse {
   defaults: EvaluationDefaults;
 }
 
-interface EvaluationResultFile {
-  name: string;
-  type: string;
-  size: string;
-}
-
 interface ReplayReportContext {
   report_file: string;
   entry_strategy: string;
@@ -86,14 +81,6 @@ interface CheckboxListProps {
   selected: string[];
   onToggle: (value: string) => void;
   emptyText?: string;
-}
-
-interface SearchableCheckboxListProps {
-  options: string[];
-  selected: string[];
-  onChange: (values: string[]) => void;
-  emptyText?: string;
-  searchPlaceholder?: string;
 }
 
 const DEFAULT_YEARS = Array.from({ length: 5 }, (_, index) =>
@@ -111,130 +98,22 @@ function CheckboxList({
   }
 
   return (
-    <div className="max-h-40 overflow-y-auto space-y-0.5 rounded border border-gray-800 bg-gray-950/40 p-2">
-      {options.map((option) => (
-        <label
-          key={option}
-          className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white"
-        >
-          <input
-            type="checkbox"
-            checked={selected.includes(option)}
-            onChange={() => onToggle(option)}
-            className="rounded"
-          />
-          <span className="break-all">{option}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-function SearchableCheckboxList({
-  options,
-  selected,
-  onChange,
-  emptyText = "No options available.",
-  searchPlaceholder = "Search...",
-}: SearchableCheckboxListProps) {
-  const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
-  const normalizedQuery = deferredQuery.trim().toLowerCase();
-  const filteredOptions = normalizedQuery
-    ? options.filter((option) => option.toLowerCase().includes(normalizedQuery))
-    : options;
-  const filteredSet = new Set(filteredOptions);
-  const filteredSelectedCount = selected.filter((option) => filteredSet.has(option)).length;
-  const hasSelectableFiltered = filteredOptions.some(
-    (option) => !selected.includes(option),
-  );
-  const hasSelectedFiltered = filteredOptions.some((option) => selected.includes(option));
-
-  if (options.length === 0) {
-    return <p className="text-xs text-gray-500">{emptyText}</p>;
-  }
-
-  return (
-    <div className="rounded border border-gray-800 bg-gray-950/40">
-      <div className="space-y-2 border-b border-gray-800 px-3 py-3">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={searchPlaceholder}
-          className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm text-gray-200 placeholder:text-gray-500"
-        />
-        <div className="flex items-center justify-between gap-3 text-[11px] text-gray-500">
-          <span>
-            Showing {filteredOptions.length} / {options.length}
-          </span>
-          <span>
-            Selected {selected.length}
-            {filteredOptions.length > 0 ? ` (${filteredSelectedCount} in view)` : ""}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              const next = [...selected];
-              for (const option of filteredOptions) {
-                if (!next.includes(option)) {
-                  next.push(option);
-                }
-              }
-              onChange(next);
-            }}
-            disabled={!hasSelectableFiltered}
-            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 disabled:opacity-40"
+    <div className="max-h-44 min-h-[9rem] overflow-y-auto rounded border border-gray-800 bg-gray-950/40 p-2">
+      <div className="grid gap-x-3 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
+        {options.map((option) => (
+          <label
+            key={option}
+            className="flex items-start gap-2 rounded px-1.5 py-1 text-xs text-gray-300 cursor-pointer hover:bg-gray-900/60 hover:text-white"
           >
-            Select shown
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const filteredToClear = new Set(filteredOptions);
-              onChange(selected.filter((option) => !filteredToClear.has(option)));
-            }}
-            disabled={!hasSelectedFiltered}
-            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 disabled:opacity-40"
-          >
-            Clear shown
-          </button>
-          <button
-            type="button"
-            onClick={() => onChange([])}
-            disabled={selected.length === 0}
-            className="rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 disabled:opacity-40"
-          >
-            Clear all
-          </button>
-        </div>
-      </div>
-      <div className="max-h-64 overflow-y-auto space-y-0.5 p-2">
-        {filteredOptions.length === 0 ? (
-          <p className="px-1 py-2 text-xs text-gray-500">No matches found.</p>
-        ) : (
-          filteredOptions.map((option) => (
-            <label
-              key={option}
-              className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer hover:text-white"
-            >
-              <input
-                type="checkbox"
-                checked={selected.includes(option)}
-                onChange={() =>
-                  onChange(
-                    selected.includes(option)
-                      ? selected.filter((item) => item !== option)
-                      : [...selected, option],
-                  )
-                }
-                className="rounded"
-              />
-              <span className="break-all">{option}</span>
-            </label>
-          ))
-        )}
+            <input
+              type="checkbox"
+              checked={selected.includes(option)}
+              onChange={() => onToggle(option)}
+              className="mt-0.5 rounded"
+            />
+            <span className="break-all">{option}</span>
+          </label>
+        ))}
       </div>
     </div>
   );
@@ -289,7 +168,6 @@ function formatEntryReferenceModeLabel(mode: EntryReferenceMode): string {
 }
 
 export default function Evaluation() {
-  const queryClient = useQueryClient();
   const options = useQuery<EvaluationOptionsResponse>({
     queryKey: ["eval-options"],
     queryFn: api.evalOptions,
@@ -333,16 +211,7 @@ export default function Evaluation() {
   const exec = useStreamExec();
   const { confirm, dialog } = useConfirmDialog();
 
-  const [viewResult, setViewResult] = useState<Record<
-    string,
-    unknown
-  > | null>(null);
-
   const resolvedOutputDir = options.data?.defaults.output_dir;
-  const results = useQuery<EvaluationResultFile[]>({
-    queryKey: ["eval-results", resolvedOutputDir],
-    queryFn: () => api.evalResults(resolvedOutputDir),
-  });
   const reportDates = useQuery<string[]>({
     queryKey: ["report-dates"],
     queryFn: api.reportDates,
@@ -391,6 +260,44 @@ export default function Evaluation() {
   const capacityRegimeModeOptions = (
     options.data?.capacity_regime_modes ?? ["off", "enforce"]
   ).filter(isCapacityRegimeMode);
+  const executionBatchCount =
+    selectedBuyFillModes.length * selectedEntryReferenceModes.length;
+  const launchBatchCount =
+    !isWalkForward && !isReplayEvaluation && launchDates.length > 0
+      ? launchDates.length
+      : 1;
+  const executionSliceCount = executionBatchCount * launchBatchCount;
+  const activeEntryCount = overrideStrategies
+    ? selectedEntry.length
+    : productionEntry
+      ? 1
+      : 0;
+  const activeExitCount = overrideStrategies
+    ? selectedExit.length
+    : productionExit
+      ? 1
+      : 0;
+  const strategyScopeLabel = overrideStrategies ? "override" : "production default";
+  const modeLabel = isReplayEvaluation ? "replay" : mode;
+  const sixColGridClass = "grid gap-3 md:grid-cols-2 xl:grid-cols-6 xl:auto-rows-fr";
+  const summaryCardClassName =
+    "rounded-lg border border-gray-800 bg-gray-900 px-4 py-3 min-h-[132px] h-full flex flex-col";
+  const fieldCardClassName =
+    "rounded-lg border border-gray-800 bg-gray-950/40 px-3 py-3 min-h-[124px] h-full flex flex-col";
+  const tallFieldCardClassName =
+    "rounded-lg border border-gray-800 bg-gray-950/40 px-3 py-3 min-h-[236px] h-full flex flex-col";
+  const compactInputClassName =
+    "h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm";
+  const compactTextareaClassName =
+    "w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm";
+  const compactCodeTextareaClassName = `${compactTextareaClassName} font-mono`;
+  const compactLabelClassName =
+    "text-xs uppercase tracking-wide text-gray-500 block mb-2";
+  const launchDatesSpanClass = showCustomPeriods
+    ? "xl:col-span-3"
+    : showMonths
+      ? "xl:col-span-4"
+      : "xl:col-span-5";
 
   useEffect(() => {
     if (!options.data || initializedFromOptions) return;
@@ -513,9 +420,6 @@ export default function Evaluation() {
     }
 
     const normalizedFillBufferPct = parsedFillBufferPct ?? 0.02;
-    const executionBatchCount =
-      selectedBuyFillModes.length * selectedEntryReferenceModes.length;
-
     const payload: Record<string, unknown> = {
       command,
       buy_fill_modes: selectedBuyFillModes,
@@ -597,12 +501,6 @@ export default function Evaluation() {
     );
     if (!ok) return;
     await exec.execute("/evaluation/run", payload);
-    await queryClient.invalidateQueries({ queryKey: ["eval-results"] });
-  }
-
-  async function handleViewResult(filename: string) {
-    const data = await api.evalResult(filename, resolvedOutputDir);
-    setViewResult(data);
   }
 
   function toggleSelection<T extends string>(
@@ -630,449 +528,512 @@ export default function Evaluation() {
         </div>
       )}
 
-      {results.isError && (
-        <div className="rounded-lg border border-yellow-800 bg-yellow-950/40 px-4 py-3 text-sm text-yellow-200">
-          Failed to load result files: {String(results.error)}
+      <div className={sixColGridClass}>
+        <div className={summaryCardClassName}>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500">
+            Command
+          </div>
+          <div className="mt-2 text-base font-semibold text-white">{command}</div>
+          <div className="mt-auto pt-3 text-xs text-gray-500">
+            Current evaluation command in the active run form.
+          </div>
         </div>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className={summaryCardClassName}>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500">
+            Mode
+          </div>
+          <div className="mt-2 text-base font-semibold text-white">{modeLabel}</div>
+          <div className="mt-1 text-xs text-gray-400">
+            ranking {rankingMode} / exit confirm {exitConfirmDays.trim() || "config"}
+          </div>
+          <div className="mt-auto pt-3 text-xs text-gray-500">
+            Replay uses the selected report anchor instead of period presets.
+          </div>
+        </div>
+
+        <div className={summaryCardClassName}>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500">
+            Execution
+          </div>
+          <div className="mt-2 text-base font-semibold text-white">{executionSliceCount} slices</div>
+          <div className="mt-1 text-xs text-gray-400">
+            fills {selectedBuyFillModes.length} / refs {selectedEntryReferenceModes.length} / launches {launchBatchCount}
+          </div>
+          <div className="mt-auto pt-3 text-xs text-gray-500">
+            Before period expansion and strategy cross-product.
+          </div>
+        </div>
+
+        <div className={summaryCardClassName}>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500">
+            Strategy Scope
+          </div>
+          <div className="mt-2 text-base font-semibold text-white">{strategyScopeLabel}</div>
+          <div className="mt-1 text-xs text-gray-400">
+            entry {activeEntryCount} / exit {activeExitCount}
+          </div>
+          <div className="mt-auto pt-3 text-xs text-gray-500">
+            {overrideStrategies
+              ? "Comparing selected strategy families."
+              : "Using production defaults until override is enabled."}
+          </div>
+        </div>
+
+        <div className={summaryCardClassName}>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500">
+            Filters
+          </div>
+          <div className="mt-2 text-base font-semibold text-white">
+            {entryFilterMode} / {capacityRegimeMode}
+          </div>
+          <div className="mt-1 text-xs text-gray-400">
+            named {selectedFilterNames.length} / overlay {isPosEvaluation ? selectedOverlayModes.join(", ") : enableOverlay ? "on" : "off"}
+          </div>
+          <div className="mt-auto pt-3 text-xs text-gray-500">
+            Fill buffer {fillBufferEnabled ? "enabled" : "disabled"} at {((parsedFillBufferPct ?? 0) * 100).toFixed(2)}%.
+          </div>
+        </div>
+
+        <div className={summaryCardClassName}>
+          <div className="text-[11px] uppercase tracking-wide text-gray-500">
+            Output
+          </div>
+          <div className="mt-2 text-sm font-semibold text-white break-all">
+            {resolvedOutputDir ?? "(config default output dir)"}
+          </div>
+          <div className="mt-1 text-xs text-gray-400 break-all">
+            {isReplayEvaluation
+              ? reportFile.trim() || "Replay anchor not set"
+              : productionUniverse || "Production monitor list not configured"}
+          </div>
+          <div className="mt-auto pt-3 text-xs text-gray-500">
+            YYYYMMDD / entry+exit+timestamp
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
         {/* Config panel */}
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 lg:p-5 space-y-4">
           <h3 className="font-semibold text-blue-400">Configuration</h3>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Command</label>
-            <select
-              value={command}
-              onChange={(e) => setCommand(e.target.value as EvaluationCommand)}
-              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-            >
-              {(options.data?.commands ?? []).map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </div>
-
-          {!isReplayEvaluation && (
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">Mode</label>
+          <div className={sixColGridClass}>
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Command</label>
               <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value as EvaluationMode)}
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+                value={command}
+                onChange={(e) => setCommand(e.target.value as EvaluationCommand)}
+                className={compactInputClassName}
               >
-                {modeOptions.map((item) => (
+                {(options.data?.commands ?? []).map((item) => (
                   <option key={item}>{item}</option>
                 ))}
               </select>
-              {isWalkForward && mode === "quarterly" && (
-                <p className="mt-2 text-xs text-gray-500">
-                  Years define the covered year range. Quarterly walk-forward expands quarter by quarter within those years, current year uses only completed quarters, and Initial Train Years still sets the starting training span in years.
-                </p>
-              )}
             </div>
-          )}
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">
-              Buy Fill Modes ({selectedBuyFillModes.length} selected)
-            </label>
-            <p className="mb-2 text-xs text-gray-500">
-              Select one or both. The run will execute the full evaluation set for each selected fill mode.
-            </p>
-            <CheckboxList
-              options={buyFillModeOptions}
-              selected={selectedBuyFillModes}
-              onToggle={(name) => {
-                if (!isBuyFillMode(name)) return;
-                toggleSelection(
-                  selectedBuyFillModes,
-                  setSelectedBuyFillModes,
-                  name,
-                );
-              }}
-            />
-            {selectedBuyFillModes.length === 0 && (
-              <p className="mt-2 text-xs text-red-400">
-                Select at least one fill mode to run evaluation.
-              </p>
-            )}
-            {selectedBuyFillModes.length > 0 && (
-              <p className="mt-2 text-xs text-gray-500">
-                Active: {selectedBuyFillModes.map(formatBuyFillModeLabel).join(", ")}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">
-              Entry Reference Modes ({selectedEntryReferenceModes.length} selected)
-            </label>
-            <p className="mb-2 text-xs text-gray-500">
-              Select at least one. Each selected mode runs the full evaluation set once per buy fill mode.
-            </p>
-            <CheckboxList
-              options={entryReferenceModeOptions}
-              selected={selectedEntryReferenceModes}
-              onToggle={(name) => {
-                if (!isEntryReferenceMode(name)) return;
-                toggleSelection(
-                  selectedEntryReferenceModes,
-                  setSelectedEntryReferenceModes,
-                  name,
-                );
-              }}
-            />
-            {selectedEntryReferenceModes.length === 0 && (
-              <p className="mt-2 text-xs text-red-400">
-                Select at least one entry reference mode to run evaluation.
-              </p>
-            )}
-            {selectedEntryReferenceModes.length > 0 && (
-              <p className="mt-2 text-xs text-gray-500">
-                Active: {selectedEntryReferenceModes.map(formatEntryReferenceModeLabel).join(", ")}
-              </p>
-            )}
-          </div>
-
-          <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3 space-y-3">
-            <label className="flex items-center gap-2 text-sm text-gray-300">
-              <input
-                type="checkbox"
-                checked={fillBufferEnabled}
-                onChange={(e) => setFillBufferEnabled(e.target.checked)}
-              />
-              Enable Fill Buffer
-            </label>
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
-                Fill Buffer Ratio
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>
+                {isReplayEvaluation ? "Replay Anchor" : "Mode"}
               </label>
-              <input
-                value={fillBufferPct}
-                onChange={(e) => setFillBufferPct(e.target.value)}
-                placeholder="0.02"
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Buy fills use raw price × (1 + buffer). Sell fills use raw price × (1 - buffer).
-              </p>
-              {!fillBufferEnabled &&
-                selectedEntryReferenceModes.includes("buffered_fill") && (
-                  <p className="mt-2 text-xs text-yellow-300">
-                    Fill buffer is OFF, so buffered_fill will currently collapse to the same entry reference price as raw_fill.
-                  </p>
-                )}
-              {fillBufferPctInvalid && (
-                <p className="mt-2 text-xs text-red-400">
-                  Enter a valid ratio between 0 and 1, for example 0.02.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {!isReplayEvaluation && (
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
-                Years (comma or newline separated)
-              </label>
-              <textarea
-                value={years}
-                onChange={(e) => setYears(e.target.value)}
-                rows={2}
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm w-full"
-              />
-            </div>
-          )}
-
-          {!isWalkForward && !isReplayEvaluation && (
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
-                Launch Dates
-              </label>
-              <MultiDatePicker value={launchDates} onChange={setLaunchDates} />
-              <p className="mt-2 text-xs text-gray-500">
-                Each selected launch date expands the run set once. Selecting {" "}
-                <span className="text-gray-300">N</span> launch dates runs roughly {" "}
-                <span className="text-gray-300">N×</span> strategy combinations for evaluate and pos-evaluation.
-              </p>
-            </div>
-          )}
-
-          {isReplayEvaluation && (
-            <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3 space-y-3">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">
-                  Replay Report File
-                </label>
-                <input
-                  value={reportFile}
-                  onChange={(e) => setReportFile(e.target.value)}
-                  placeholder="G:\\My Drive\\AI-Stock-Sync\\reports\\2026-05-15.md"
-                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-                />
-                {!reportFile.trim() && (
-                  <p className="mt-2 text-xs text-red-400">
-                    Replay requires a concrete report markdown path.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">
-                  Quick Select Existing Reports
-                </label>
-                <select
-                  value={
-                    (reportDates.data ?? []).some(
-                      (date) =>
-                        productionReportPattern.includes("{date}") &&
-                        productionReportPattern.replace("{date}", date) === reportFile,
-                    )
-                      ? reportFile
-                      : ""
-                  }
-                  onChange={(e) => setReportFile(e.target.value)}
-                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-                >
-                  <option value="">Use typed path</option>
-                  {(reportDates.data ?? []).map((date) => {
-                    const resolvedPath = productionReportPattern.includes("{date}")
-                      ? productionReportPattern.replace("{date}", date)
-                      : date;
-                    return (
-                      <option key={date} value={resolvedPath}>
-                        {date}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              <p className="text-xs text-gray-500">
-                Replay reconstructs the historical production state from the selected report date, then continues from the next trading day.
-              </p>
-
-              {replayReportContext.data && (
-                <div className="rounded border border-emerald-900 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
-                  Auto-applied report strategy combo: {replayReportContext.data.entry_strategy} × {replayReportContext.data.exit_strategy}
+              {isReplayEvaluation ? (
+                <div className="rounded border border-gray-800 bg-gray-900/80 px-3 py-2 text-sm text-gray-300 break-all flex-1">
+                  {reportFile.trim() || "Choose a report markdown path below."}
                 </div>
+              ) : (
+                <>
+                  <select
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value as EvaluationMode)}
+                    className={compactInputClassName}
+                  >
+                    {modeOptions.map((item) => (
+                      <option key={item}>{item}</option>
+                    ))}
+                  </select>
+                  {isWalkForward && mode === "quarterly" && (
+                    <p className="mt-2 text-[11px] text-gray-500">
+                      Quarterly walk-forward expands within selected years.
+                    </p>
+                  )}
+                </>
               )}
-
-              {replayReportContext.isError && reportFile.trim() && (
-                <p className="text-xs text-yellow-300">
-                  Failed to extract strategy combo from the selected report. Current strategy selection was left unchanged.
-                </p>
-              )}
             </div>
-          )}
 
-          {showMonths && (
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
-                Months (comma or newline separated)
-              </label>
-              <input
-                value={months}
-                onChange={(e) => setMonths(e.target.value)}
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-              />
-            </div>
-          )}
-
-          {showCustomPeriods && (
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
-                Custom Periods JSON
-              </label>
-              <textarea
-                value={customPeriods}
-                onChange={(e) => setCustomPeriods(e.target.value)}
-                rows={4}
-                placeholder='[["2024-Q1", "2024-01-01", "2024-03-31"]]'
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm w-full font-mono"
-              />
-            </div>
-          )}
-
-          {isWalkForward && (
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
-                Initial Train Years
-              </label>
-              <input
-                value={minTrainYears}
-                onChange={(e) => setMinTrainYears(e.target.value)}
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                The initial anchored training span, measured in whole years. In quarterly mode, `2` means the first 8 quarters are used for training.
-              </p>
-            </div>
-          )}
-
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">
-              Universe
-            </label>
-            <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-2 text-sm text-gray-300">
-              <div className="text-xs uppercase tracking-wide text-gray-500">
-                Production Monitor List
-              </div>
-              <div className="mt-1 break-all">{productionUniverse || "Not configured"}</div>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">
-              Production Defaults
-            </label>
-            <div className="space-y-2 rounded border border-gray-800 bg-gray-950/40 px-3 py-3 text-sm text-gray-300">
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Entry Strategy</div>
-                <div className="mt-1 break-all">{productionEntry || "Not configured"}</div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Exit Strategy</div>
-                <div className="mt-1 break-all">{productionExit || "Not configured"}</div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Signal Ranking Strategy</div>
-                <div className="mt-1 break-all">{productionRankingStrategy || "Not configured"}</div>
-              </div>
-            </div>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            <input
-              type="checkbox"
-              checked={overrideStrategies}
-              onChange={(e) => setOverrideStrategies(e.target.checked)}
-            />
-            Override / Compare Strategies
-          </label>
-
-          {overrideStrategies && (
-            <>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">
-                  Entry Strategies ({selectedEntry.length} selected)
-                </label>
-                <SearchableCheckboxList
-                  options={options.data?.entry_strategies ?? []}
-                  selected={selectedEntry}
-                  onChange={setSelectedEntry}
-                  searchPlaceholder="Search entry strategies..."
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">
-                  Exit Strategies ({selectedExit.length} selected)
-                </label>
-                <SearchableCheckboxList
-                  options={options.data?.exit_strategies ?? []}
-                  selected={selectedExit}
-                  onChange={setSelectedExit}
-                  searchPlaceholder="Search exit strategies..."
-                />
-              </div>
-            </>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
-                Train Ranking Mode
-              </label>
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Train Ranking Mode</label>
               {hasMultipleRankingModes ? (
                 <select
                   value={rankingMode}
                   onChange={(e) => setRankingMode(e.target.value)}
-                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+                  className={compactInputClassName}
                 >
                   {rankingModeOptions.map((item) => (
                     <option key={item}>{item}</option>
                   ))}
                 </select>
               ) : (
-                <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-2 text-sm text-gray-300">
-                  <div className="font-medium text-white">prs_train</div>
-                  <div className="mt-1 text-xs text-gray-500">
-                    Legacy rank modes removed from web UI.
-                  </div>
+                <div className="rounded border border-gray-800 bg-gray-900/80 px-3 py-2 text-sm text-gray-300 h-10 flex items-center">
+                  prs_train
                 </div>
               )}
+              <p className="mt-2 text-[11px] text-gray-500">
+                Ranking strategy name itself stays fixed to production.
+              </p>
             </div>
 
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
-                Exit Confirm Days
-              </label>
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Exit Confirm Days</label>
               <input
                 value={exitConfirmDays}
                 onChange={(e) => setExitConfirmDays(e.target.value)}
                 placeholder="Use config default when blank"
-                className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+                className={compactInputClassName}
               />
             </div>
+
+            <div className={fieldCardClassName}>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <label className="text-xs uppercase tracking-wide text-gray-500">
+                  Fill Buffer
+                </label>
+                <input
+                  type="checkbox"
+                  checked={fillBufferEnabled}
+                  onChange={(e) => setFillBufferEnabled(e.target.checked)}
+                />
+              </div>
+              <input
+                value={fillBufferPct}
+                onChange={(e) => setFillBufferPct(e.target.value)}
+                placeholder="0.02"
+                className={compactInputClassName}
+              />
+              <p className="mt-2 text-[11px] text-gray-500">
+                buy raw × (1 + buffer), sell raw × (1 - buffer)
+              </p>
+              {!fillBufferEnabled &&
+                selectedEntryReferenceModes.includes("buffered_fill") && (
+                  <p className="mt-2 text-[11px] text-yellow-300">
+                    buffered_fill currently collapses to raw_fill.
+                  </p>
+                )}
+              {fillBufferPctInvalid && (
+                <p className="mt-2 text-[11px] text-red-400">
+                  Enter a valid ratio between 0 and 1.
+                </p>
+              )}
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Run Flags</label>
+              <div className="space-y-2 text-sm text-gray-300">
+                {!isPosEvaluation && (
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={enableOverlay}
+                      onChange={(e) => setEnableOverlay(e.target.checked)}
+                    />
+                    Enable Overlay
+                  </label>
+                )}
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={verbose}
+                    onChange={(e) => setVerbose(e.target.checked)}
+                  />
+                  Verbose Output
+                </label>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">
-              Capacity Regime Mode
-            </label>
-            <select
-              value={capacityRegimeMode}
-              onChange={(e) =>
-                setCapacityRegimeMode(e.target.value as CapacityRegimeMode)
-              }
-              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-            >
-              {capacityRegimeModeOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-            <p className="mt-2 text-xs text-gray-500">
-              off uses fixed portfolio limits from the selected profile or config. enforce enables tier-based position and liquidity constraints during evaluation.
-            </p>
+          <div className={sixColGridClass}>
+            <div className={`${tallFieldCardClassName} xl:col-span-2`}>
+              <label className={compactLabelClassName}>
+                Buy Fill Modes ({selectedBuyFillModes.length} selected)
+              </label>
+              <p className="mb-2 text-xs text-gray-500">
+                Select one or both. The run will execute the full evaluation set for each selected fill mode.
+              </p>
+              <CheckboxList
+                options={buyFillModeOptions}
+                selected={selectedBuyFillModes}
+                onToggle={(name) => {
+                  if (!isBuyFillMode(name)) return;
+                  toggleSelection(
+                    selectedBuyFillModes,
+                    setSelectedBuyFillModes,
+                    name,
+                  );
+                }}
+              />
+              {selectedBuyFillModes.length === 0 && (
+                <p className="mt-2 text-xs text-red-400">
+                  Select at least one fill mode to run evaluation.
+                </p>
+              )}
+              {selectedBuyFillModes.length > 0 && (
+                <p className="mt-2 text-xs text-gray-500">
+                  Active: {selectedBuyFillModes.map(formatBuyFillModeLabel).join(", ")}
+                </p>
+              )}
+            </div>
+
+            <div className={`${tallFieldCardClassName} xl:col-span-2`}>
+              <label className={compactLabelClassName}>
+                Entry Reference Modes ({selectedEntryReferenceModes.length} selected)
+              </label>
+              <p className="mb-2 text-xs text-gray-500">
+                Select at least one. Each selected mode runs the full evaluation set once per buy fill mode.
+              </p>
+              <CheckboxList
+                options={entryReferenceModeOptions}
+                selected={selectedEntryReferenceModes}
+                onToggle={(name) => {
+                  if (!isEntryReferenceMode(name)) return;
+                  toggleSelection(
+                    selectedEntryReferenceModes,
+                    setSelectedEntryReferenceModes,
+                    name,
+                  );
+                }}
+              />
+              {selectedEntryReferenceModes.length === 0 && (
+                <p className="mt-2 text-xs text-red-400">
+                  Select at least one entry reference mode to run evaluation.
+                </p>
+              )}
+              {selectedEntryReferenceModes.length > 0 && (
+                <p className="mt-2 text-xs text-gray-500">
+                  Active: {selectedEntryReferenceModes.map(formatEntryReferenceModeLabel).join(", ")}
+                </p>
+              )}
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Capacity Regime</label>
+                <select
+                  value={capacityRegimeMode}
+                  onChange={(e) =>
+                    setCapacityRegimeMode(e.target.value as CapacityRegimeMode)
+                  }
+                  className={compactInputClassName}
+                >
+                  {capacityRegimeModeOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              <p className="mt-2 text-[11px] text-gray-500">
+                Tier-based position and liquidity constraints for evaluation.
+              </p>
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Entry Filter Mode</label>
+                <select
+                  value={entryFilterMode}
+                  onChange={(e) =>
+                    setEntryFilterMode(e.target.value as EntryFilterMode)
+                  }
+                  className={compactInputClassName}
+                >
+                  {(options.data?.entry_filter_modes ?? []).map((item) => (
+                    <option key={item}>{item}</option>
+                  ))}
+                </select>
+              <p className="mt-2 text-[11px] text-gray-500">
+                {selectedFilterNames.length} named filters currently selected.
+              </p>
+            </div>
           </div>
 
-          <div className="rounded border border-gray-800 bg-gray-950/40 px-3 py-3 text-sm text-gray-300">
-            <div className="text-xs uppercase tracking-wide text-gray-500">
-              Signal Ranking Strategy
-            </div>
-            <div className="mt-1 text-white">
-              {productionRankingStrategy || "Not configured"}
-            </div>
-            <div className="mt-1 text-xs text-gray-500">
-              Web UI keeps signal ranking fixed to the production default. Only the train ranking mode remains configurable here.
-            </div>
-          </div>
+          {isReplayEvaluation ? (
+            <div className={sixColGridClass}>
+              <div className={`${tallFieldCardClassName} xl:col-span-6`}>
+                <label className={compactLabelClassName}>Replay Report Anchor</label>
+                <div className="grid gap-3 xl:grid-cols-3">
+                  <div className="xl:col-span-2">
+                    <label className="text-[11px] text-gray-500 block mb-1">Replay Report File</label>
+                    <input
+                      value={reportFile}
+                      onChange={(e) => setReportFile(e.target.value)}
+                      placeholder="G:\\My Drive\\AI-Stock-Sync\\reports\\2026-05-15.md"
+                      className={compactInputClassName}
+                    />
+                    {!reportFile.trim() && (
+                      <p className="mt-2 text-[11px] text-red-400">
+                        Replay requires a concrete report markdown path.
+                      </p>
+                    )}
+                  </div>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">
-              Entry Filter Mode
-            </label>
-            <select
-              value={entryFilterMode}
-              onChange={(e) =>
-                setEntryFilterMode(e.target.value as EntryFilterMode)
-              }
-              className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
-            >
-              {(options.data?.entry_filter_modes ?? []).map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Quick Select Existing Reports</label>
+                    <select
+                      value={
+                        (reportDates.data ?? []).some(
+                          (date) =>
+                            productionReportPattern.includes("{date}") &&
+                            productionReportPattern.replace("{date}", date) === reportFile,
+                        )
+                          ? reportFile
+                          : ""
+                      }
+                      onChange={(e) => setReportFile(e.target.value)}
+                      className={compactInputClassName}
+                    >
+                      <option value="">Use typed path</option>
+                      {(reportDates.data ?? []).map((date) => {
+                        const resolvedPath = productionReportPattern.includes("{date}")
+                          ? productionReportPattern.replace("{date}", date)
+                          : date;
+                        return (
+                          <option key={date} value={resolvedPath}>
+                            {date}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                  <p className="text-[11px] text-gray-500">
+                    Replay reconstructs historical production state from the selected report date, then continues from the next trading day.
+                  </p>
+
+                  {replayReportContext.data ? (
+                    <div className="rounded border border-emerald-900 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
+                      Auto-applied strategy combo: {replayReportContext.data.entry_strategy} × {replayReportContext.data.exit_strategy}
+                    </div>
+                  ) : replayReportContext.isError && reportFile.trim() ? (
+                    <p className="text-xs text-yellow-300">
+                      Failed to extract strategy combo from the selected report. Current strategy selection was left unchanged.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : isWalkForward ? (
+            <div className={sixColGridClass}>
+              <div className={`${fieldCardClassName} xl:col-span-3`}>
+                <label className={compactLabelClassName}>Years</label>
+                <textarea
+                  value={years}
+                  onChange={(e) => setYears(e.target.value)}
+                  rows={2}
+                  className={compactTextareaClassName}
+                />
+              </div>
+
+              <div className={`${fieldCardClassName} xl:col-span-3`}>
+                <label className={compactLabelClassName}>Initial Train Years</label>
+                <input
+                  value={minTrainYears}
+                  onChange={(e) => setMinTrainYears(e.target.value)}
+                  className={compactInputClassName}
+                />
+                <p className="mt-2 text-[11px] text-gray-500">
+                  Quarterly mode: 2 means the first 8 quarters train the model.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className={sixColGridClass}>
+              <div className={fieldCardClassName}>
+                <label className={compactLabelClassName}>Years</label>
+                <textarea
+                  value={years}
+                  onChange={(e) => setYears(e.target.value)}
+                  rows={2}
+                  className={compactTextareaClassName}
+                />
+              </div>
+
+              {showMonths && (
+                <div className={fieldCardClassName}>
+                  <label className={compactLabelClassName}>Months</label>
+                  <input
+                    value={months}
+                    onChange={(e) => setMonths(e.target.value)}
+                    className={compactInputClassName}
+                  />
+                </div>
+              )}
+
+              {showCustomPeriods && (
+                <div className={`${tallFieldCardClassName} xl:col-span-2`}>
+                  <label className={compactLabelClassName}>Custom Periods JSON</label>
+                  <textarea
+                    value={customPeriods}
+                    onChange={(e) => setCustomPeriods(e.target.value)}
+                    rows={4}
+                    placeholder='[["2024-Q1", "2024-01-01", "2024-03-31"]]'
+                    className={compactCodeTextareaClassName}
+                  />
+                </div>
+              )}
+
+              <div className={`${tallFieldCardClassName} ${launchDatesSpanClass}`}>
+                <label className={compactLabelClassName}>Launch Dates</label>
+                <MultiDatePicker
+                  value={launchDates}
+                  onChange={setLaunchDates}
+                  className="h-full border-0 bg-transparent p-0"
+                />
+                <p className="mt-2 text-[11px] text-gray-500">
+                  Each selected date expands the run set once.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className={sixColGridClass}>
+            <div className={`${fieldCardClassName} xl:col-span-2`}>
+              <label className={compactLabelClassName}>Universe</label>
+              <div className="text-sm text-gray-300 flex-1">
+                <div className="text-[11px] uppercase tracking-wide text-gray-500">Production Monitor List</div>
+                <div className="mt-2 break-all">{productionUniverse || "Not configured"}</div>
+              </div>
+            </div>
+
+            <div className={`${fieldCardClassName} xl:col-span-2`}>
+              <label className={compactLabelClassName}>Production Defaults</label>
+              <div className="space-y-2 text-sm text-gray-300 flex-1">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-500">Entry Strategy</div>
+                  <div className="mt-1 break-all">{productionEntry || "Not configured"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-500">Exit Strategy</div>
+                  <div className="mt-1 break-all">{productionExit || "Not configured"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-500">Signal Ranking Strategy</div>
+                  <div className="mt-1 break-all">{productionRankingStrategy || "Not configured"}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className={`${fieldCardClassName} xl:col-span-2`}>
+              <label className={compactLabelClassName}>Output Root</label>
+              <p className="text-sm text-gray-200 break-all flex-1">
+                {resolvedOutputDir ?? "(config default output dir)"}
+              </p>
+              <p className="mt-2 text-[11px] text-gray-500">
+                Results are stored automatically as YYYYMMDD / entry+exit+timestamp.
+              </p>
+            </div>
           </div>
 
           {showFilterNames && (
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">
+            <div className={tallFieldCardClassName}>
+              <label className={compactLabelClassName}>
                 Entry Filter Names ({selectedFilterNames.length} selected)
               </label>
               <CheckboxList
@@ -1091,31 +1052,61 @@ export default function Evaluation() {
             </div>
           )}
 
-          <div className="rounded-lg border border-gray-800 bg-gray-950/50 px-3 py-2">
-            <p className="text-xs text-gray-500 mb-1">Output Root</p>
-            <p className="text-sm text-gray-200 break-all">
-              {resolvedOutputDir ?? "(config default output dir)"}
-            </p>
-            <p className="mt-1 text-xs text-gray-500">
-              Results are stored automatically as YYYYMMDD / entry+exit+timestamp.
+          <div className="rounded-lg border border-gray-800 bg-gray-950/30 px-3 py-3 min-h-[76px] flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <label className="flex items-center gap-2 text-sm text-gray-300">
+              <input
+                type="checkbox"
+                checked={overrideStrategies}
+                onChange={(e) => setOverrideStrategies(e.target.checked)}
+              />
+              Override / Compare Strategies
+            </label>
+            <p className="text-xs text-gray-500">
+              {overrideStrategies
+                ? `${selectedEntry.length} entry and ${selectedExit.length} exit strategies selected for this run.`
+                : "Using production entry/exit defaults until override is enabled."}
             </p>
           </div>
 
+          {overrideStrategies && (
+            <div className={sixColGridClass}>
+              <div className="xl:col-span-3 h-full">
+                <StrategyMultiSelect
+                  label="Entry Strategies"
+                  options={options.data?.entry_strategies ?? []}
+                  selected={selectedEntry}
+                  onChange={setSelectedEntry}
+                  searchPlaceholder="Search entry strategies..."
+                />
+              </div>
+
+              <div className="xl:col-span-3 h-full">
+                <StrategyMultiSelect
+                  label="Exit Strategies"
+                  options={options.data?.exit_strategies ?? []}
+                  selected={selectedExit}
+                  onChange={setSelectedExit}
+                  searchPlaceholder="Search exit strategies..."
+                />
+              </div>
+            </div>
+          )}
+
           {isPosEvaluation ? (
-            <>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">
+            <div className={sixColGridClass}>
+              <div className={`${tallFieldCardClassName} xl:col-span-2`}>
+                <label className={compactLabelClassName}>
                   Position File
                 </label>
                 <input
                   value={positionFile}
                   onChange={(e) => setPositionFile(e.target.value)}
-                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-full"
+                  className={compactInputClassName}
                 />
               </div>
 
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">
+              <div className={`${tallFieldCardClassName} xl:col-span-2`}>
+                <label className={compactLabelClassName}>
                   Position Profiles ({selectedProfiles.length} selected)
                 </label>
                 <CheckboxList
@@ -1128,8 +1119,8 @@ export default function Evaluation() {
                 />
               </div>
 
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">
+              <div className={`${tallFieldCardClassName} xl:col-span-2`}>
+                <label className={compactLabelClassName}>
                   Overlay Modes ({selectedOverlayModes.length} selected)
                 </label>
                 <CheckboxList
@@ -1144,39 +1135,51 @@ export default function Evaluation() {
                   }
                 />
               </div>
-            </>
-          ) : (
-            <label className="flex items-center gap-2 text-sm text-gray-300">
-              <input
-                type="checkbox"
-                checked={enableOverlay}
-                onChange={(e) => setEnableOverlay(e.target.checked)}
-              />
-              Enable Overlay
-            </label>
-          )}
+            </div>
+          ) : null}
 
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            <input
-              type="checkbox"
-              checked={verbose}
-              onChange={(e) => setVerbose(e.target.checked)}
-            />
-            Verbose Output
-          </label>
+          <div className={sixColGridClass}>
+            <div className={`${fieldCardClassName} xl:col-span-5 justify-center`}>
+              <div className="text-xs uppercase tracking-wide text-gray-500">
+                Run Summary
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-300">
+                <span className="rounded-full border border-gray-700 px-2 py-1">
+                  {executionBatchCount} fill/ref slices
+                </span>
+                <span className="rounded-full border border-gray-700 px-2 py-1">
+                  {launchBatchCount} launch set(s)
+                </span>
+                <span className="rounded-full border border-gray-700 px-2 py-1">
+                  {activeEntryCount} entry
+                </span>
+                <span className="rounded-full border border-gray-700 px-2 py-1">
+                  {activeExitCount} exit
+                </span>
+                <span className="rounded-full border border-gray-700 px-2 py-1">
+                  filter {entryFilterMode}
+                </span>
+                <span className="rounded-full border border-gray-700 px-2 py-1">
+                  buffer {fillBufferEnabled ? "on" : "off"}
+                </span>
+              </div>
+            </div>
 
-          <button
-            onClick={handleRun}
-            disabled={
-              exec.running ||
-              selectedBuyFillModes.length === 0 ||
-              selectedEntryReferenceModes.length === 0 ||
-              fillBufferPctInvalid
-            }
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm w-full"
-          >
-            Run {command}
-          </button>
+            <div className={`${fieldCardClassName} xl:col-span-1 justify-center`}>
+              <button
+                onClick={handleRun}
+                disabled={
+                  exec.running ||
+                  selectedBuyFillModes.length === 0 ||
+                  selectedEntryReferenceModes.length === 0 ||
+                  fillBufferPctInvalid
+                }
+                className="h-full min-h-[78px] px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm w-full"
+              >
+                Run {command}
+              </button>
+            </div>
+          </div>
 
           {exec.lines.length > 0 && (
             <LogOutput
@@ -1184,57 +1187,6 @@ export default function Evaluation() {
               running={exec.running}
               exitCode={exec.exitCode}
             />
-          )}
-        </div>
-
-        {/* Results panel */}
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-4">
-          <h3 className="font-semibold text-green-400">Past Results</h3>
-          <p className="text-xs text-gray-500 break-all">
-            Browsing: {resolvedOutputDir ?? "(config default output dir)"}
-          </p>
-          <div className="max-h-96 overflow-y-auto space-y-1">
-            {(results.data ?? []).length === 0 && (
-              <p className="text-xs text-gray-500">No result files found.</p>
-            )}
-            {(results.data ?? []).map((f) => (
-              <button
-                key={f.name}
-                onClick={() => handleViewResult(f.name)}
-                className="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-800 text-gray-300 flex justify-between"
-              >
-                <span className="truncate">{f.name}</span>
-                <span className="text-gray-600 ml-2">{f.type}</span>
-              </button>
-            ))}
-          </div>
-          {viewResult && (
-            <div className="mt-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium">
-                  {(viewResult.name as string) ?? "Result"}
-                </span>
-                <button
-                  onClick={() => setViewResult(null)}
-                  className="text-xs text-gray-500 hover:text-gray-300"
-                >
-                  Close
-                </button>
-              </div>
-              {viewResult.type === "markdown" ? (
-                <div className="prose prose-invert prose-sm max-h-60 overflow-y-auto">
-                  <pre className="text-gray-300 whitespace-pre-wrap text-xs">
-                    {viewResult.content as string}
-                  </pre>
-                </div>
-              ) : (
-                <div className="overflow-x-auto max-h-60 text-xs">
-                  <pre className="text-gray-300">
-                    {JSON.stringify(viewResult.data ?? viewResult, null, 2).slice(0, 12000)}
-                  </pre>
-                </div>
-              )}
-            </div>
           )}
         </div>
       </div>

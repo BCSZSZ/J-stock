@@ -45,10 +45,130 @@ export type TradeHistoryResponse = {
   [key: string]: unknown;
 };
 
+export type EntryAnalysisBucketMode =
+  | "manual"
+  | "sliding"
+  | "fixed"
+  | "quantile"
+  | "categorical";
+
+export type EntryAnalysisRuleRange = {
+  label?: string | null;
+  min?: number | null;
+  max?: number | null;
+};
+
+export type EntryAnalysisRule = {
+  feature: string;
+  mode: EntryAnalysisBucketMode;
+  label?: string | null;
+  ranges?: EntryAnalysisRuleRange[];
+  min?: number | null;
+  max?: number | null;
+  window?: number | null;
+  step?: number | null;
+  bin_width?: number | null;
+  quantiles?: number | null;
+  include_null?: boolean;
+};
+
+export type EntryAnalysisOptions = {
+  entry_strategies: string[];
+  indicator_columns: string[];
+  derived_feature_columns: string[];
+  bucket_modes: EntryAnalysisBucketMode[];
+  label_modes: string[];
+  preset_rules: string[];
+  defaults: {
+    entry_strategies: string[];
+    universe_files: string[];
+    horizons: number[];
+    primary_horizon: number;
+    label_mode: string;
+    min_samples: number;
+    include_joint: boolean;
+    save_candidates: boolean;
+    data_root: string;
+    output_dir: string;
+  };
+};
+
+export type EntryAnalysisRunRequest = {
+  entry_strategies?: string[];
+  universe_files?: string[];
+  start?: string;
+  end?: string;
+  years?: number[];
+  horizons: number[];
+  primary_horizon: number;
+  indicator_columns?: string[];
+  rules?: EntryAnalysisRule[];
+  preset_rules?: string;
+  label_mode: string;
+  min_samples: number;
+  include_joint: boolean;
+  save_candidates: boolean;
+  limit?: number | null;
+  data_root: string;
+  output_dir?: string;
+};
+
+export type EntryAnalysisDatasetSummary = {
+  id: string;
+  dataset_id: string;
+  generated_at: string;
+  candidate_count: number;
+  entry_strategies: string[];
+  start_date: string;
+  end_date: string;
+  horizons: number[];
+  label_mode: string;
+  output_dir: string;
+};
+
+export type EntryAnalysisDatasetSchema = {
+  id: string;
+  manifest: Record<string, unknown>;
+  feature_columns: string[];
+  numeric_features: string[];
+  categorical_features: string[];
+  horizons: number[];
+  candidate_count: number;
+};
+
+export type EntryAnalysisFeatureCondition = {
+  feature: string;
+  operator: "between" | ">=" | ">" | "<=" | "<" | "==" | "!=" | "is_null" | "not_null";
+  min?: number | null;
+  max?: number | null;
+  value?: string | number | boolean | null;
+};
+
+export type EntryAnalysisAggregateRequest = {
+  conditions: EntryAnalysisFeatureCondition[];
+  logic: "all" | "any";
+  horizons: number[];
+  group_by?: string | null;
+  min_samples: number;
+};
+
+export type EntryAnalysisAggregateResponse = {
+  id: string;
+  manifest: Record<string, unknown>;
+  logic: "all" | "any";
+  baseline: Record<string, unknown>;
+  filtered: Record<string, unknown>;
+  groups: Array<Record<string, unknown>>;
+};
+
 function withOutputDir(path: string, outputDir?: string): string {
   if (!outputDir) return path;
   const params = new URLSearchParams({ output_dir: outputDir });
   return `${path}?${params.toString()}`;
+}
+
+function encodeDatasetId(datasetId: string): string {
+  return datasetId.split("/").map(encodeURIComponent).join("/");
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -258,6 +378,39 @@ export const api = {
   evalResult: (filename: string, outputDir?: string) =>
     request<Record<string, unknown>>(
       withOutputDir(`/evaluation/results/${filename}`, outputDir),
+    ),
+
+  // Entry Analysis
+  entryAnalysisOptions: () =>
+    request<EntryAnalysisOptions>("/entry-analysis/options"),
+  entryAnalysisResults: (outputDir?: string) =>
+    request<Array<{ name: string; type: string; size: string }>>(
+      withOutputDir("/entry-analysis/results", outputDir),
+    ),
+  entryAnalysisResult: (filename: string, outputDir?: string) =>
+    request<Record<string, unknown>>(
+      withOutputDir(`/entry-analysis/results/${filename}`, outputDir),
+    ),
+  entryAnalysisDatasets: (outputDir?: string) =>
+    request<EntryAnalysisDatasetSummary[]>(
+      withOutputDir("/entry-analysis/datasets", outputDir),
+    ),
+  entryAnalysisDatasetSchema: (datasetId: string, outputDir?: string) =>
+    request<EntryAnalysisDatasetSchema>(
+      withOutputDir(`/entry-analysis/datasets/${encodeDatasetId(datasetId)}/schema`, outputDir),
+    ),
+  entryAnalysisAggregate: (
+    datasetId: string,
+    body: EntryAnalysisAggregateRequest,
+    outputDir?: string,
+  ) =>
+    request<EntryAnalysisAggregateResponse>(
+      withOutputDir(`/entry-analysis/datasets/${encodeDatasetId(datasetId)}/aggregate`, outputDir),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
     ),
 
   // Strategies

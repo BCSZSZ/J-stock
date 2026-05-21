@@ -705,6 +705,10 @@ class PortfolioBacktestEngine:
                     if entry_signal.action == SignalAction.BUY:
                         if not self.entry_filter.passes(market_data):
                             continue
+                        entry_signal.metadata = dict(entry_signal.metadata or {})
+                        signal_date = str(current_date.date())
+                        entry_signal.metadata.setdefault("signal_date", signal_date)
+                        entry_signal.metadata.setdefault("entry_signal_date", signal_date)
                         buy_signals_today[ticker] = entry_signal
 
                 # 生成出场信号（仅对已持仓的股票）
@@ -721,6 +725,9 @@ class PortfolioBacktestEngine:
                         sell_confirmation_streaks[ticker] = streak
                         if streak >= self.exit_confirmation_days:
                             exit_signal.metadata = exit_signal.metadata or {}
+                            signal_date = str(current_date.date())
+                            exit_signal.metadata.setdefault("signal_date", signal_date)
+                            exit_signal.metadata.setdefault("exit_signal_date", signal_date)
                             exit_signal.metadata["exit_confirm_streak"] = streak
                             exit_signal.metadata[
                                 "exit_confirmation_days"
