@@ -266,6 +266,8 @@ class ProductionDailyRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_atr_runtime_fields(self) -> "ProductionDailyRequest":
+        if self.position_sizing_mode == "fixed":
+            return self
         _validate_atr_runtime_fields(self)
         return self
 

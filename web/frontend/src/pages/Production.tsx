@@ -104,14 +104,16 @@ export default function Production() {
   const parsedAtrStopMultiple = parseOptionalFloat(atrStopMultiple);
   const parsedAtrRatioMin = parseOptionalFloat(atrRatioMin);
   const parsedAtrRatioMax = parseOptionalFloat(atrRatioMax);
+  const atrRuntimeEnabled = positionSizingMode === "atr";
   const atrRuntimeInvalid =
-    parsedRiskPerTradePct === undefined ||
-    parsedRiskPerTradePct <= 0 ||
-    parsedAtrStopMultiple === undefined ||
-    parsedAtrStopMultiple <= 0 ||
-    (parsedAtrRatioMin !== undefined &&
-      parsedAtrRatioMax !== undefined &&
-      parsedAtrRatioMin > parsedAtrRatioMax);
+    atrRuntimeEnabled &&
+    (parsedRiskPerTradePct === undefined ||
+      parsedRiskPerTradePct <= 0 ||
+      parsedAtrStopMultiple === undefined ||
+      parsedAtrStopMultiple <= 0 ||
+      (parsedAtrRatioMin !== undefined &&
+        parsedAtrRatioMax !== undefined &&
+        parsedAtrRatioMin > parsedAtrRatioMax));
 
   useEffect(() => {
     if (!options.data) {
@@ -205,8 +207,12 @@ export default function Production() {
       [
         `Execute production --daily${noFetch ? " --no-fetch" : ""}? This will generate signals and reports.`,
         `Stock Pool: ${selectedPool ? formatStockPoolLabel(selectedPool) : "production default"}`,
-        `Position Sizing: ${positionSizingMode} | risk ${parsedRiskPerTradePct} | stop ${parsedAtrStopMultiple} ATR`,
-        `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`,
+        atrRuntimeEnabled
+          ? `Position Sizing: ${positionSizingMode} | risk ${parsedRiskPerTradePct} | stop ${parsedAtrStopMultiple} ATR`
+          : `Position Sizing: ${positionSizingMode} (ATR runtime parameters ignored)`,
+        atrRuntimeEnabled
+          ? `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`
+          : "ATR% Filter Bounds: ignored in fixed mode",
       ].join("\n"),
     );
     if (!ok) return;
@@ -215,10 +221,10 @@ export default function Production() {
       no_fetch: noFetch,
       pool_id: selectedPoolId || undefined,
       position_sizing_mode: positionSizingMode,
-      risk_per_trade_pct: parsedRiskPerTradePct,
-      atr_stop_multiple: parsedAtrStopMultiple,
-      atr_ratio_min: parsedAtrRatioMin,
-      atr_ratio_max: parsedAtrRatioMax,
+      risk_per_trade_pct: atrRuntimeEnabled ? parsedRiskPerTradePct : undefined,
+      atr_stop_multiple: atrRuntimeEnabled ? parsedAtrStopMultiple : undefined,
+      atr_ratio_min: atrRuntimeEnabled ? parsedAtrRatioMin : undefined,
+      atr_ratio_max: atrRuntimeEnabled ? parsedAtrRatioMax : undefined,
     });
   }
 
@@ -323,7 +329,8 @@ export default function Production() {
                 <input
                   value={riskPerTradePct}
                   onChange={(e) => setRiskPerTradePct(e.target.value)}
-                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                  disabled={!atrRuntimeEnabled}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100 disabled:cursor-not-allowed disabled:bg-gray-900 disabled:text-gray-500"
                 />
               </label>
               <label className="space-y-1 text-xs text-gray-400">
@@ -331,7 +338,8 @@ export default function Production() {
                 <input
                   value={atrStopMultiple}
                   onChange={(e) => setAtrStopMultiple(e.target.value)}
-                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                  disabled={!atrRuntimeEnabled}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100 disabled:cursor-not-allowed disabled:bg-gray-900 disabled:text-gray-500"
                 />
               </label>
               <label className="space-y-1 text-xs text-gray-400">
@@ -339,7 +347,8 @@ export default function Production() {
                 <input
                   value={atrRatioMin}
                   onChange={(e) => setAtrRatioMin(e.target.value)}
-                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                  disabled={!atrRuntimeEnabled}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100 disabled:cursor-not-allowed disabled:bg-gray-900 disabled:text-gray-500"
                 />
               </label>
               <label className="space-y-1 text-xs text-gray-400">
@@ -347,10 +356,16 @@ export default function Production() {
                 <input
                   value={atrRatioMax}
                   onChange={(e) => setAtrRatioMax(e.target.value)}
-                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                  disabled={!atrRuntimeEnabled}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100 disabled:cursor-not-allowed disabled:bg-gray-900 disabled:text-gray-500"
                 />
               </label>
             </div>
+            {!atrRuntimeEnabled && (
+              <p className="text-xs text-gray-500">
+                ATR runtime parameters are only applied when Position Sizing is set to atr.
+              </p>
+            )}
             {atrRuntimeInvalid && (
               <p className="text-xs text-red-400">
                 Risk and stop multiple must be positive, and ATR% min must be no greater than max.

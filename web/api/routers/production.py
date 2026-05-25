@@ -27,6 +27,8 @@ router = APIRouter(prefix="/api/production", tags=["production"])
 def _append_atr_runtime_flags(args: list[str], req: ProductionDailyRequest) -> None:
     if req.position_sizing_mode:
         args.extend(["--position-sizing-mode", req.position_sizing_mode])
+    if req.position_sizing_mode == "fixed":
+        return
     if req.risk_per_trade_pct is not None:
         args.extend(["--risk-per-trade-pct", str(req.risk_per_trade_pct)])
     if req.atr_stop_multiple is not None:

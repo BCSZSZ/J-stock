@@ -69,6 +69,12 @@ def _apply_atr_runtime_overrides(args, prod_cfg) -> None:
             position_sizing_mode
         )
 
+    effective_position_sizing_mode = str(
+        getattr(prod_cfg, "position_sizing_mode", "fixed") or "fixed"
+    ).lower()
+    if effective_position_sizing_mode != "atr":
+        return
+
     atr_updates = {}
     risk_per_trade_pct = getattr(args, "risk_per_trade_pct", None)
     if risk_per_trade_pct is not None:
@@ -427,11 +433,12 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         entry_filter_raw = raw_config.get("evaluation", {}).get("filters", {}).get(
             "default", {}
         )
-    entry_filter_raw = merge_entry_filter_runtime_bounds(entry_filter_raw, args)
-    entry_filter = EntrySecondaryFilter.from_dict(entry_filter_raw)
     position_sizing_mode = str(
         getattr(prod_cfg, "position_sizing_mode", "fixed") or "fixed"
     ).lower()
+    if position_sizing_mode == "atr":
+        entry_filter_raw = merge_entry_filter_runtime_bounds(entry_filter_raw, args)
+    entry_filter = EntrySecondaryFilter.from_dict(entry_filter_raw)
 
     monitor_tickers = load_monitor_tickers(prod_cfg.monitor_list_file)
 

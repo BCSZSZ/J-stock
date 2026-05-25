@@ -82,6 +82,27 @@ def test_production_daily_applies_atr_runtime_overrides_to_config() -> None:
     assert prod_cfg.atr_position_sizing.atr_stop_multiple == pytest.approx(2.0)
 
 
+def test_production_daily_ignores_atr_runtime_overrides_when_fixed() -> None:
+    args = SimpleNamespace(
+        position_sizing_mode="fixed",
+        risk_per_trade_pct=0.006,
+        atr_stop_multiple=2.0,
+    )
+    prod_cfg = SimpleNamespace(
+        position_sizing_mode="atr",
+        atr_position_sizing=AtrPositionSizingConfig(
+            risk_per_trade_pct=0.01,
+            atr_stop_multiple=3.0,
+        ),
+    )
+
+    _apply_atr_runtime_overrides(args, prod_cfg)
+
+    assert prod_cfg.position_sizing_mode == "fixed"
+    assert prod_cfg.atr_position_sizing.risk_per_trade_pct == pytest.approx(0.01)
+    assert prod_cfg.atr_position_sizing.atr_stop_multiple == pytest.approx(3.0)
+
+
 def test_sync_position_risk_state_to_base_only_tightens_stop_metadata() -> None:
     effective_position = SimpleNamespace(
         ticker="7203",
