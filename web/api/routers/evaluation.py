@@ -351,6 +351,16 @@ def _resolve_requested_launch_dates(req: EvaluationRunRequest) -> list[str]:
     return resolved
 
 
+def _resolve_requested_report_files(req: EvaluationRunRequest) -> list[str]:
+    requested_files = req.report_files or ([req.report_file] if req.report_file else [])
+    resolved: list[str] = []
+    for value in requested_files:
+        normalized = str(value).strip()
+        if normalized and normalized not in resolved:
+            resolved.append(normalized)
+    return resolved
+
+
 def _resolve_production_ranking_strategy(raw_config: dict[str, Any]) -> str:
     production_cfg = raw_config.get("production", {})
     if "signal_ranking_strategy" not in production_cfg:
@@ -453,13 +463,16 @@ def _build_cli_args(
         args.extend(["--mode", req.mode])
 
     if req.command == "replay-evaluation":
-        report_file = _resolve_local_path(req.report_file)
-        if report_file is None:
+        report_files = [
+            _resolve_local_path(path_value)
+            for path_value in _resolve_requested_report_files(req)
+        ]
+        if not report_files or any(path is None for path in report_files):
             raise HTTPException(
                 status_code=400,
-                detail="replay-evaluation requires a local report_file.",
+                detail="replay-evaluation requires one or more local report_file values.",
             )
-        args.extend(["--report-file", str(report_file)])
+        _append_multi_flag(args, "--report-file", [str(path) for path in report_files if path is not None])
 
     args.extend(["--buy-fill-mode", buy_fill_mode or req.buy_fill_mode])
     args.extend(

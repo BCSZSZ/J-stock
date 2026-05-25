@@ -181,6 +181,7 @@ class EvaluationRunRequest(BaseModel):
     position_file: str | None = None
     profile_names: list[str] | None = None
     report_file: str | None = None
+    report_files: list[str] | None = None
     universe_files: list[str] | None = None
     universe_pool_ids: list[str] | None = None
     position_sizing_mode: Literal["fixed", "atr"] | None = None

@@ -323,8 +323,9 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
 def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--report-file",
+        nargs="+",
         required=True,
-        help="作为 replay 锚点的日报文件路径（本地 Markdown 文件）",
+        help="作为 replay 锚点的日报文件路径（本地 Markdown 文件，支持一次指定多个）",
     )
     parser.add_argument(
         "--buy-fill-mode",

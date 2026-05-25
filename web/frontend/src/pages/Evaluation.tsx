@@ -238,6 +238,28 @@ function parseOptionalFloat(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseStringList(value: string): string[] {
+  const normalized = value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return Array.from(new Set(normalized));
+}
+
+function formatReplayAnchorSummary(reportFiles: string[]): string {
+  if (reportFiles.length === 0) {
+    return "Replay anchor not set";
+  }
+  if (reportFiles.length === 1) {
+    return reportFiles[0];
+  }
+  const preview = reportFiles.slice(0, 3).join(" | ");
+  if (reportFiles.length <= 3) {
+    return preview;
+  }
+  return `${reportFiles.length} selected: ${preview} ...`;
+}
+
 function isBuyFillMode(value: string): value is BuyFillMode {
   return value === "next_open" || value === "next_close";
 }
@@ -308,11 +330,12 @@ export default function Evaluation() {
   const [minTrainYears, setMinTrainYears] = useState("2");
   const [positionFile, setPositionFile] = useState("");
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
-  const [reportFile, setReportFile] = useState("");
+  const [reportFilesText, setReportFilesText] = useState("");
+  const [selectedQuickReplayReports, setSelectedQuickReplayReports] = useState<
+    string[]
+  >([]);
   const [selectedUniversePoolIds, setSelectedUniversePoolIds] = useState<string[]>([]);
   const [overrideStrategies, setOverrideStrategies] = useState(false);
-  const [autoAppliedReplayReportFile, setAutoAppliedReplayReportFile] =
-    useState("");
   const [initializedFromOptions, setInitializedFromOptions] = useState(false);
 
   const exec = useStreamExec();
@@ -323,15 +346,35 @@ export default function Evaluation() {
     queryKey: ["report-dates"],
     queryFn: api.reportDates,
   });
+  const productionEntry = options.data?.production.entry_strategy ?? "";
+  const productionExit = options.data?.production.exit_strategy ?? "";
+  const productionRankingStrategy =
+    options.data?.production.ranking_strategy ?? "";
+  const productionUniverse = options.data?.production.monitor_list_file ?? "";
+  const productionReportPattern =
+    options.data?.production.report_file_pattern ?? "";
   const isWalkForward = command === "walk-forward-evaluate";
   const isPosEvaluation = command === "pos-evaluation";
   const isReplayEvaluation = command === "replay-evaluation";
+  const availableReplayReports = (reportDates.data ?? []).map((date) => ({
+    date,
+    path: productionReportPattern.includes("{date}")
+      ? productionReportPattern.replace("{date}", date)
+      : date,
+  }));
+  const replayReportFiles = parseStringList(
+    [...selectedQuickReplayReports, ...parseStringList(reportFilesText)].join("\n"),
+  );
+  const singleReplayReportFile =
+    replayReportFiles.length === 1 ? replayReportFiles[0] : "";
+  const replayAnchorSummary = formatReplayAnchorSummary(replayReportFiles);
+  const replayUsesAutoStrategy = isReplayEvaluation && !overrideStrategies;
   const replayReportContext = useQuery<ReplayReportContext>({
-    queryKey: ["eval-report-context", reportFile],
-    queryFn: () => api.evalReportContext(reportFile.trim()),
+    queryKey: ["eval-report-context", singleReplayReportFile],
+    queryFn: () => api.evalReportContext(singleReplayReportFile.trim()),
     enabled:
       command === "replay-evaluation" &&
-      reportFile.trim().toLowerCase().endsWith(".md"),
+      singleReplayReportFile.trim().toLowerCase().endsWith(".md"),
     retry: false,
   });
   const showMonths = !isWalkForward && !isReplayEvaluation && mode === "monthly";
@@ -362,15 +405,8 @@ export default function Evaluation() {
     parsedAtrRatioMin !== undefined &&
     parsedAtrRatioMax !== undefined &&
     parsedAtrRatioMin > parsedAtrRatioMax;
-  const productionEntry = options.data?.production.entry_strategy ?? "";
-  const productionExit = options.data?.production.exit_strategy ?? "";
-  const productionRankingStrategy =
-    options.data?.production.ranking_strategy ?? "";
-  const productionUniverse = options.data?.production.monitor_list_file ?? "";
   const productionStockPoolCatalogFile =
     options.data?.production.stock_pool_catalog_file ?? "";
-  const productionReportPattern =
-    options.data?.production.report_file_pattern ?? "";
   const stockPools = options.data?.stock_pools ?? [];
   const selectedUniversePools = selectedUniversePoolIds
     .map((poolId) => stockPools.find((pool) => pool.id === poolId))
@@ -398,15 +434,27 @@ export default function Evaluation() {
   const executionSliceCount = executionBatchCount * launchBatchCount;
   const activeEntryCount = overrideStrategies
     ? selectedEntry.length
-    : productionEntry
+    : replayUsesAutoStrategy
+      ? replayReportFiles.length > 0
+        ? 1
+        : 0
+      : productionEntry
       ? 1
       : 0;
   const activeExitCount = overrideStrategies
     ? selectedExit.length
-    : productionExit
+    : replayUsesAutoStrategy
+      ? replayReportFiles.length > 0
+        ? 1
+        : 0
+      : productionExit
       ? 1
       : 0;
-  const strategyScopeLabel = overrideStrategies ? "override" : "production default";
+  const strategyScopeLabel = overrideStrategies
+    ? "override"
+    : replayUsesAutoStrategy
+      ? "per-report auto"
+      : "production default";
   const modeLabel = isReplayEvaluation ? "replay" : mode;
   const sixColGridClass = "grid gap-3 md:grid-cols-2 xl:grid-cols-6 xl:auto-rows-fr";
   const summaryCardClassName =
@@ -500,7 +548,8 @@ export default function Evaluation() {
     setMinTrainYears(String(defaults.min_train_years ?? 2));
     setPositionFile(defaults.position_file ?? "");
     setSelectedProfiles(defaults.profile_names ?? []);
-    setReportFile(defaults.report_file ?? "");
+    setReportFilesText(defaults.report_file ?? "");
+    setSelectedQuickReplayReports([]);
     setSelectedUniversePoolIds(defaults.universe_pool_ids ?? []);
     setLaunchDates([]);
     setInitializedFromOptions(true);
@@ -519,37 +568,19 @@ export default function Evaluation() {
   }, [isWalkForward, mode]);
 
   useEffect(() => {
-    if (!isReplayEvaluation || reportFile.trim()) {
+    if (!isReplayEvaluation || replayReportFiles.length > 0) {
       return;
     }
     const latestReportDate = reportDates.data?.[0];
     if (!latestReportDate || !productionReportPattern.includes("{date}")) {
       return;
     }
-    setReportFile(productionReportPattern.replace("{date}", latestReportDate));
+    setReportFilesText(productionReportPattern.replace("{date}", latestReportDate));
   }, [
     isReplayEvaluation,
     productionReportPattern,
     reportDates.data,
-    reportFile,
-  ]);
-
-  useEffect(() => {
-    if (!isReplayEvaluation || !replayReportContext.data) {
-      return;
-    }
-    if (autoAppliedReplayReportFile === replayReportContext.data.report_file) {
-      return;
-    }
-
-    setSelectedEntry([replayReportContext.data.entry_strategy]);
-    setSelectedExit([replayReportContext.data.exit_strategy]);
-    setOverrideStrategies(true);
-    setAutoAppliedReplayReportFile(replayReportContext.data.report_file);
-  }, [
-    autoAppliedReplayReportFile,
-    isReplayEvaluation,
-    replayReportContext.data,
+    replayReportFiles.length,
   ]);
 
   async function handleRun() {
@@ -559,7 +590,7 @@ export default function Evaluation() {
     if (selectedEntryReferenceModes.length === 0) {
       return;
     }
-    if (isReplayEvaluation && !reportFile.trim()) {
+    if (isReplayEvaluation && replayReportFiles.length === 0) {
       return;
     }
     if (fillBufferPctInvalid) {
@@ -610,7 +641,8 @@ export default function Evaluation() {
     if (!isReplayEvaluation) {
       payload.mode = mode;
     } else {
-      payload.report_file = reportFile.trim() || undefined;
+      payload.report_files = replayReportFiles.length > 0 ? replayReportFiles : undefined;
+      payload.report_file = singleReplayReportFile || undefined;
     }
 
     if (isWalkForward) {
@@ -646,15 +678,15 @@ export default function Evaluation() {
         `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
         isReplayEvaluation
-          ? `Report Anchor: ${reportFile.trim() || "(missing)"}`
+          ? `Report Anchors: ${replayAnchorSummary}`
           : undefined,
         isWalkForward
           ? `Mode: ${mode} | Initial Train Years: ${payload.min_train_years}`
           : isReplayEvaluation
             ? "Mode: replay"
             : `Mode: ${mode}`,
-        `Entry: ${overrideStrategies && selectedEntry.length > 0 ? selectedEntry.join(", ") : productionEntry}`,
-        `Exit: ${overrideStrategies && selectedExit.length > 0 ? selectedExit.join(", ") : productionExit}`,
+        `Entry: ${overrideStrategies && selectedEntry.length > 0 ? selectedEntry.join(", ") : replayUsesAutoStrategy ? "per-report auto" : productionEntry}`,
+        `Exit: ${overrideStrategies && selectedExit.length > 0 ? selectedExit.join(", ") : replayUsesAutoStrategy ? "per-report auto" : productionExit}`,
         `Signal Ranking Strategy: ${productionRankingStrategy || "(config default)"}`,
         `Universe: ${selectedUniverseSummary}`,
         `Output Root: ${resolvedOutputDir ?? "(config default)"}`,
@@ -710,7 +742,7 @@ export default function Evaluation() {
             ranking {rankingMode} / exit confirm {exitConfirmDays.trim() || "config"}
           </div>
           <div className="mt-auto pt-3 text-xs text-gray-500">
-            Replay uses the selected report anchor instead of period presets.
+            Replay uses the selected report anchors instead of period presets.
           </div>
         </div>
 
@@ -738,7 +770,9 @@ export default function Evaluation() {
           <div className="mt-auto pt-3 text-xs text-gray-500">
             {overrideStrategies
               ? "Comparing selected strategy families."
-              : "Using production defaults until override is enabled."}
+              : replayUsesAutoStrategy
+                ? "Resolving entry/exit per selected report unless override is enabled."
+                : "Using production defaults until override is enabled."}
           </div>
         </div>
 
@@ -766,7 +800,7 @@ export default function Evaluation() {
           </div>
           <div className="mt-1 text-xs text-gray-400 break-all">
             {isReplayEvaluation
-              ? reportFile.trim() || "Replay anchor not set"
+              ? replayAnchorSummary
               : productionUniverse || "Production monitor list not configured"}
           </div>
           <div className="mt-auto pt-3 text-xs text-gray-500">
@@ -800,7 +834,7 @@ export default function Evaluation() {
               </label>
               {isReplayEvaluation ? (
                 <div className="rounded border border-gray-800 bg-gray-900/80 px-3 py-2 text-sm text-gray-300 break-all flex-1">
-                  {reportFile.trim() || "Choose a report markdown path below."}
+                  {replayAnchorSummary || "Choose one or more report markdown paths below."}
                 </div>
               ) : (
                 <>
@@ -1094,65 +1128,90 @@ export default function Evaluation() {
           {isReplayEvaluation ? (
             <div className={sixColGridClass}>
               <div className={`${tallFieldCardClassName} xl:col-span-6`}>
-                <label className={compactLabelClassName}>Replay Report Anchor</label>
+                <label className={compactLabelClassName}>Replay Report Anchors</label>
                 <div className="grid gap-3 xl:grid-cols-3">
                   <div className="xl:col-span-2">
-                    <label className="text-[11px] text-gray-500 block mb-1">Replay Report File</label>
-                    <input
-                      value={reportFile}
-                      onChange={(e) => setReportFile(e.target.value)}
-                      placeholder="G:\\My Drive\\AI-Stock-Sync\\reports\\2026-05-15.md"
-                      className={compactInputClassName}
+                    <label className="text-[11px] text-gray-500 block mb-1">Replay Report Files</label>
+                    <textarea
+                      value={reportFilesText}
+                      onChange={(e) => setReportFilesText(e.target.value)}
+                      placeholder={"G:\\My Drive\\AI-Stock-Sync\\reports\\2026-05-15.md\nG:\\My Drive\\AI-Stock-Sync\\reports\\2026-05-19.md"}
+                      rows={4}
+                      className={compactTextareaClassName}
                     />
-                    {!reportFile.trim() && (
+                    {replayReportFiles.length === 0 && (
                       <p className="mt-2 text-[11px] text-red-400">
-                        Replay requires a concrete report markdown path.
+                        Replay requires at least one report markdown path.
+                      </p>
+                    )}
+                    {replayReportFiles.length > 1 && (
+                      <p className="mt-2 text-[11px] text-gray-500">
+                        Batch mode will run one replay per selected report markdown.
                       </p>
                     )}
                   </div>
 
                   <div>
                     <label className="text-[11px] text-gray-500 block mb-1">Quick Select Existing Reports</label>
-                    <select
-                      value={
-                        (reportDates.data ?? []).some(
-                          (date) =>
-                            productionReportPattern.includes("{date}") &&
-                            productionReportPattern.replace("{date}", date) === reportFile,
-                        )
-                          ? reportFile
-                          : ""
-                      }
-                      onChange={(e) => setReportFile(e.target.value)}
-                      className={compactInputClassName}
-                    >
-                      <option value="">Use typed path</option>
-                      {(reportDates.data ?? []).map((date) => {
-                        const resolvedPath = productionReportPattern.includes("{date}")
-                          ? productionReportPattern.replace("{date}", date)
-                          : date;
-                        return (
-                          <option key={date} value={resolvedPath}>
-                            {date}
-                          </option>
-                        );
-                      })}
-                    </select>
+                    <div className="max-h-44 overflow-y-auto rounded border border-gray-800 bg-gray-950/40 p-2">
+                      {availableReplayReports.length > 0 ? (
+                        <div className="space-y-1">
+                          {availableReplayReports.map((item) => (
+                            <label
+                              key={item.path}
+                              className="flex items-start gap-2 rounded px-1.5 py-1 text-xs text-gray-300 cursor-pointer hover:bg-gray-900/60 hover:text-white"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedQuickReplayReports.includes(item.path)}
+                                onChange={() =>
+                                  toggleSelection(
+                                    selectedQuickReplayReports,
+                                    setSelectedQuickReplayReports,
+                                    item.path,
+                                  )
+                                }
+                                className="mt-0.5 rounded"
+                              />
+                              <span className="flex flex-col">
+                                <span>{item.date}</span>
+                                <span className="text-[11px] text-gray-500 break-all">
+                                  {item.path}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">No existing reports available.</p>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 <div className="mt-3 grid gap-3 xl:grid-cols-2">
                   <p className="text-[11px] text-gray-500">
-                    Replay reconstructs historical production state from the selected report date, then continues from the next trading day.
+                    Replay reconstructs historical production state from each selected report date, then continues from the next trading day.
                   </p>
 
-                  {replayReportContext.data ? (
+                  {singleReplayReportFile && replayReportContext.data ? (
                     <div className="rounded border border-emerald-900 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
-                      Auto-applied strategy combo: {replayReportContext.data.entry_strategy} × {replayReportContext.data.exit_strategy}
+                      Detected strategy combo: {replayReportContext.data.entry_strategy} × {replayReportContext.data.exit_strategy}
+                      {!overrideStrategies && (
+                        <span className="block mt-1 text-emerald-300/90">
+                          Backend will use this combo automatically unless you enable strategy override.
+                        </span>
+                      )}
                     </div>
-                  ) : replayReportContext.isError && reportFile.trim() ? (
+                  ) : replayReportFiles.length > 1 ? (
+                    <div className="rounded border border-blue-900 bg-blue-950/30 px-3 py-2 text-xs text-blue-200">
+                      {overrideStrategies
+                        ? "Manual strategy override will be applied to all selected report anchors."
+                        : "Batch replay will resolve each report's own entry/exit combo on the backend."}
+                    </div>
+                  ) : replayReportContext.isError && singleReplayReportFile ? (
                     <p className="text-xs text-yellow-300">
-                      Failed to extract strategy combo from the selected report. Current strategy selection was left unchanged.
+                      Failed to extract strategy combo from the selected report. Replay will fall back to configured defaults unless you enable manual override.
                     </p>
                   ) : null}
                 </div>
@@ -1327,7 +1386,9 @@ export default function Evaluation() {
             <p className="text-xs text-gray-500">
               {overrideStrategies
                 ? `${selectedEntry.length} entry and ${selectedExit.length} exit strategies selected for this run.`
-                : "Using production entry/exit defaults until override is enabled."}
+                : replayUsesAutoStrategy
+                  ? "Backend will resolve each selected report's entry/exit combo unless override is enabled."
+                  : "Using production entry/exit defaults until override is enabled."}
             </p>
           </div>
 

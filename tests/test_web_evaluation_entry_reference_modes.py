@@ -128,6 +128,46 @@ def test_build_cli_args_ignores_years_for_replay_evaluation(monkeypatch) -> None
     assert "--years" not in args
 
 
+def test_build_cli_args_includes_multiple_report_files_for_replay_evaluation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_production_config",
+        lambda: SimpleNamespace(
+            monitor_list_file="data/monitor_list.json",
+            report_file_pattern=r"G:\My Drive\AI-Stock-Sync\reports\{date}.md",
+            strategy_groups=[
+                {
+                    "id": "group_main",
+                    "entry_strategy": "EntryStrategy",
+                    "exit_strategy": "ExitStrategy",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_config_manager",
+        lambda: SimpleNamespace(raw_config={"production": {}}),
+    )
+
+    req = EvaluationRunRequest(
+        command="replay-evaluation",
+        report_files=[
+            r"G:\My Drive\AI-Stock-Sync\reports\2026-05-14.md",
+            r"G:\My Drive\AI-Stock-Sync\reports\2026-05-15.md",
+        ],
+    )
+
+    args = evaluation_router._build_cli_args(req)
+
+    report_index = args.index("--report-file")
+    assert args[report_index + 1 : report_index + 3] == [
+        r"G:\My Drive\AI-Stock-Sync\reports\2026-05-14.md",
+        r"G:\My Drive\AI-Stock-Sync\reports\2026-05-15.md",
+    ]
+
+
+
 def test_build_cli_args_includes_launch_date_for_evaluate(monkeypatch) -> None:
     monkeypatch.setattr(
         evaluation_router,
