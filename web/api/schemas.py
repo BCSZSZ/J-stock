@@ -4,7 +4,33 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+def _validate_atr_runtime_fields(model: BaseModel) -> BaseModel:
+    risk_per_trade_pct = getattr(model, "risk_per_trade_pct", None)
+    if risk_per_trade_pct is not None and risk_per_trade_pct <= 0:
+        raise ValueError("risk_per_trade_pct must be greater than 0")
+
+    atr_stop_multiple = getattr(model, "atr_stop_multiple", None)
+    if atr_stop_multiple is not None and atr_stop_multiple <= 0:
+        raise ValueError("atr_stop_multiple must be greater than 0")
+
+    atr_ratio_min = getattr(model, "atr_ratio_min", None)
+    if atr_ratio_min is not None and atr_ratio_min < 0:
+        raise ValueError("atr_ratio_min must be greater than or equal to 0")
+
+    atr_ratio_max = getattr(model, "atr_ratio_max", None)
+    if atr_ratio_max is not None and atr_ratio_max <= 0:
+        raise ValueError("atr_ratio_max must be greater than 0")
+
+    if (
+        atr_ratio_min is not None
+        and atr_ratio_max is not None
+        and atr_ratio_min > atr_ratio_max
+    ):
+        raise ValueError("atr_ratio_min must be less than or equal to atr_ratio_max")
+    return model
 
 
 class HealthResponse(BaseModel):
@@ -157,8 +183,18 @@ class EvaluationRunRequest(BaseModel):
     report_file: str | None = None
     universe_files: list[str] | None = None
     universe_pool_ids: list[str] | None = None
+    position_sizing_mode: Literal["fixed", "atr"] | None = None
+    risk_per_trade_pct: float | None = None
+    atr_stop_multiple: float | None = None
+    atr_ratio_min: float | None = None
+    atr_ratio_max: float | None = None
     output_dir: str | None = None
     verbose: bool = False
+
+    @model_validator(mode="after")
+    def validate_atr_runtime_fields(self) -> "EvaluationRunRequest":
+        _validate_atr_runtime_fields(self)
+        return self
 
 
 class EntryAnalysisManualRange(BaseModel):
@@ -220,7 +256,17 @@ class EntryAnalysisAggregateRequest(BaseModel):
 class ProductionDailyRequest(BaseModel):
     no_fetch: bool = False
     pool_id: str | None = None
+    position_sizing_mode: Literal["fixed", "atr"] | None = None
+    risk_per_trade_pct: float | None = None
+    atr_stop_multiple: float | None = None
+    atr_ratio_min: float | None = None
+    atr_ratio_max: float | None = None
     confirm: bool = False
+
+    @model_validator(mode="after")
+    def validate_atr_runtime_fields(self) -> "ProductionDailyRequest":
+        _validate_atr_runtime_fields(self)
+        return self
 
 
 class SetCashRequest(BaseModel):

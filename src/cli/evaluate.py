@@ -27,6 +27,10 @@ from src.evaluation.scoring import candidate_key_columns, rank_final_prs, summar
 from src.evaluation.trade_indicator_enrichment import write_enriched_trades_sidecar
 from src.config.runtime import get_config_file_path, is_local_path
 from src.production.config_manager import ConfigManager
+from src.utils.atr_runtime_overrides import (
+    merge_entry_filter_variant_runtime_bounds,
+    merge_portfolio_runtime_overrides,
+)
 from src.utils.atr_position_sizing import normalize_position_sizing_mode
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
@@ -457,6 +461,10 @@ def _prepare_common_evaluation_inputs(args, config):
         mode=args.entry_filter_mode,
         selected_names=selected_filter_names,
     )
+    entry_filter_variants = merge_entry_filter_variant_runtime_bounds(
+        entry_filter_variants,
+        args,
+    )
     periods = _build_periods(args)
     universe_variants = _resolve_universe_variants(args.universe_file)
 
@@ -475,6 +483,10 @@ def _prepare_walk_forward_inputs(args, config):
         config,
         mode=args.entry_filter_mode,
         selected_names=selected_filter_names,
+    )
+    entry_filter_variants = merge_entry_filter_variant_runtime_bounds(
+        entry_filter_variants,
+        args,
     )
 
     years = sorted({int(year) for year in (args.years or [])})
@@ -522,6 +534,10 @@ def _prepare_replay_inputs(args, config):
         config,
         mode=args.entry_filter_mode,
         selected_names=selected_filter_names,
+    )
+    entry_filter_variants = merge_entry_filter_variant_runtime_bounds(
+        entry_filter_variants,
+        args,
     )
     universe_variants = _resolve_universe_variants(args.universe_file)
     return entry_filter_variants, universe_variants
@@ -3202,6 +3218,7 @@ def cmd_evaluate(args):
     _log_step(f"evaluate: 排名模式 -> {ranking_mode}")
 
     effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
+    runtime_portfolio_overrides = merge_portfolio_runtime_overrides(args)
 
     contexts = []
     for universe_name, universe_file in universe_variants:
@@ -3213,7 +3230,7 @@ def cmd_evaluate(args):
                 name=universe_name,
                 prefix=prefix,
                 monitor_list_file=universe_file,
-                portfolio_overrides=None,
+                portfolio_overrides=runtime_portfolio_overrides,
                 enable_overlay=effective_overlay_on,
                 metadata={"universe_file": universe_file},
             )
@@ -3310,6 +3327,7 @@ def cmd_walk_forward_evaluate(args):
     effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
     walk_forward_mode = _resolve_walk_forward_mode(args)
     min_train_years = max(1, int(args.min_train_years))
+    runtime_portfolio_overrides = merge_portfolio_runtime_overrides(args)
 
     contexts = []
     for universe_name, universe_file in universe_variants:
@@ -3321,7 +3339,7 @@ def cmd_walk_forward_evaluate(args):
                 name=universe_name,
                 prefix=prefix,
                 monitor_list_file=universe_file,
-                portfolio_overrides=None,
+                portfolio_overrides=runtime_portfolio_overrides,
                 enable_overlay=effective_overlay_on,
                 metadata={"universe_file": universe_file},
             )
@@ -3440,6 +3458,7 @@ def cmd_replay_evaluation(args):
     )
     ranking_mode = _resolve_ranking_mode(config, args)
     effective_overlay_on = _resolve_effective_overlay_enabled(config, args)
+    runtime_portfolio_overrides = merge_portfolio_runtime_overrides(args)
 
     contexts = []
     for universe_name, universe_file in universe_variants:
@@ -3451,7 +3470,7 @@ def cmd_replay_evaluation(args):
                 name=universe_name,
                 prefix=prefix,
                 monitor_list_file=universe_file,
-                portfolio_overrides=None,
+                portfolio_overrides=runtime_portfolio_overrides,
                 enable_overlay=effective_overlay_on,
                 metadata={"universe_file": universe_file},
             )
@@ -3591,6 +3610,7 @@ def cmd_pos_evaluation(args):
             overrides["atr_position_sizing"] = profile["atr_position_sizing"]
         if profile["starting_capital_jpy"] is not None:
             overrides["starting_capital_jpy"] = profile["starting_capital_jpy"]
+        overrides = merge_portfolio_runtime_overrides(args, overrides) or overrides
 
         for overlay_mode in overlay_modes:
             for universe_name, universe_file in universe_variants:

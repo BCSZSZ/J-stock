@@ -102,6 +102,9 @@ class Position:
         entry_signal: 入场时的TradingSignal（含metadata如score等）
         peak_price_since_entry: 入场后的最高价格
         signal_entry_price: 信号语义使用的参考入场价
+        entry_atr: 入场时ATR，用于锁定初始止损
+        initial_stop_price: 初始止损价
+        locked_stop_price: 当前锁定有效止损价
     """
     ticker: str
     entry_price: float
@@ -110,6 +113,9 @@ class Position:
     entry_signal: TradingSignal
     peak_price_since_entry: float = None
     signal_entry_price: float | None = None
+    entry_atr: float | None = None
+    initial_stop_price: float | None = None
+    locked_stop_price: float | None = None
     
     def __post_init__(self):
         if self.signal_entry_price is None:

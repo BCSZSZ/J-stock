@@ -21,6 +21,8 @@ from src.config.service import load_config
 from src.data.fetch_universe_builder import build_fetch_universe_file
 from src.data.sector_metrics_updater import update_sector_metrics
 from src.production.state_manager import build_state_as_of
+from src.utils.atr_position_sizing import normalize_position_sizing_mode
+from src.utils.atr_runtime_overrides import merge_entry_filter_runtime_bounds
 from src.utils.signal_sizing import extract_buy_size_multiplier
 
 
@@ -58,6 +60,79 @@ class SellExecutionGuidance:
     oco2_order_mode: Optional[str]
     formula_basis: str
     guidance_notes: str
+
+
+def _apply_atr_runtime_overrides(args, prod_cfg) -> None:
+    position_sizing_mode = getattr(args, "position_sizing_mode", None)
+    if position_sizing_mode is not None:
+        prod_cfg.position_sizing_mode = normalize_position_sizing_mode(
+            position_sizing_mode
+        )
+
+    atr_updates = {}
+    risk_per_trade_pct = getattr(args, "risk_per_trade_pct", None)
+    if risk_per_trade_pct is not None:
+        atr_updates["risk_per_trade_pct"] = float(risk_per_trade_pct)
+
+    atr_stop_multiple = getattr(args, "atr_stop_multiple", None)
+    if atr_stop_multiple is not None:
+        atr_updates["atr_stop_multiple"] = float(atr_stop_multiple)
+
+    if atr_updates:
+        prod_cfg.atr_position_sizing = replace(
+            prod_cfg.atr_position_sizing,
+            **atr_updates,
+        )
+
+
+def _sync_position_risk_state_to_base(effective_state, base_state) -> bool:
+    changed = False
+
+    for effective_group in effective_state.get_all_groups():
+        base_group = base_state.get_group(effective_group.id)
+        if base_group is None:
+            continue
+
+        base_by_lot_id = {
+            position.lot_id: position
+            for position in base_group.positions
+            if position.quantity > 0 and position.lot_id
+        }
+        base_by_ticker = {
+            position.ticker: position
+            for position in base_group.positions
+            if position.quantity > 0
+        }
+
+        for effective_position in effective_group.positions:
+            if effective_position.quantity <= 0:
+                continue
+            base_position = base_by_lot_id.get(effective_position.lot_id)
+            if base_position is None:
+                base_position = base_by_ticker.get(effective_position.ticker)
+            if base_position is None:
+                continue
+
+            peak_price = getattr(effective_position, "peak_price", None)
+            if peak_price is not None and peak_price > (base_position.peak_price or 0):
+                base_position.peak_price = peak_price
+                changed = True
+
+            for attr_name in ("entry_atr", "initial_stop_price"):
+                value = getattr(effective_position, attr_name, None)
+                if value is not None and getattr(base_position, attr_name, None) != value:
+                    setattr(base_position, attr_name, value)
+                    changed = True
+
+            locked_stop_price = getattr(effective_position, "locked_stop_price", None)
+            if locked_stop_price is not None and (
+                base_position.locked_stop_price is None
+                or locked_stop_price > base_position.locked_stop_price
+            ):
+                base_position.locked_stop_price = locked_stop_price
+                changed = True
+
+    return changed
 
 
 def _select_signal_date_from_latest_dates(
@@ -334,6 +409,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     raw_config = getattr(prod_cfg, "raw_config", None)
     if raw_config is None:
         raw_config = load_config()
+    _apply_atr_runtime_overrides(args, prod_cfg)
     lot_sizes = raw_config.get("lot_sizes", {})
     default_lot_size = int(lot_sizes.get("default", 100) or 100)
     prod_runtime_cfg = raw_config.get("production", {})
@@ -351,6 +427,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         entry_filter_raw = raw_config.get("evaluation", {}).get("filters", {}).get(
             "default", {}
         )
+    entry_filter_raw = merge_entry_filter_runtime_bounds(entry_filter_raw, args)
     entry_filter = EntrySecondaryFilter.from_dict(entry_filter_raw)
     position_sizing_mode = str(
         getattr(prod_cfg, "position_sizing_mode", "fixed") or "fixed"
@@ -1119,6 +1196,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         or position.signal_entry_price
                         or position.entry_price
                     ),
+                    entry_atr=getattr(position, "entry_atr", None),
+                    initial_stop_price=getattr(position, "initial_stop_price", None),
+                    locked_stop_price=getattr(position, "locked_stop_price", None),
                 )
 
                 if current_price > signals_position.peak_price_since_entry:
@@ -1129,6 +1209,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     position=signals_position,
                     market_data=market_data,
                 )
+                position.entry_atr = signals_position.entry_atr
+                position.initial_stop_price = signals_position.initial_stop_price
+                position.locked_stop_price = signals_position.locked_stop_price
 
                 # Get evaluation details for reporting (for both SELL and HOLD)
                 evaluation_details = None
@@ -1665,6 +1748,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     "trimmed_buys": int(ctx.get("capacity_trimmed_buys", 0)),
                 }
             )
+
+    if _sync_position_risk_state_to_base(effective_state, state):
+        state.save()
+        print("  Production state risk metadata updated")
 
     signal_file = prod_cfg.signal_file_pattern.replace("{date}", signal_date)
     Path(signal_file).parent.mkdir(parents=True, exist_ok=True)

@@ -17,6 +17,7 @@ type EntryFilterMode = "off" | "single" | "grid" | "auto";
 type BuyFillMode = "next_open" | "next_close";
 type EntryReferenceMode = "raw_fill" | "buffered_fill";
 type CapacityRegimeMode = "off" | "enforce";
+type PositionSizingMode = "fixed" | "atr";
 
 interface EvaluationDefaults {
   command: string;
@@ -45,6 +46,11 @@ interface EvaluationDefaults {
   profile_names: string[];
   report_file: string;
   min_train_years: number;
+  position_sizing_mode: string;
+  risk_per_trade_pct: number;
+  atr_stop_multiple: number;
+  atr_ratio_min: number | null;
+  atr_ratio_max: number | null;
 }
 
 interface EvaluationOptionsResponse {
@@ -244,6 +250,10 @@ function isCapacityRegimeMode(value: string): value is CapacityRegimeMode {
   return value === "off" || value === "enforce";
 }
 
+function isPositionSizingMode(value: string): value is PositionSizingMode {
+  return value === "fixed" || value === "atr";
+}
+
 function formatBuyFillModeLabel(mode: BuyFillMode): string {
   return mode === "next_open"
     ? "next_open (次日开盘成交)"
@@ -287,6 +297,13 @@ export default function Evaluation() {
   ]);
   const [capacityRegimeMode, setCapacityRegimeMode] =
     useState<CapacityRegimeMode>("off");
+  const [positionSizingMode, setPositionSizingMode] =
+    useState<PositionSizingMode>("fixed");
+  const [riskPerTradePct, setRiskPerTradePct] = useState("0.006");
+  const [atrStopMultiple, setAtrStopMultiple] = useState("2.0");
+  const [atrRatioMin, setAtrRatioMin] = useState("0.015");
+  const [atrRatioMax, setAtrRatioMax] = useState("0.030");
+  const [overrideProfileSizing, setOverrideProfileSizing] = useState(false);
   const [rankingMode, setRankingMode] = useState("prs_train");
   const [minTrainYears, setMinTrainYears] = useState("2");
   const [positionFile, setPositionFile] = useState("");
@@ -333,6 +350,18 @@ export default function Evaluation() {
     parsedFillBufferPct === undefined ||
     parsedFillBufferPct < 0 ||
     parsedFillBufferPct >= 1;
+  const parsedRiskPerTradePct = parseOptionalFloat(riskPerTradePct);
+  const parsedAtrStopMultiple = parseOptionalFloat(atrStopMultiple);
+  const parsedAtrRatioMin = parseOptionalFloat(atrRatioMin);
+  const parsedAtrRatioMax = parseOptionalFloat(atrRatioMax);
+  const riskPerTradeInvalid =
+    parsedRiskPerTradePct === undefined || parsedRiskPerTradePct <= 0;
+  const atrStopMultipleInvalid =
+    parsedAtrStopMultiple === undefined || parsedAtrStopMultiple <= 0;
+  const atrRatioRangeInvalid =
+    parsedAtrRatioMin !== undefined &&
+    parsedAtrRatioMax !== undefined &&
+    parsedAtrRatioMin > parsedAtrRatioMax;
   const productionEntry = options.data?.production.entry_strategy ?? "";
   const productionExit = options.data?.production.exit_strategy ?? "";
   const productionRankingStrategy =
@@ -450,6 +479,23 @@ export default function Evaluation() {
         ? defaults.capacity_regime_mode
         : "off",
     );
+    setPositionSizingMode(
+      isPositionSizingMode(defaults.position_sizing_mode)
+        ? defaults.position_sizing_mode
+        : "fixed",
+    );
+    setRiskPerTradePct(String(defaults.risk_per_trade_pct ?? 0.006));
+    setAtrStopMultiple(String(defaults.atr_stop_multiple ?? 2.0));
+    setAtrRatioMin(
+      defaults.atr_ratio_min !== null && defaults.atr_ratio_min !== undefined
+        ? String(defaults.atr_ratio_min)
+        : "",
+    );
+    setAtrRatioMax(
+      defaults.atr_ratio_max !== null && defaults.atr_ratio_max !== undefined
+        ? String(defaults.atr_ratio_max)
+        : "",
+    );
     setRankingMode(defaults.ranking_mode ?? "prs_train");
     setMinTrainYears(String(defaults.min_train_years ?? 2));
     setPositionFile(defaults.position_file ?? "");
@@ -521,6 +567,9 @@ export default function Evaluation() {
     }
 
     const normalizedFillBufferPct = parsedFillBufferPct ?? 0.02;
+    const normalizedRiskPerTradePct = parsedRiskPerTradePct ?? 0.006;
+    const normalizedAtrStopMultiple = parsedAtrStopMultiple ?? 2.0;
+    const includeSizingRuntimeOverrides = !isPosEvaluation || overrideProfileSizing;
     const payload: Record<string, unknown> = {
       command,
       buy_fill_modes: selectedBuyFillModes,
@@ -548,7 +597,15 @@ export default function Evaluation() {
       ranking_mode: rankingMode || undefined,
       universe_pool_ids:
         selectedUniversePoolIds.length > 0 ? selectedUniversePoolIds : undefined,
+      atr_ratio_min: parsedAtrRatioMin,
+      atr_ratio_max: parsedAtrRatioMax,
     };
+
+    if (includeSizingRuntimeOverrides) {
+      payload.position_sizing_mode = positionSizingMode;
+      payload.risk_per_trade_pct = normalizedRiskPerTradePct;
+      payload.atr_stop_multiple = normalizedAtrStopMultiple;
+    }
 
     if (!isReplayEvaluation) {
       payload.mode = mode;
@@ -584,6 +641,8 @@ export default function Evaluation() {
         `Buy Fill Modes: ${selectedBuyFillModes.join(", ")}`,
         `Entry Reference Modes: ${selectedEntryReferenceModes.join(", ")}`,
         `Fill Buffer: ${fillBufferEnabled ? `ON (${(normalizedFillBufferPct * 100).toFixed(2)}%)` : `OFF (${(normalizedFillBufferPct * 100).toFixed(2)}% configured)`}`,
+        `Position Sizing: ${includeSizingRuntimeOverrides ? `${positionSizingMode} | risk ${normalizedRiskPerTradePct} | stop ${normalizedAtrStopMultiple} ATR` : "profile defaults"}`,
+        `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`,
         `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
         isReplayEvaluation
@@ -694,7 +753,7 @@ export default function Evaluation() {
             named {selectedFilterNames.length} / overlay {isPosEvaluation ? selectedOverlayModes.join(", ") : enableOverlay ? "on" : "off"}
           </div>
           <div className="mt-auto pt-3 text-xs text-gray-500">
-            Fill buffer {fillBufferEnabled ? "enabled" : "disabled"} at {((parsedFillBufferPct ?? 0) * 100).toFixed(2)}%.
+            Sizing {isPosEvaluation && !overrideProfileSizing ? "profile" : positionSizingMode} / ATR% {atrRatioMin || "-"}-{atrRatioMax || "-"}.
           </div>
         </div>
 
@@ -952,6 +1011,83 @@ export default function Evaluation() {
               <p className="mt-2 text-[11px] text-gray-500">
                 {selectedFilterNames.length} named filters currently selected.
               </p>
+            </div>
+          </div>
+
+          <div className={sixColGridClass}>
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Position Sizing</label>
+              <select
+                value={positionSizingMode}
+                onChange={(e) => setPositionSizingMode(e.target.value as PositionSizingMode)}
+                className={compactInputClassName}
+              >
+                <option value="fixed">fixed</option>
+                <option value="atr">atr</option>
+              </select>
+              {isPosEvaluation && (
+                <label className="mt-2 flex items-center gap-2 text-[11px] text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={overrideProfileSizing}
+                    onChange={(e) => setOverrideProfileSizing(e.target.checked)}
+                  />
+                  Override profiles
+                </label>
+              )}
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Risk Per Trade</label>
+              <input
+                value={riskPerTradePct}
+                onChange={(e) => setRiskPerTradePct(e.target.value)}
+                className={compactInputClassName}
+              />
+              {riskPerTradeInvalid && (
+                <p className="mt-2 text-[11px] text-red-400">Enter a positive ratio.</p>
+              )}
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>ATR Stop Multiple</label>
+              <input
+                value={atrStopMultiple}
+                onChange={(e) => setAtrStopMultiple(e.target.value)}
+                className={compactInputClassName}
+              />
+              {atrStopMultipleInvalid && (
+                <p className="mt-2 text-[11px] text-red-400">Enter a positive multiple.</p>
+              )}
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>ATR% Min</label>
+              <input
+                value={atrRatioMin}
+                onChange={(e) => setAtrRatioMin(e.target.value)}
+                className={compactInputClassName}
+              />
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>ATR% Max</label>
+              <input
+                value={atrRatioMax}
+                onChange={(e) => setAtrRatioMax(e.target.value)}
+                className={compactInputClassName}
+              />
+              {atrRatioRangeInvalid && (
+                <p className="mt-2 text-[11px] text-red-400">Min must be no greater than max.</p>
+              )}
+            </div>
+
+            <div className={`${fieldCardClassName} justify-center`}>
+              <div className="text-xs text-gray-400">
+                {isPosEvaluation && !overrideProfileSizing
+                  ? "Profile sizing is active for pos-evaluation."
+                  : `Runtime sizing will be sent as ${positionSizingMode}.`}
+              </div>
             </div>
           </div>
 
@@ -1299,7 +1435,10 @@ export default function Evaluation() {
                   exec.running ||
                   selectedBuyFillModes.length === 0 ||
                   selectedEntryReferenceModes.length === 0 ||
-                  fillBufferPctInvalid
+                  fillBufferPctInvalid ||
+                  riskPerTradeInvalid ||
+                  atrStopMultipleInvalid ||
+                  atrRatioRangeInvalid
                 }
                 className="h-full min-h-[78px] px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm w-full"
               >

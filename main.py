@@ -93,6 +93,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="evaluation资金容量分层模式: off=关闭, enforce=按资金tier启用动态仓位与流动性约束",
     )
+    _add_atr_runtime_override_arguments(parser)
     parser.add_argument(
         "--years", nargs="+", type=int, help="年份列表 (例如: 2021 2022 2023)"
     )
@@ -178,15 +179,38 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
             "prs_train=生产稳健训练评分"
         ),
     )
+
+
+def _add_atr_runtime_override_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--ranking-strategies",
-        nargs="+",
+        "--position-sizing-mode",
+        choices=["fixed", "atr"],
         default=None,
-        help=(
-            "信号排序策略（默认: default）。"
-            "可选: default, random, score_only, confidence_weighted, "
-            "risk_adjusted, composite, momentum, fresh_momentum, volatility_penalty, trend_alignment"
-        ),
+        help="本次运行仓位模式覆盖: fixed=固定仓位, atr=ATR风险仓位",
+    )
+    parser.add_argument(
+        "--risk-per-trade-pct",
+        type=float,
+        default=None,
+        help="ATR仓位每笔风险占总权益比例，例如0.006表示0.6%%",
+    )
+    parser.add_argument(
+        "--atr-stop-multiple",
+        type=float,
+        default=None,
+        help="ATR仓位初始止损倍数，例如2.0表示2倍ATR",
+    )
+    parser.add_argument(
+        "--atr-ratio-min",
+        type=float,
+        default=None,
+        help="本次运行入场ATR%%下限，例如0.015表示1.5%%",
+    )
+    parser.add_argument(
+        "--atr-ratio-max",
+        type=float,
+        default=None,
+        help="本次运行入场ATR%%上限，例如0.030表示3.0%%",
     )
 
 
@@ -206,6 +230,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         default=None,
         help="evaluation资金容量分层模式: off=关闭, enforce=按资金tier启用动态仓位与流动性约束",
     )
+    _add_atr_runtime_override_arguments(parser)
     parser.add_argument(
         "--mode",
         choices=["annual", "quarterly"],
@@ -315,6 +340,7 @@ def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="evaluation资金容量分层模式: off=关闭, enforce=按资金tier启用动态仓位与流动性约束",
     )
+    _add_atr_runtime_override_arguments(parser)
     parser.add_argument(
         "--entry-strategies", nargs="+", help="指定入场策略（默认读取evaluation默认配置）"
     )
@@ -532,6 +558,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="可选：仅对本次 daily 运行生效的股票池 ID（来自 stock_pools catalog）",
     )
+    _add_atr_runtime_override_arguments(production_parser)
     production_overlay_mode = production_parser.add_mutually_exclusive_group()
     production_overlay_mode.add_argument(
         "--enable-overlay",

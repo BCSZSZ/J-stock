@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from web.api.routers import evaluation as evaluation_router
 from web.api.schemas import EvaluationRunRequest
 
@@ -46,6 +48,51 @@ def test_build_cli_args_includes_entry_reference_mode(monkeypatch) -> None:
 
     entry_reference_index = args.index("--entry-reference-mode")
     assert args[entry_reference_index + 1] == "buffered_fill"
+
+
+def test_build_cli_args_includes_atr_runtime_flags(monkeypatch) -> None:
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_production_config",
+        lambda: SimpleNamespace(
+            monitor_list_file="data/monitor_list.json",
+            strategy_groups=[
+                {
+                    "id": "group_main",
+                    "entry_strategy": "EntryStrategy",
+                    "exit_strategy": "ExitStrategy",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_config_manager",
+        lambda: SimpleNamespace(raw_config={"production": {}}),
+    )
+
+    req = EvaluationRunRequest(
+        command="evaluate",
+        mode="annual",
+        position_sizing_mode="atr",
+        risk_per_trade_pct=0.006,
+        atr_stop_multiple=2.0,
+        atr_ratio_min=0.015,
+        atr_ratio_max=0.03,
+    )
+
+    args = evaluation_router._build_cli_args(req)
+
+    assert args[args.index("--position-sizing-mode") + 1] == "atr"
+    assert args[args.index("--risk-per-trade-pct") + 1] == "0.006"
+    assert args[args.index("--atr-stop-multiple") + 1] == "2.0"
+    assert args[args.index("--atr-ratio-min") + 1] == "0.015"
+    assert args[args.index("--atr-ratio-max") + 1] == "0.03"
+
+
+def test_evaluation_request_rejects_invalid_atr_range() -> None:
+    with pytest.raises(ValueError):
+        EvaluationRunRequest(atr_ratio_min=0.03, atr_ratio_max=0.015)
 
 
 def test_build_cli_args_ignores_years_for_replay_evaluation(monkeypatch) -> None:

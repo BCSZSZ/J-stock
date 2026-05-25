@@ -350,6 +350,9 @@ class SignalGenerator:
                     or position.signal_entry_price
                     or position.entry_price
                 ),
+                entry_atr=getattr(position, "entry_atr", None),
+                initial_stop_price=getattr(position, "initial_stop_price", None),
+                locked_stop_price=getattr(position, "locked_stop_price", None),
             )
 
             # Update peak price
@@ -365,6 +368,9 @@ class SignalGenerator:
                 exit_strategy=exit_strategy,
                 position=signals_position,
             )
+            position.entry_atr = signals_position.entry_atr
+            position.initial_stop_price = signals_position.initial_stop_price
+            position.locked_stop_price = signals_position.locked_stop_price
 
             # Get evaluation details (for all cases, SELL or HOLD)
             evaluation_details = None

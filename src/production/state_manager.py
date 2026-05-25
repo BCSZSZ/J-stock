@@ -45,6 +45,9 @@ class Position:
     peak_price: float = 0.0  # Track for trailing stops
     lot_id: str = ""
     signal_entry_price: Optional[float] = None
+    entry_atr: Optional[float] = None
+    initial_stop_price: Optional[float] = None
+    locked_stop_price: Optional[float] = None
 
     def __post_init__(self):
         if self.signal_entry_price is None:
@@ -112,6 +115,9 @@ class StrategyGroupState:
         entry_score: float,
         signal_entry_price: Optional[float] = None,
         lot_id: Optional[str] = None,
+        entry_atr: Optional[float] = None,
+        initial_stop_price: Optional[float] = None,
+        locked_stop_price: Optional[float] = None,
     ) -> Position:
         """
         Add a new position to this strategy group.
@@ -127,6 +133,9 @@ class StrategyGroupState:
             peak_price=signal_entry_price if signal_entry_price is not None else entry_price,
             lot_id=lot_id or _new_lot_id(ticker, entry_date),
             signal_entry_price=signal_entry_price,
+            entry_atr=entry_atr,
+            initial_stop_price=initial_stop_price,
+            locked_stop_price=locked_stop_price,
         )
         self.positions.append(position)
         self.positions.sort(key=_position_sort_key)
@@ -161,6 +170,9 @@ class StrategyGroupState:
         entry_score: float,
         peak_price: Optional[float] = None,
         signal_entry_price: Optional[float] = None,
+        entry_atr: Optional[float] = None,
+        initial_stop_price: Optional[float] = None,
+        locked_stop_price: Optional[float] = None,
     ) -> Position:
         """Restore or increase a lot while preserving FIFO ordering."""
         existing = self.get_position_by_lot_id(lot_id)
@@ -170,6 +182,15 @@ class StrategyGroupState:
                 existing.signal_entry_price = signal_entry_price
             if peak_price is not None:
                 existing.peak_price = max(existing.peak_price, peak_price)
+            if entry_atr is not None and existing.entry_atr is None:
+                existing.entry_atr = entry_atr
+            if initial_stop_price is not None and existing.initial_stop_price is None:
+                existing.initial_stop_price = initial_stop_price
+            if locked_stop_price is not None:
+                existing.locked_stop_price = max(
+                    existing.locked_stop_price or locked_stop_price,
+                    locked_stop_price,
+                )
             return existing
 
         restored = Position(
@@ -185,6 +206,9 @@ class StrategyGroupState:
             ),
             lot_id=lot_id,
             signal_entry_price=signal_entry_price,
+            entry_atr=entry_atr,
+            initial_stop_price=initial_stop_price,
+            locked_stop_price=locked_stop_price,
         )
         self.positions.append(restored)
         self.positions.sort(key=_position_sort_key)

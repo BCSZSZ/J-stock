@@ -21,6 +21,7 @@ from src.backtest.entry_reference import (
     RAW_FILL_ENTRY_REFERENCE,
 )
 from src.config.runtime import is_local_path
+from src.utils.atr_position_sizing import parse_portfolio_sizing_config
 from web.api.dependencies import get_production_config, get_project_root, get_config_manager
 from web.api.schemas import EvaluationRunRequest
 
@@ -281,6 +282,33 @@ def _append_multi_flag(args: list[str], flag: str, values: list[str] | list[int]
     args.extend(normalized)
 
 
+def _append_atr_runtime_flags(args: list[str], req: EvaluationRunRequest) -> None:
+    if req.position_sizing_mode:
+        args.extend(["--position-sizing-mode", req.position_sizing_mode])
+    if req.risk_per_trade_pct is not None:
+        args.extend(["--risk-per-trade-pct", str(req.risk_per_trade_pct)])
+    if req.atr_stop_multiple is not None:
+        args.extend(["--atr-stop-multiple", str(req.atr_stop_multiple)])
+    if req.atr_ratio_min is not None:
+        args.extend(["--atr-ratio-min", str(req.atr_ratio_min)])
+    if req.atr_ratio_max is not None:
+        args.extend(["--atr-ratio-max", str(req.atr_ratio_max)])
+
+
+def _resolve_atr_runtime_defaults(raw_config: dict[str, object]) -> dict[str, object]:
+    sizing = parse_portfolio_sizing_config(raw_config.get("portfolio", {}))
+    default_filter = raw_config.get("evaluation", {}).get("filters", {}).get("default", {})
+    if not isinstance(default_filter, dict):
+        default_filter = {}
+    return {
+        "position_sizing_mode": sizing.mode,
+        "risk_per_trade_pct": sizing.atr.risk_per_trade_pct,
+        "atr_stop_multiple": sizing.atr.atr_stop_multiple,
+        "atr_ratio_min": default_filter.get("atr_price_min"),
+        "atr_ratio_max": default_filter.get("atr_price_max"),
+    }
+
+
 def _normalize_string_list(values: list[str] | None) -> list[str]:
     if not values:
         return []
@@ -500,6 +528,8 @@ def _build_cli_args(
     if req.ranking_mode:
         args.extend(["--ranking-mode", req.ranking_mode])
 
+    _append_atr_runtime_flags(args, req)
+
     _append_multi_flag(
         args,
         "--ranking-strategies",
@@ -564,6 +594,7 @@ def get_options() -> dict[str, object]:
     default_ranking_strategy = _resolve_production_ranking_strategy(raw_config)
     default_universe_file = getattr(prod_cfg, "monitor_list_file", None)
     stock_pools = [pool.to_api_dict() for pool in cm.list_stock_pools()]
+    atr_runtime_defaults = _resolve_atr_runtime_defaults(raw_config)
     return {
         "commands": COMMANDS,
         "entry_strategies": strategies.get("entry", []),
@@ -614,6 +645,7 @@ def get_options() -> dict[str, object]:
                 [str(default_universe_file)] if default_universe_file else []
             ),
             "universe_pool_ids": [],
+            **atr_runtime_defaults,
             "position_file": default_position_file,
             "profile_names": default_profile_names,
             "report_file": "",

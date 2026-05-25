@@ -31,6 +31,22 @@ def _apply_stock_pool_override(args, config_mgr, prod_cfg: ProductionConfig) -> 
     setattr(prod_cfg, "selected_stock_pool_label", selected_pool.label)
 
 
+def _validate_daily_only_runtime_overrides(args) -> None:
+    runtime_flags = (
+        "position_sizing_mode",
+        "risk_per_trade_pct",
+        "atr_stop_multiple",
+        "atr_ratio_min",
+        "atr_ratio_max",
+    )
+    if not any(getattr(args, name, None) is not None for name in runtime_flags):
+        return
+    if args.input or args.status or args.sync_positions or args.set_cash or args.add_cash:
+        raise ValueError("ATR runtime override flags are only supported for production daily runs")
+    if args.set_position or getattr(args, "check_price", None):
+        raise ValueError("ATR runtime override flags are only supported for production daily runs")
+
+
 def cmd_production(args):
     """Production workflows: daily signal generation / next-day manual input / tools."""
     from src.production import ConfigManager, ProductionState
@@ -42,6 +58,7 @@ def cmd_production(args):
     config_mgr = ConfigManager(str(get_config_file_path()))
     prod_cfg = config_mgr.get_production_config()
     _apply_stock_pool_override(args, config_mgr, prod_cfg)
+    _validate_daily_only_runtime_overrides(args)
     state = ProductionState(state_file=prod_cfg.state_file)
     ensure_groups(state, config_mgr, prod_cfg)
 

@@ -331,6 +331,11 @@ export const api = {
       };
       defaults: {
         pool_id: string;
+        position_sizing_mode: string;
+        risk_per_trade_pct: number;
+        atr_stop_multiple: number;
+        atr_ratio_min: number | null;
+        atr_ratio_max: number | null;
       };
       stock_pools: StockPoolOption[];
     }>("/production/options"),
@@ -387,6 +392,11 @@ export const api = {
         profile_names: string[];
         report_file: string;
         min_train_years: number;
+        position_sizing_mode: string;
+        risk_per_trade_pct: number;
+        atr_stop_multiple: number;
+        atr_ratio_min: number | null;
+        atr_ratio_max: number | null;
       };
     }>("/evaluation/options"),
   evalReportContext: (reportFile: string) =>

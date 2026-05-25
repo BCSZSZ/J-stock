@@ -21,6 +21,7 @@ import pandas as pd
 from src.analysis.signals import MarketData, Position, SignalAction, TradingSignal
 from src.analysis.strategies.complexity import StrategyComplexity
 from src.analysis.strategies.base_exit_strategy import BaseExitStrategy
+from src.analysis.strategies.exit.locked_atr_stop import calculate_locked_atr_stop
 
 
 class MultiViewCompositeExit(BaseExitStrategy):
@@ -318,17 +319,21 @@ class MultiViewCompositeExit(BaseExitStrategy):
         trigger: str,
         r_value: float,
         pnl_pct: float,
+        extra_metadata: Dict | None = None,
     ) -> TradingSignal:
+        metadata = {
+            "trigger": trigger,
+            "sell_percentage": float(sell_percentage),
+            "r_value": float(r_value),
+            "pnl_pct": float(pnl_pct),
+        }
+        if extra_metadata:
+            metadata.update(extra_metadata)
         return TradingSignal(
             action=SignalAction.SELL,
             confidence=confidence,
             reasons=[reason],
-            metadata={
-                "trigger": trigger,
-                "sell_percentage": float(sell_percentage),
-                "r_value": float(r_value),
-                "pnl_pct": float(pnl_pct),
-            },
+            metadata=metadata,
             strategy_name=self.strategy_name,
         )
 
@@ -733,6 +738,177 @@ class MultiViewWindowDecayExit(MultiViewCompositeExit):
         return "n-1 of n down, latest down, negative slope"
 
 
+class MultiViewWindowDecayLockedStopExit(MultiViewWindowDecayExit):
+    """MVXW variant that locks the effective trailing stop above InitialStop."""
+
+    complexity = StrategyComplexity(
+        numeric_param_count=8,
+        extra_filter_count=3,
+        conditional_rule_count=5,
+    )
+
+    def __init__(
+        self,
+        hist_shrink_n: int = 9,
+        r_mult: float = 3.4,
+        trail_mult: float = 1.6,
+        time_stop_days: int = 18,
+        bias_exit_threshold_pct: float = 20.0,
+        initial_stop_mult: float = 2.0,
+    ):
+        super().__init__(
+            hist_shrink_n=hist_shrink_n,
+            r_mult=r_mult,
+            trail_mult=trail_mult,
+            time_stop_days=time_stop_days,
+            bias_exit_threshold_pct=bias_exit_threshold_pct,
+        )
+        self.initial_stop_mult = float(initial_stop_mult)
+        self.strategy_name = "MultiViewWindowDecayLockedStopExit"
+
+    @staticmethod
+    def _positive_float_or_none(value) -> float | None:
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        if pd.isna(parsed) or parsed <= 0:
+            return None
+        return parsed
+
+    def _locked_stop_result(
+        self,
+        position: Position,
+        df_features: pd.DataFrame,
+        current_atr: float,
+        *,
+        persist: bool,
+    ):
+        entry_atr = self._positive_float_or_none(position.entry_atr)
+        if entry_atr is None:
+            entry_atr = self._resolve_entry_atr(
+                df_features,
+                position.entry_date,
+                current_atr,
+            )
+
+        result = calculate_locked_atr_stop(
+            entry_price=position.decision_entry_price,
+            peak_price=position.peak_price_since_entry,
+            entry_atr=entry_atr,
+            current_atr=current_atr,
+            initial_stop_multiple=self.initial_stop_mult,
+            trail_multiple=self.trail_mult,
+            previous_stop_price=position.locked_stop_price,
+        )
+        if persist:
+            position.entry_atr = result.entry_atr
+            position.initial_stop_price = result.initial_stop_price
+            position.locked_stop_price = result.effective_stop_price
+        return result
+
+    def get_evaluation_details(
+        self, position: Position, market_data: MarketData
+    ) -> Dict:
+        details = super().get_evaluation_details(position, market_data)
+        layers = details.get("layers") or []
+        if not layers:
+            return details
+
+        df = market_data.df_features
+        latest = df.iloc[-1]
+        current_price = latest["Close"]
+        current_atr = latest["ATR"]
+        if pd.isna(current_atr) or current_atr <= 0:
+            return details
+
+        stop = self._locked_stop_result(
+            position,
+            df,
+            current_atr,
+            persist=False,
+        )
+        layers[0] = {
+            "name": "R1_LockedATRTrailingStop",
+            "status": "SAFE" if current_price >= stop.effective_stop_price else "TRIGGER",
+            "value": f"¥{current_price:.2f}",
+            "threshold": f"¥{stop.effective_stop_price:.2f}",
+            "triggered": current_price < stop.effective_stop_price,
+        }
+        triggered_count = sum(1 for layer in layers if layer["triggered"])
+        details["summary"] = f"{triggered_count}/{len(layers)} conditions triggered"
+        details["initial_stop_price"] = float(stop.initial_stop_price)
+        details["dynamic_trail_price"] = float(stop.dynamic_trail_price)
+        details["locked_stop_price"] = float(stop.effective_stop_price)
+        return details
+
+    def generate_exit_signal(
+        self, position: Position, market_data: MarketData
+    ) -> TradingSignal:
+        self.update_position(position, market_data.latest_price)
+
+        df = market_data.df_features
+        if df.empty or len(df) < max(self.hist_shrink_n + 1, 2):
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Insufficient data"],
+                strategy_name=self.strategy_name,
+            )
+
+        required = ["Close", "ATR", "MACD_Hist"]
+        if not all(col in df.columns for col in required):
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Missing required indicators"],
+                strategy_name=self.strategy_name,
+            )
+
+        latest = df.iloc[-1]
+        current_price = latest["Close"]
+        current_atr = latest["ATR"]
+        if pd.isna(current_atr) or current_atr <= 0:
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Invalid ATR"],
+                strategy_name=self.strategy_name,
+            )
+
+        stop = self._locked_stop_result(
+            position,
+            df,
+            current_atr,
+            persist=True,
+        )
+        entry_atr = stop.entry_atr
+        r_value = max(self.r_mult * entry_atr, 1e-6)
+        pnl_pct = position.current_pnl_pct(current_price)
+
+        if current_price < stop.effective_stop_price:
+            return self._sell_signal(
+                sell_percentage=1.0,
+                confidence=1.0,
+                reason=(
+                    f"R1 locked trailing stop: "
+                    f"{current_price:.2f} < {stop.effective_stop_price:.2f}"
+                ),
+                trigger="R1_LockedATRTrailing",
+                r_value=r_value,
+                pnl_pct=pnl_pct,
+                extra_metadata={
+                    "initial_stop_price": float(stop.initial_stop_price),
+                    "dynamic_trail_price": float(stop.dynamic_trail_price),
+                    "locked_stop_price": float(stop.effective_stop_price),
+                },
+            )
+
+        return super().generate_exit_signal(position, market_data)
+
+
 class MultiViewUnifiedTakeProfitExit(BaseExitStrategy):
     """MVX variant with a single full-exit take-profit threshold."""
 
@@ -1069,6 +1245,30 @@ def _build_window_decay_variant_class(
     return type(name, (MultiViewWindowDecayExit,), {"__init__": __init__})
 
 
+def _build_locked_window_decay_variant_class(
+    name: str,
+    n: int,
+    r: float,
+    t: float,
+    d: int,
+    b: float,
+    i: float,
+):
+    def __init__(self):
+        MultiViewWindowDecayLockedStopExit.__init__(
+            self,
+            hist_shrink_n=n,
+            r_mult=r,
+            trail_mult=t,
+            time_stop_days=d,
+            bias_exit_threshold_pct=b,
+            initial_stop_mult=i,
+        )
+        self.strategy_name = name
+
+    return type(name, (MultiViewWindowDecayLockedStopExit,), {"__init__": __init__})
+
+
 def _build_unified_tp_variant_class(
     name: str,
     n: int,
@@ -1114,6 +1314,27 @@ def _register_window_decay_variant(n: int, r: float, t: float, d: int, b: float)
     _register_grid_exit_variant(
         name,
         _build_window_decay_variant_class(name, n, r, t, d, b),
+    )
+    _register_locked_window_decay_variant(n, r, t, d, b)
+
+
+def _register_locked_window_decay_variant(
+    n: int,
+    r: float,
+    t: float,
+    d: int,
+    b: float,
+    i: float = 2.0,
+) -> None:
+    name = (
+        f"MVXWL_N{n}_R{_float_token(r)}_T{_float_token(t)}_D{d}_"
+        f"B{_float_token(b)}_I{_float_token(i)}"
+    )
+    if name in GRID_EXIT_STRATEGY_MAP:
+        return
+    _register_grid_exit_variant(
+        name,
+        _build_locked_window_decay_variant_class(name, n, r, t, d, b, i),
     )
 
 

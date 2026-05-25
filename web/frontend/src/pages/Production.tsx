@@ -19,6 +19,8 @@ interface TradeRow {
   date: string;
 }
 
+type PositionSizingMode = "fixed" | "atr";
+
 interface ProductionOptionsResponse {
   production: {
     monitor_list_file: string;
@@ -27,6 +29,11 @@ interface ProductionOptionsResponse {
   };
   defaults: {
     pool_id: string;
+    position_sizing_mode: string;
+    risk_per_trade_pct: number;
+    atr_stop_multiple: number;
+    atr_ratio_min: number | null;
+    atr_ratio_max: number | null;
   };
   stock_pools: StockPoolOption[];
 }
@@ -56,6 +63,17 @@ function formatStockPoolLabel(pool: StockPoolOption): string {
   return atrRange ? `${pool.label} (${atrRange})` : pool.label;
 }
 
+function parseOptionalFloat(value: string): number | undefined {
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isPositionSizingMode(value: string): value is PositionSizingMode {
+  return value === "fixed" || value === "atr";
+}
+
 export default function Production() {
   const daily = useStreamExec();
   const fetchData = useStreamExec();
@@ -65,6 +83,12 @@ export default function Production() {
   const { confirm, dialog } = useConfirmDialog();
   const [trades, setTrades] = useState<TradeRow[]>([emptyTrade()]);
   const [selectedPoolId, setSelectedPoolId] = useState("");
+  const [positionSizingMode, setPositionSizingMode] =
+    useState<PositionSizingMode>("fixed");
+  const [riskPerTradePct, setRiskPerTradePct] = useState("0.006");
+  const [atrStopMultiple, setAtrStopMultiple] = useState("2.0");
+  const [atrRatioMin, setAtrRatioMin] = useState("0.015");
+  const [atrRatioMax, setAtrRatioMax] = useState("0.030");
   const names = useTickerNames();
   const options = useQuery<ProductionOptionsResponse>({
     queryKey: ["production-options"],
@@ -76,6 +100,18 @@ export default function Production() {
     selectedPool?.monitor_list_file ?? options.data?.production.monitor_list_file ?? "";
   const effectiveSectorPoolFile =
     selectedPool?.sector_pool_file ?? options.data?.production.sector_pool_file ?? "";
+  const parsedRiskPerTradePct = parseOptionalFloat(riskPerTradePct);
+  const parsedAtrStopMultiple = parseOptionalFloat(atrStopMultiple);
+  const parsedAtrRatioMin = parseOptionalFloat(atrRatioMin);
+  const parsedAtrRatioMax = parseOptionalFloat(atrRatioMax);
+  const atrRuntimeInvalid =
+    parsedRiskPerTradePct === undefined ||
+    parsedRiskPerTradePct <= 0 ||
+    parsedAtrStopMultiple === undefined ||
+    parsedAtrStopMultiple <= 0 ||
+    (parsedAtrRatioMin !== undefined &&
+      parsedAtrRatioMax !== undefined &&
+      parsedAtrRatioMin > parsedAtrRatioMax);
 
   useEffect(() => {
     if (!options.data) {
@@ -83,6 +119,27 @@ export default function Production() {
     }
     const defaultPoolId = options.data.defaults.pool_id ?? "";
     setSelectedPoolId((current) => current || defaultPoolId);
+    setPositionSizingMode((current) =>
+      current !== "fixed"
+        ? current
+        : isPositionSizingMode(options.data.defaults.position_sizing_mode)
+          ? options.data.defaults.position_sizing_mode
+          : "fixed",
+    );
+    setRiskPerTradePct(String(options.data.defaults.risk_per_trade_pct ?? 0.006));
+    setAtrStopMultiple(String(options.data.defaults.atr_stop_multiple ?? 2.0));
+    setAtrRatioMin(
+      options.data.defaults.atr_ratio_min !== null &&
+        options.data.defaults.atr_ratio_min !== undefined
+        ? String(options.data.defaults.atr_ratio_min)
+        : "",
+    );
+    setAtrRatioMax(
+      options.data.defaults.atr_ratio_max !== null &&
+        options.data.defaults.atr_ratio_max !== undefined
+        ? String(options.data.defaults.atr_ratio_max)
+        : "",
+    );
   }, [options.data]);
 
   // Signal import
@@ -140,11 +197,16 @@ export default function Production() {
   }
 
   async function handleDaily(noFetch: boolean) {
+    if (atrRuntimeInvalid) {
+      return;
+    }
     const ok = await confirm(
       "Run Production Daily",
       [
         `Execute production --daily${noFetch ? " --no-fetch" : ""}? This will generate signals and reports.`,
         `Stock Pool: ${selectedPool ? formatStockPoolLabel(selectedPool) : "production default"}`,
+        `Position Sizing: ${positionSizingMode} | risk ${parsedRiskPerTradePct} | stop ${parsedAtrStopMultiple} ATR`,
+        `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`,
       ].join("\n"),
     );
     if (!ok) return;
@@ -152,6 +214,11 @@ export default function Production() {
       confirm: true,
       no_fetch: noFetch,
       pool_id: selectedPoolId || undefined,
+      position_sizing_mode: positionSizingMode,
+      risk_per_trade_pct: parsedRiskPerTradePct,
+      atr_stop_multiple: parsedAtrStopMultiple,
+      atr_ratio_min: parsedAtrRatioMin,
+      atr_ratio_max: parsedAtrRatioMax,
     });
   }
 
@@ -235,17 +302,72 @@ export default function Production() {
               Leave this empty to preserve the current production daily behavior. This override applies only to Daily and Daily (no-fetch) in phase 1.
             </div>
           </div>
+          <div className="rounded border border-gray-800 bg-gray-950/40 p-3 space-y-3">
+            <div className="text-[11px] uppercase tracking-wide text-gray-500">
+              ATR Runtime Parameters
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>Position Sizing</span>
+                <select
+                  value={positionSizingMode}
+                  onChange={(e) => setPositionSizingMode(e.target.value as PositionSizingMode)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                >
+                  <option value="fixed">fixed</option>
+                  <option value="atr">atr</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>Risk Per Trade</span>
+                <input
+                  value={riskPerTradePct}
+                  onChange={(e) => setRiskPerTradePct(e.target.value)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>ATR Stop Multiple</span>
+                <input
+                  value={atrStopMultiple}
+                  onChange={(e) => setAtrStopMultiple(e.target.value)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>ATR% Min</span>
+                <input
+                  value={atrRatioMin}
+                  onChange={(e) => setAtrRatioMin(e.target.value)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>ATR% Max</span>
+                <input
+                  value={atrRatioMax}
+                  onChange={(e) => setAtrRatioMax(e.target.value)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                />
+              </label>
+            </div>
+            {atrRuntimeInvalid && (
+              <p className="text-xs text-red-400">
+                Risk and stop multiple must be positive, and ATR% min must be no greater than max.
+              </p>
+            )}
+          </div>
           <div className="flex gap-2">
             <button
               onClick={() => handleDaily(false)}
-              disabled={daily.running}
+              disabled={daily.running || atrRuntimeInvalid}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm"
             >
               Run Daily
             </button>
             <button
               onClick={() => handleDaily(true)}
-              disabled={daily.running}
+              disabled={daily.running || atrRuntimeInvalid}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded text-sm"
             >
               Run Daily (no-fetch)

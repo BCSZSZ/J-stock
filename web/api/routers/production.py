@@ -24,6 +24,35 @@ from web.api.schemas import (
 router = APIRouter(prefix="/api/production", tags=["production"])
 
 
+def _append_atr_runtime_flags(args: list[str], req: ProductionDailyRequest) -> None:
+    if req.position_sizing_mode:
+        args.extend(["--position-sizing-mode", req.position_sizing_mode])
+    if req.risk_per_trade_pct is not None:
+        args.extend(["--risk-per-trade-pct", str(req.risk_per_trade_pct)])
+    if req.atr_stop_multiple is not None:
+        args.extend(["--atr-stop-multiple", str(req.atr_stop_multiple)])
+    if req.atr_ratio_min is not None:
+        args.extend(["--atr-ratio-min", str(req.atr_ratio_min)])
+    if req.atr_ratio_max is not None:
+        args.extend(["--atr-ratio-max", str(req.atr_ratio_max)])
+
+
+def _resolve_production_atr_defaults(cfg) -> dict[str, object]:
+    raw_config = getattr(cfg, "raw_config", {}) or {}
+    entry_filter = raw_config.get("production", {}).get("entry_filter")
+    if not isinstance(entry_filter, dict):
+        entry_filter = raw_config.get("evaluation", {}).get("filters", {}).get("default", {})
+    if not isinstance(entry_filter, dict):
+        entry_filter = {}
+    return {
+        "position_sizing_mode": str(getattr(cfg, "position_sizing_mode", "fixed") or "fixed"),
+        "risk_per_trade_pct": float(getattr(cfg.atr_position_sizing, "risk_per_trade_pct", 0.006)),
+        "atr_stop_multiple": float(getattr(cfg.atr_position_sizing, "atr_stop_multiple", 2.0)),
+        "atr_ratio_min": entry_filter.get("atr_price_min"),
+        "atr_ratio_max": entry_filter.get("atr_price_max"),
+    }
+
+
 async def _run_cli_streaming(args: list[str]) -> StreamingResponse:
     """Run a CLI command and stream stdout/stderr as SSE.
 
@@ -113,6 +142,7 @@ def production_options() -> dict[str, object]:
         },
         "defaults": {
             "pool_id": "",
+            **_resolve_production_atr_defaults(cfg),
         },
         "stock_pools": stock_pools,
     }
@@ -127,6 +157,7 @@ async def run_daily(req: ProductionDailyRequest) -> StreamingResponse:
         args.append("--no-fetch")
     if req.pool_id:
         args.extend(["--pool-id", req.pool_id])
+    _append_atr_runtime_flags(args, req)
     return await _run_cli_streaming(args)
 
 
