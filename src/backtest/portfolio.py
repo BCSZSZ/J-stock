@@ -94,7 +94,8 @@ class Portfolio:
         starting_cash: float,
         max_positions: int = 5,
         max_position_pct: float = 0.30,
-        min_position_pct: float = 0.05
+        min_position_pct: float = 0.05,
+        unlimited_positions: bool = False,
     ):
         """
         Args:
@@ -102,6 +103,7 @@ class Portfolio:
             max_positions: 最大持仓数量（默认5只）
             max_position_pct: 单股最大仓位比例（默认30%）
             min_position_pct: 单股最小仓位比例（默认5%）
+            unlimited_positions: 是否取消固定持仓数量上限
         """
         self.starting_cash = starting_cash
         self.cash = starting_cash
@@ -110,6 +112,7 @@ class Portfolio:
         self.max_positions = max_positions
         self.max_position_pct = max_position_pct
         self.min_position_pct = min_position_pct
+        self.unlimited_positions = bool(unlimited_positions)
     
     def get_total_value(self, current_prices: Dict[str, float]) -> float:
         """
@@ -153,6 +156,8 @@ class Portfolio:
     
     def can_open_new_position(self) -> bool:
         """检查是否可以开新仓"""
+        if self.unlimited_positions:
+            return True
         return len(self.positions) < self.max_positions
     
     def has_position(self, ticker: str) -> bool:
@@ -272,7 +277,7 @@ class Portfolio:
         lines = [
             f"总资产: ¥{total_value:,.0f}",
             f"现金: ¥{self.cash:,.0f} ({self.cash/total_value*100:.1f}%)",
-            f"持仓数: {len(self.positions)}/{self.max_positions}"
+            f"持仓数: {len(self.positions)}/{'unlimited' if self.unlimited_positions else self.max_positions}"
         ]
         
         if self.positions:

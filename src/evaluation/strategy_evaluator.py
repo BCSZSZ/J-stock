@@ -8,7 +8,7 @@ Performance Optimization:
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -40,6 +40,12 @@ from src.production.state_manager import (
     Position as ProductionPosition,
     ProductionState,
     StrategyGroupState,
+)
+from src.utils.atr_position_sizing import (
+    AtrSizingInput,
+    PortfolioSizingConfig,
+    calculate_atr_position_size,
+    parse_portfolio_sizing_config,
 )
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
@@ -676,6 +682,7 @@ class StrategyEvaluator:
         self._monitor_list_cache = None  # Monitor list 缓存
         self._topix_cache: Dict[Tuple[str, str], Optional[float]] = {}  # TOPIX 缓存
         self._portfolio_limits_cache: Optional[Tuple[int, float]] = None
+        self._portfolio_sizing_cache: Optional[PortfolioSizingConfig] = None
         self._starting_capital_cache: Optional[int] = None
         self._capacity_mode_cache: Optional[str] = None
         self._capacity_regime_cache = None
@@ -796,38 +803,25 @@ class StrategyEvaluator:
         Returns:
             (max_positions, max_position_pct)
         """
-        if self._portfolio_limits_cache is not None:
-            return self._portfolio_limits_cache
+        sizing = self._get_portfolio_sizing_config()
+        self._portfolio_limits_cache = (sizing.max_positions, sizing.max_position_pct)
+        return self._portfolio_limits_cache
 
-        override_max_positions = self.portfolio_overrides.get("max_positions")
-        override_max_position_pct = self.portfolio_overrides.get("max_position_pct")
-        if override_max_positions is not None or override_max_position_pct is not None:
-            try:
-                max_positions = int(
-                    override_max_positions if override_max_positions is not None else 7
-                )
-                max_position_pct = float(
-                    override_max_position_pct
-                    if override_max_position_pct is not None
-                    else 0.18
-                )
-                self._portfolio_limits_cache = (max_positions, max_position_pct)
-                return self._portfolio_limits_cache
-            except Exception:
-                pass
+    def _get_portfolio_sizing_config(self) -> PortfolioSizingConfig:
+        if self._portfolio_sizing_cache is not None:
+            return self._portfolio_sizing_cache
 
         try:
             config = load_config()
             portfolio_cfg = config.get("portfolio", {})
-            max_positions = int(portfolio_cfg.get("max_positions", 7))
-            max_position_pct = float(portfolio_cfg.get("max_position_pct", 0.18))
-            self._portfolio_limits_cache = (max_positions, max_position_pct)
-            return self._portfolio_limits_cache
         except Exception:
-            pass
+            portfolio_cfg = {}
 
-        self._portfolio_limits_cache = (7, 0.18)
-        return self._portfolio_limits_cache
+        self._portfolio_sizing_cache = parse_portfolio_sizing_config(
+            portfolio_cfg,
+            self.portfolio_overrides,
+        )
+        return self._portfolio_sizing_cache
 
     def run_evaluation(
         self,
@@ -1254,12 +1248,17 @@ class StrategyEvaluator:
         # 运行回测
         capacity_mode = self._get_capacity_regime_mode()
         capacity_regime = self._get_capacity_regime()
+        position_sizing_config = self._get_portfolio_sizing_config()
         if capacity_mode == "enforce" and capacity_regime is not None:
             initial_tier = capacity_regime.tiers[0]
-            max_positions = initial_tier.max_positions
-            max_position_pct = initial_tier.max_position_pct
+            if position_sizing_config.mode == "fixed":
+                position_sizing_config = replace(
+                    position_sizing_config,
+                    max_positions=initial_tier.max_positions,
+                    max_position_pct=initial_tier.max_position_pct,
+                )
         else:
-            max_positions, max_position_pct = self._get_portfolio_limits()
+            self._get_portfolio_limits()
         phase_started = time.perf_counter()
         initial_pending_buy_signals, initial_pending_sell_signals = (
             self._build_initial_pending_signals()
@@ -1277,8 +1276,9 @@ class StrategyEvaluator:
                 else None
             ),
             seeded_positions=self._build_seeded_positions(entry.strategy_name),
-            max_positions=max_positions,
-            max_position_pct=max_position_pct,
+            max_positions=position_sizing_config.max_positions,
+            max_position_pct=position_sizing_config.max_position_pct,
+            position_sizing_config=position_sizing_config,
             capacity_regime=capacity_regime,
             capacity_regime_mode=capacity_mode,
             exit_confirmation_days=self.exit_confirmation_days,
@@ -1604,6 +1604,9 @@ class StrategyEvaluator:
         return buy_price_buffer_pct, sell_price_buffer_pct
 
     def _get_replay_report_portfolio_limits(self) -> Tuple[int, float]:
+        if self._get_portfolio_sizing_config().unlimited_positions:
+            return 1_000_000, 0.0
+
         max_positions, max_position_pct = self._get_portfolio_limits()
         if not self.results:
             return max_positions, max_position_pct
@@ -1616,10 +1619,10 @@ class StrategyEvaluator:
         return max_positions, max_position_pct
 
     @staticmethod
-    def _load_replay_report_close_price(
+    def _load_replay_report_latest_row(
         df_features: pd.DataFrame,
         report_date: str,
-    ) -> Optional[float]:
+    ) -> Optional[pd.Series]:
         if df_features is None or df_features.empty:
             return None
 
@@ -1632,9 +1635,22 @@ class StrategyEvaluator:
         frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
         frame = frame.dropna(subset=["Date"])
         frame = frame[frame["Date"] <= pd.Timestamp(report_date)]
-        if frame.empty or "Close" not in frame.columns:
+        if frame.empty:
             return None
-        return float(frame.sort_values("Date").iloc[-1]["Close"])
+        return frame.sort_values("Date").iloc[-1]
+
+    @staticmethod
+    def _load_replay_report_close_price(
+        df_features: pd.DataFrame,
+        report_date: str,
+    ) -> Optional[float]:
+        latest_row = StrategyEvaluator._load_replay_report_latest_row(
+            df_features,
+            report_date,
+        )
+        if latest_row is None or "Close" not in latest_row.index:
+            return None
+        return float(latest_row["Close"])
 
     def _load_replay_report_ticker_contexts(
         self,
@@ -1649,10 +1665,22 @@ class StrategyEvaluator:
                 continue
 
             close_price = None
+            atr_value = None
+            atr_ratio = None
             ticker_name = normalized
             try:
                 df_features = data_manager.load_stock_features(normalized)
-                close_price = self._load_replay_report_close_price(df_features, report_date)
+                latest_row = self._load_replay_report_latest_row(df_features, report_date)
+                if latest_row is not None and "Close" in latest_row.index:
+                    close_price = float(latest_row["Close"])
+                    raw_atr = latest_row.get("ATR")
+                    if raw_atr is not None and not pd.isna(raw_atr):
+                        atr_value = float(raw_atr)
+                    raw_atr_ratio = latest_row.get("ATR_Ratio")
+                    if raw_atr_ratio is not None and not pd.isna(raw_atr_ratio):
+                        atr_ratio = float(raw_atr_ratio)
+                    elif close_price and atr_value:
+                        atr_ratio = float(atr_value) / float(close_price)
             except Exception:
                 close_price = None
 
@@ -1666,6 +1694,8 @@ class StrategyEvaluator:
             contexts[normalized] = {
                 "ticker_name": ticker_name,
                 "close_price": close_price,
+                "atr": atr_value,
+                "atr_ratio": atr_ratio,
             }
 
         return contexts
@@ -1699,17 +1729,35 @@ class StrategyEvaluator:
         qty = lots * lot_size
         return min(total_qty, qty)
 
-    @staticmethod
     def _calculate_replay_report_buy_quantity(
+        self,
         ticker: str,
         planning_price: float,
         available_cash: float,
         total_portfolio_value: float,
         max_position_pct: float,
+        atr_jpy: float | None = None,
+        atr_ratio: float | None = None,
     ) -> Tuple[int, float, int]:
         lot_size = LotSizeManager.get_lot_size(ticker)
         if planning_price <= 0 or lot_size <= 0:
             return 0, 0.0, lot_size
+
+        position_sizing = self._get_portfolio_sizing_config()
+        if position_sizing.mode == "atr":
+            sizing_result = calculate_atr_position_size(
+                AtrSizingInput(
+                    ticker=ticker,
+                    planning_price=planning_price,
+                    portfolio_value_jpy=total_portfolio_value,
+                    available_cash_jpy=available_cash,
+                    atr_jpy=float(atr_jpy or 0.0),
+                    lot_size=lot_size,
+                    config=position_sizing.atr,
+                    atr_ratio=atr_ratio,
+                )
+            )
+            return sizing_result.quantity, sizing_result.required_capital_jpy, lot_size
 
         target_position_value = total_portfolio_value * max_position_pct
         max_position_value = min(target_position_value, available_cash)
@@ -1960,6 +2008,16 @@ class StrategyEvaluator:
                         available_cash=planning_cash,
                         total_portfolio_value=total_portfolio_value,
                         max_position_pct=max_position_pct,
+                        atr_jpy=(
+                            float(context["atr"])
+                            if context.get("atr") is not None
+                            else None
+                        ),
+                        atr_ratio=(
+                            float(context["atr_ratio"])
+                            if context.get("atr_ratio") is not None
+                            else None
+                        ),
                     )
                 )
                 if suggested_qty > 0:

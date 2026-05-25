@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import LogOutput from "../components/LogOutput";
 import { useStreamExec } from "../hooks/useStreamExec";
-import { api } from "../api/client";
+import { api, type StockPoolOption } from "../api/client";
 import {
   compareSignalsForDisplay,
   getExecutionQuantity,
@@ -19,6 +19,18 @@ interface TradeRow {
   date: string;
 }
 
+interface ProductionOptionsResponse {
+  production: {
+    monitor_list_file: string;
+    sector_pool_file: string;
+    stock_pool_catalog_file: string;
+  };
+  defaults: {
+    pool_id: string;
+  };
+  stock_pools: StockPoolOption[];
+}
+
 const emptyTrade = (): TradeRow => ({
   ticker: "",
   action: "BUY",
@@ -26,6 +38,23 @@ const emptyTrade = (): TradeRow => ({
   price: "",
   date: new Date().toISOString().slice(0, 10),
 });
+
+function formatStockPoolAtrRange(pool: StockPoolOption): string | null {
+  if (pool.atr_ratio_min == null && pool.atr_ratio_max == null) {
+    return null;
+  }
+
+  const minLabel =
+    pool.atr_ratio_min == null ? "-" : `${(pool.atr_ratio_min * 100).toFixed(1)}%`;
+  const maxLabel =
+    pool.atr_ratio_max == null ? "-" : `${(pool.atr_ratio_max * 100).toFixed(1)}%`;
+  return `${minLabel} - ${maxLabel}`;
+}
+
+function formatStockPoolLabel(pool: StockPoolOption): string {
+  const atrRange = formatStockPoolAtrRange(pool);
+  return atrRange ? `${pool.label} (${atrRange})` : pool.label;
+}
 
 export default function Production() {
   const daily = useStreamExec();
@@ -35,7 +64,26 @@ export default function Production() {
   const inputTrades = useStreamExec();
   const { confirm, dialog } = useConfirmDialog();
   const [trades, setTrades] = useState<TradeRow[]>([emptyTrade()]);
+  const [selectedPoolId, setSelectedPoolId] = useState("");
   const names = useTickerNames();
+  const options = useQuery<ProductionOptionsResponse>({
+    queryKey: ["production-options"],
+    queryFn: api.productionOptions,
+  });
+  const stockPools = options.data?.stock_pools ?? [];
+  const selectedPool = stockPools.find((pool) => pool.id === selectedPoolId) ?? null;
+  const effectiveMonitorListFile =
+    selectedPool?.monitor_list_file ?? options.data?.production.monitor_list_file ?? "";
+  const effectiveSectorPoolFile =
+    selectedPool?.sector_pool_file ?? options.data?.production.sector_pool_file ?? "";
+
+  useEffect(() => {
+    if (!options.data) {
+      return;
+    }
+    const defaultPoolId = options.data.defaults.pool_id ?? "";
+    setSelectedPoolId((current) => current || defaultPoolId);
+  }, [options.data]);
 
   // Signal import
   const signalDates = useQuery({ queryKey: ["signal-dates"], queryFn: api.signalDates });
@@ -94,10 +142,17 @@ export default function Production() {
   async function handleDaily(noFetch: boolean) {
     const ok = await confirm(
       "Run Production Daily",
-      `Execute production --daily${noFetch ? " --no-fetch" : ""}? This will generate signals and reports.`,
+      [
+        `Execute production --daily${noFetch ? " --no-fetch" : ""}? This will generate signals and reports.`,
+        `Stock Pool: ${selectedPool ? formatStockPoolLabel(selectedPool) : "production default"}`,
+      ].join("\n"),
     );
     if (!ok) return;
-    daily.execute("/production/daily", { confirm: true, no_fetch: noFetch });
+    daily.execute("/production/daily", {
+      confirm: true,
+      no_fetch: noFetch,
+      pool_id: selectedPoolId || undefined,
+    });
   }
 
   async function handleFetch() {
@@ -138,6 +193,12 @@ export default function Production() {
       <h2 className="text-2xl font-bold">Production</h2>
       {dialog}
 
+      {options.isError && (
+        <div className="rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          Failed to load production options: {String(options.error)}
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-3">
@@ -145,6 +206,35 @@ export default function Production() {
           <p className="text-xs text-gray-500">
             Fetch data, generate signals, produce report
           </p>
+          <div className="rounded border border-gray-800 bg-gray-950/40 p-3 space-y-2">
+            <div className="text-[11px] uppercase tracking-wide text-gray-500">
+              Optional Stock Pool Override
+            </div>
+            <select
+              value={selectedPoolId}
+              onChange={(e) => setSelectedPoolId(e.target.value)}
+              className="w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm"
+            >
+              <option value="">Use current production defaults</option>
+              {stockPools.map((pool) => (
+                <option key={pool.id} value={pool.id} disabled={!pool.enabled}>
+                  {formatStockPoolLabel(pool)}
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-gray-400 break-all">
+              Monitor: {effectiveMonitorListFile || "Not configured"}
+            </div>
+            <div className="text-xs text-gray-500 break-all">
+              Sector Pool: {effectiveSectorPoolFile || "Not configured"}
+            </div>
+            <div className="text-xs text-gray-500 break-all">
+              Catalog: {options.data?.production.stock_pool_catalog_file || "Not configured"}
+            </div>
+            <div className="text-[11px] text-gray-500">
+              Leave this empty to preserve the current production daily behavior. This override applies only to Daily and Daily (no-fetch) in phase 1.
+            </div>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={() => handleDaily(false)}

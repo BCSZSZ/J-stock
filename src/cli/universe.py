@@ -59,6 +59,8 @@ def _run_universe_scoring(
     score_model: str,
     output_dir: Path,
     output_subdir: str,
+    atr_ratio_min: float | None,
+    atr_ratio_max: float | None,
 ) -> Tuple[pd.DataFrame, Path, Path]:
     """Run the reusable scoring pipeline and return globally scored data."""
     codes = _load_codes_from_csv(csv_path, limit)
@@ -117,11 +119,14 @@ def _run_universe_scoring(
         workers=workers,
         score_model=score_model,
         output_dir=str(output_dir),
+        atr_ratio_min=atr_ratio_min,
+        atr_ratio_max=atr_ratio_max,
     )
 
     print(
         f"🚀 开始打分 (Top {top_n})，股票数: {len(codes)}，批大小: {batch_size}，"
-        f"score_model={score_model}, workers={workers}"
+        f"score_model={score_model}, workers={workers}, "
+        f"atr_ratio_range={selector.min_atr_ratio:.4f}-{selector.max_atr_ratio:.4f}"
     )
 
     total = len(codes)
@@ -355,6 +360,8 @@ def cmd_universe(args):
             score_model=args.score_model,
             output_dir=output_dir,
             output_subdir="scoring",
+            atr_ratio_min=args.atr_ratio_min,
+            atr_ratio_max=args.atr_ratio_max,
         )
     except Exception as e:
         print(f"❌ 运行失败: {e}")
@@ -366,6 +373,8 @@ def cmd_universe(args):
         workers=args.workers,
         score_model=args.score_model,
         output_dir=str(output_dir),
+        atr_ratio_min=args.atr_ratio_min,
+        atr_ratio_max=args.atr_ratio_max,
     )
 
     df_top_final = all_scores.nlargest(args.top_n, "TotalScore").copy()
@@ -420,6 +429,8 @@ def cmd_universe_sector(args):
             score_model=args.score_model,
             output_dir=output_dir,
             output_subdir="scoring",
+            atr_ratio_min=args.atr_ratio_min,
+            atr_ratio_max=args.atr_ratio_max,
         )
     except Exception as e:
         print(f"❌ 运行失败: {e}")

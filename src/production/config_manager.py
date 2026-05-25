@@ -9,8 +9,10 @@ from tempfile import NamedTemporaryFile
 from typing import Any, Dict, List, Optional
 
 from src.config.capacity import CapacityRegimeConfig, parse_capacity_regime, parse_production_capacity_mode
+from src.config.stock_pools import StockPoolEntry, get_stock_pool_catalog_path, load_stock_pool_catalog, resolve_stock_pools
 from src.config.runtime import is_local_path, sample_path_from_pattern
 from src.config.service import load_config
+from src.utils.atr_position_sizing import AtrPositionSizingConfig, parse_portfolio_sizing_config
 
 
 @dataclass
@@ -33,6 +35,8 @@ class ProductionConfig:
     # Position management
     max_positions_per_group: int
     max_position_pct: float
+    position_sizing_mode: str
+    atr_position_sizing: AtrPositionSizingConfig
     buy_threshold: float
     capacity_regime_mode: str
     capacity_regime: CapacityRegimeConfig
@@ -46,6 +50,9 @@ class ProductionConfig:
 
     # S3 sync (optional, for local → S3 push after --input)
     ops_s3_prefix: Optional[str] = None
+
+    # Optional stock-pool catalog used by web/API overrides
+    stock_pool_catalog_file: Optional[str] = None
 
     # Runtime/backends
     runtime_mode: str = "local"
@@ -218,6 +225,14 @@ class ConfigManager:
         )
         sector_pool_file = self._ensure_gdrive_dir_ready(sector_pool_file_raw)
 
+        production_sizing_overrides = dict(prod_cfg)
+        if "max_positions_per_group" in prod_cfg:
+            production_sizing_overrides["max_positions"] = prod_cfg["max_positions_per_group"]
+        position_sizing = parse_portfolio_sizing_config(
+            portfolio_cfg,
+            production_sizing_overrides,
+        )
+
         prod = ProductionConfig(
             # Data paths
             monitor_list_file=monitor_list_file,
@@ -231,12 +246,10 @@ class ConfigManager:
             history_file=history_file,
             cash_history_file=cash_history_file,
             # Position management
-            max_positions_per_group=prod_cfg.get(
-                "max_positions_per_group", portfolio_cfg.get("max_positions", 5)
-            ),
-            max_position_pct=prod_cfg.get(
-                "max_position_pct", portfolio_cfg.get("max_position_pct", 0.30)
-            ),
+            max_positions_per_group=position_sizing.max_positions,
+            max_position_pct=position_sizing.max_position_pct,
+            position_sizing_mode=position_sizing.mode,
+            atr_position_sizing=position_sizing.atr,
             buy_threshold=prod_cfg.get("buy_threshold", self.DEFAULTS["buy_threshold"]),
             capacity_regime_mode=capacity_regime_mode,
             capacity_regime=capacity_regime,
@@ -246,12 +259,25 @@ class ConfigManager:
             # Strategy groups (optional)
             strategy_groups=prod_cfg.get("strategy_groups", None),
             ops_s3_prefix=prod_cfg.get("ops_s3_prefix", None),
+            stock_pool_catalog_file=get_stock_pool_catalog_path(
+                self.raw_config,
+                self.config_file,
+            ),
             runtime_mode=str(runtime_cfg.get("mode", "local")),
             storage_backend=str(runtime_cfg.get("storage_backend", "local_fs")),
             state_backend=str(runtime_cfg.get("state_backend", "json")),
         )
         setattr(prod, "raw_config", self.raw_config)
         return prod
+
+    def get_stock_pool_catalog_file(self) -> Optional[str]:
+        return get_stock_pool_catalog_path(self.raw_config, self.config_file)
+
+    def list_stock_pools(self) -> List[StockPoolEntry]:
+        return load_stock_pool_catalog(self.raw_config, self.config_file, strict=False)
+
+    def resolve_stock_pools(self, pool_ids: List[str]) -> List[StockPoolEntry]:
+        return resolve_stock_pools(self.raw_config, self.config_file, pool_ids)
 
     def get_monitor_list_path(self) -> Path:
         """Get path to monitor list file"""

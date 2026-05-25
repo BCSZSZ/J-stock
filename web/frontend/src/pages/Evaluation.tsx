@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, type StockPoolOption } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
 import MultiDatePicker from "../components/MultiDatePicker";
 import { useConfirmDialog } from "../components/ConfirmDialog";
@@ -40,6 +40,7 @@ interface EvaluationDefaults {
   exit_confirm_days: number | null;
   output_dir: string;
   universe_files: string[];
+  universe_pool_ids: string[];
   position_file: string;
   profile_names: string[];
   report_file: string;
@@ -65,8 +66,10 @@ interface EvaluationOptionsResponse {
     exit_strategy: string;
     ranking_strategy: string;
     monitor_list_file: string;
+    stock_pool_catalog_file: string;
     report_file_pattern: string;
   };
+  stock_pools: StockPoolOption[];
   defaults: EvaluationDefaults;
 }
 
@@ -81,6 +84,12 @@ interface CheckboxListProps {
   selected: string[];
   onToggle: (value: string) => void;
   emptyText?: string;
+}
+
+interface StockPoolChecklistProps {
+  options: StockPoolOption[];
+  selected: string[];
+  onToggle: (value: string) => void;
 }
 
 const DEFAULT_YEARS = Array.from({ length: 5 }, (_, index) =>
@@ -115,6 +124,86 @@ function CheckboxList({
           </label>
         ))}
       </div>
+    </div>
+  );
+}
+
+function formatStockPoolAtrRange(pool: StockPoolOption): string | null {
+  if (pool.atr_ratio_min == null && pool.atr_ratio_max == null) {
+    return null;
+  }
+
+  const minLabel =
+    pool.atr_ratio_min == null ? "-" : `${(pool.atr_ratio_min * 100).toFixed(1)}%`;
+  const maxLabel =
+    pool.atr_ratio_max == null ? "-" : `${(pool.atr_ratio_max * 100).toFixed(1)}%`;
+  return `${minLabel} - ${maxLabel}`;
+}
+
+function formatStockPoolLabel(pool: StockPoolOption): string {
+  const atrRange = formatStockPoolAtrRange(pool);
+  return atrRange ? `${pool.label} (${atrRange})` : pool.label;
+}
+
+function StockPoolChecklist({
+  options,
+  selected,
+  onToggle,
+}: StockPoolChecklistProps) {
+  if (options.length === 0) {
+    return <p className="text-xs text-gray-500">No stock pools configured in the catalog.</p>;
+  }
+
+  return (
+    <div className="max-h-64 overflow-y-auto rounded border border-gray-800 bg-gray-950/40 p-2 space-y-2">
+      {options.map((pool) => {
+        const atrRange = formatStockPoolAtrRange(pool);
+        return (
+          <label
+            key={pool.id}
+            className={`block rounded border px-3 py-2 text-sm ${pool.enabled ? "cursor-pointer border-gray-800 bg-gray-950/30 hover:border-gray-700 hover:bg-gray-900/50" : "border-gray-900 bg-gray-950/10 opacity-60 cursor-not-allowed"}`}
+          >
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={selected.includes(pool.id)}
+                disabled={!pool.enabled}
+                onChange={() => onToggle(pool.id)}
+                className="mt-1 rounded"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-gray-100">{pool.label}</span>
+                  <span className="text-[11px] uppercase tracking-wide text-gray-500">
+                    {pool.id}
+                  </span>
+                  {atrRange && (
+                    <span className="rounded bg-gray-800 px-2 py-0.5 text-[11px] text-gray-300">
+                      ATR% {atrRange}
+                    </span>
+                  )}
+                  {!pool.enabled && (
+                    <span className="rounded bg-gray-800 px-2 py-0.5 text-[11px] text-amber-300">
+                      disabled
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 break-all text-xs text-gray-400">
+                  Monitor: {pool.monitor_list_file}
+                </div>
+                {pool.sector_pool_file && (
+                  <div className="mt-1 break-all text-xs text-gray-500">
+                    Sector Pool: {pool.sector_pool_file}
+                  </div>
+                )}
+                {pool.notes && (
+                  <div className="mt-2 text-xs text-gray-500">{pool.notes}</div>
+                )}
+              </div>
+            </div>
+          </label>
+        );
+      })}
     </div>
   );
 }
@@ -203,6 +292,7 @@ export default function Evaluation() {
   const [positionFile, setPositionFile] = useState("");
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [reportFile, setReportFile] = useState("");
+  const [selectedUniversePoolIds, setSelectedUniversePoolIds] = useState<string[]>([]);
   const [overrideStrategies, setOverrideStrategies] = useState(false);
   const [autoAppliedReplayReportFile, setAutoAppliedReplayReportFile] =
     useState("");
@@ -248,8 +338,18 @@ export default function Evaluation() {
   const productionRankingStrategy =
     options.data?.production.ranking_strategy ?? "";
   const productionUniverse = options.data?.production.monitor_list_file ?? "";
+  const productionStockPoolCatalogFile =
+    options.data?.production.stock_pool_catalog_file ?? "";
   const productionReportPattern =
     options.data?.production.report_file_pattern ?? "";
+  const stockPools = options.data?.stock_pools ?? [];
+  const selectedUniversePools = selectedUniversePoolIds
+    .map((poolId) => stockPools.find((pool) => pool.id === poolId))
+    .filter((pool): pool is StockPoolOption => Boolean(pool));
+  const selectedUniverseSummary =
+    selectedUniversePools.length > 0
+      ? selectedUniversePools.map(formatStockPoolLabel).join(", ")
+      : productionUniverse || "(production monitor list)";
   const buyFillModeOptions = (options.data?.buy_fill_modes ?? [
     "next_open",
     "next_close",
@@ -355,6 +455,7 @@ export default function Evaluation() {
     setPositionFile(defaults.position_file ?? "");
     setSelectedProfiles(defaults.profile_names ?? []);
     setReportFile(defaults.report_file ?? "");
+    setSelectedUniversePoolIds(defaults.universe_pool_ids ?? []);
     setLaunchDates([]);
     setInitializedFromOptions(true);
   }, [options.data, initializedFromOptions]);
@@ -445,6 +546,8 @@ export default function Evaluation() {
           : undefined,
       verbose,
       ranking_mode: rankingMode || undefined,
+      universe_pool_ids:
+        selectedUniversePoolIds.length > 0 ? selectedUniversePoolIds : undefined,
     };
 
     if (!isReplayEvaluation) {
@@ -494,7 +597,7 @@ export default function Evaluation() {
         `Entry: ${overrideStrategies && selectedEntry.length > 0 ? selectedEntry.join(", ") : productionEntry}`,
         `Exit: ${overrideStrategies && selectedExit.length > 0 ? selectedExit.join(", ") : productionExit}`,
         `Signal Ranking Strategy: ${productionRankingStrategy || "(config default)"}`,
-        `Universe: ${productionUniverse || "(production monitor list)"}`,
+        `Universe: ${selectedUniverseSummary}`,
         `Output Root: ${resolvedOutputDir ?? "(config default)"}`,
         "Output Layout: YYYYMMDD/<entry+exit+timestamp>/...",
       ].filter(Boolean).join("\n"),
@@ -999,6 +1102,10 @@ export default function Evaluation() {
               <div className="text-sm text-gray-300 flex-1">
                 <div className="text-[11px] uppercase tracking-wide text-gray-500">Production Monitor List</div>
                 <div className="mt-2 break-all">{productionUniverse || "Not configured"}</div>
+                <div className="mt-3 text-[11px] uppercase tracking-wide text-gray-500">Stock Pool Catalog</div>
+                <div className="mt-2 break-all text-xs text-gray-400">
+                  {productionStockPoolCatalogFile || "Not configured"}
+                </div>
               </div>
             </div>
 
@@ -1029,6 +1136,26 @@ export default function Evaluation() {
                 Results are stored automatically as YYYYMMDD / entry+exit+timestamp.
               </p>
             </div>
+          </div>
+
+          <div className={tallFieldCardClassName}>
+            <label className={compactLabelClassName}>
+              Optional Stock Pools ({selectedUniversePoolIds.length} selected)
+            </label>
+            <StockPoolChecklist
+              options={stockPools}
+              selected={selectedUniversePoolIds}
+              onToggle={(poolId) =>
+                toggleSelection(
+                  selectedUniversePoolIds,
+                  setSelectedUniversePoolIds,
+                  poolId,
+                )
+              }
+            />
+            <p className="mt-2 text-[11px] text-gray-500">
+              Leave this empty to preserve the current production monitor list. Selecting multiple pools expands the evaluation run through the existing multi-universe CLI path.
+            </p>
           </div>
 
           {showFilterNames && (

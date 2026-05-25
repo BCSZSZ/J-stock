@@ -1,0 +1,34 @@
+{
+  "portfolios": [
+    {
+      "name": "atr_risk0p5_n2",
+      "position_sizing_mode": "atr",
+      "starting_capital_jpy": 9000000,
+      "atr_position_sizing": {
+        "risk_per_trade_pct": 0.005,
+        "atr_stop_multiple": 2.0,
+        "min_position_value_jpy": 0
+      }
+    },
+    {
+      "name": "atr_risk0p6_n2",
+      "position_sizing_mode": "atr",
+      "starting_capital_jpy": 9000000,
+      "atr_position_sizing": {
+        "risk_per_trade_pct": 0.006,
+        "atr_stop_multiple": 2.0,
+        "min_position_value_jpy": 0
+      }
+    },
+    {
+      "name": "atr_risk0p75_n2",
+      "position_sizing_mode": "atr",
+      "starting_capital_jpy": 9000000,
+      "atr_position_sizing": {
+        "risk_per_trade_pct": 0.0075,
+        "atr_stop_multiple": 2.0,
+        "min_position_value_jpy": 0
+      }
+    }
+  ]
+}

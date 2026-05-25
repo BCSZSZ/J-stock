@@ -66,6 +66,8 @@ class UniverseSelector:
         workers: int = 8,
         score_model: str = "v1",
         output_dir: str = "data/universe",
+        atr_ratio_min: float | None = None,
+        atr_ratio_max: float | None = None,
     ):
         """
         Initialize the Universe Selector.
@@ -75,23 +77,39 @@ class UniverseSelector:
             workers: Number of parallel workers for feature extraction (default: 8)
             score_model: Scoring model version (v1 or v2)
             output_dir: Directory for selection output artifacts
+            atr_ratio_min: Optional ATR ratio lower bound override
+            atr_ratio_max: Optional ATR ratio upper bound override
         """
         self.data_manager = data_manager
         self.client = data_manager.client
         self.workers = workers
         self.score_model = score_model.lower()
         self.output_dir = Path(output_dir)
+        self.min_atr_ratio = (
+            float(atr_ratio_min)
+            if atr_ratio_min is not None
+            else self.MIN_ATR_RATIO
+        )
+        self.max_atr_ratio = (
+            float(atr_ratio_max)
+            if atr_ratio_max is not None
+            else self.MAX_ATR_RATIO
+        )
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         valid_models = {"v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"}
         if self.score_model not in valid_models:
             raise ValueError(f"score_model must be one of {sorted(valid_models)}")
+        if self.min_atr_ratio >= self.max_atr_ratio:
+            raise ValueError("atr_ratio_min must be smaller than atr_ratio_max")
 
         if not self.client:
             raise ValueError("StockDataManager must have API access (api_key required)")
 
         logger.info(
-            f"UniverseSelector initialized (workers={workers}, score_model={self.score_model}, output_dir={self.output_dir})"
+            "UniverseSelector initialized "
+            f"(workers={workers}, score_model={self.score_model}, output_dir={self.output_dir}, "
+            f"atr_ratio_range={self.min_atr_ratio:.4f}-{self.max_atr_ratio:.4f})"
         )
 
     # ==================== MAIN PIPELINE ====================
@@ -475,7 +493,7 @@ class UniverseSelector:
         Filters:
             1. Minimum Price > 100 JPY
             2. Median Turnover > 500M JPY
-            3. ATR Ratio within 1.5% - 5.0%
+            3. ATR Ratio within configured bounds
 
         Args:
             df: Universe DataFrame.
@@ -504,11 +522,11 @@ class UniverseSelector:
         )
 
         # Filter 3: Volatility Range
-        mask_vol_low = filtered_liq["ATR_Ratio"] > self.MIN_ATR_RATIO
-        mask_vol_high = filtered_liq["ATR_Ratio"] < self.MAX_ATR_RATIO
+        mask_vol_low = filtered_liq["ATR_Ratio"] > self.min_atr_ratio
+        mask_vol_high = filtered_liq["ATR_Ratio"] < self.max_atr_ratio
         filtered_vol = filtered_liq[mask_vol_low & mask_vol_high].copy()
         logger.info(
-            f"  - Volatility filter ({self.MIN_ATR_RATIO * 100:.1f}% - {self.MAX_ATR_RATIO * 100:.1f}%): "
+            f"  - Volatility filter ({self.min_atr_ratio * 100:.1f}% - {self.max_atr_ratio * 100:.1f}%): "
             f"{len(filtered_vol)}/{len(filtered_liq)} remain"
         )
 
@@ -785,7 +803,7 @@ class UniverseSelector:
                 "selection_criteria": {
                     "min_price": self.MIN_PRICE,
                     "min_liquidity": self.MIN_LIQUIDITY,
-                    "atr_ratio_range": [self.MIN_ATR_RATIO, self.MAX_ATR_RATIO],
+                    "atr_ratio_range": [self.min_atr_ratio, self.max_atr_ratio],
                     "weights": {
                         "volatility": self.WEIGHT_VOLATILITY,
                         "liquidity": self.WEIGHT_LIQUIDITY,

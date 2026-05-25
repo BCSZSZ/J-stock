@@ -161,6 +161,18 @@ export type EntryAnalysisAggregateResponse = {
   groups: Array<Record<string, unknown>>;
 };
 
+export type StockPoolOption = {
+  id: string;
+  label: string;
+  monitor_list_file: string;
+  sector_pool_file?: string | null;
+  atr_ratio_min?: number | null;
+  atr_ratio_max?: number | null;
+  notes?: string | null;
+  enabled: boolean;
+  catalog_file?: string | null;
+};
+
 function withOutputDir(path: string, outputDir?: string): string {
   if (!outputDir) return path;
   const params = new URLSearchParams({ output_dir: outputDir });
@@ -310,6 +322,18 @@ export const api = {
         tickers: string[];
       }>;
     }>("/production/status"),
+  productionOptions: () =>
+    request<{
+      production: {
+        monitor_list_file: string;
+        sector_pool_file: string;
+        stock_pool_catalog_file: string;
+      };
+      defaults: {
+        pool_id: string;
+      };
+      stock_pools: StockPoolOption[];
+    }>("/production/options"),
 
   // Evaluation
   evalOptions: () =>
@@ -332,8 +356,10 @@ export const api = {
         exit_strategy: string;
         ranking_strategy: string;
         monitor_list_file: string;
+        stock_pool_catalog_file: string;
         report_file_pattern: string;
       };
+      stock_pools: StockPoolOption[];
       defaults: {
         command: string;
         mode: string;
@@ -356,6 +382,7 @@ export const api = {
         capacity_regime_mode: string;
         output_dir: string;
         universe_files: string[];
+        universe_pool_ids: string[];
         position_file: string;
         profile_names: string[];
         report_file: string;

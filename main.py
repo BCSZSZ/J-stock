@@ -527,6 +527,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="跳过数据抓取步骤（兼容参数: --no-fetch）",
     )
+    production_parser.add_argument(
+        "--pool-id",
+        default=None,
+        help="可选：仅对本次 daily 运行生效的股票池 ID（来自 stock_pools catalog）",
+    )
     production_overlay_mode = production_parser.add_mutually_exclusive_group()
     production_overlay_mode.add_argument(
         "--enable-overlay",
@@ -696,6 +701,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="data/universe",
         help="输出目录（默认: data/universe）",
     )
+    universe_parser.add_argument(
+        "--atr-ratio-min",
+        type=float,
+        default=None,
+        help="可选：ATR_Ratio 下限覆盖（默认沿用 1.5%%）",
+    )
+    universe_parser.add_argument(
+        "--atr-ratio-max",
+        type=float,
+        default=None,
+        help="可选：ATR_Ratio 上限覆盖（默认沿用 5.0%%）",
+    )
     universe_parser.set_defaults(func=cmd_universe)
 
     universe_sector_parser = subparsers.add_parser(
@@ -770,6 +787,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         default=r"G:\My Drive\AI-Stock-Sync\universe",
         help="输出目录（默认: G:\\My Drive\\AI-Stock-Sync\\universe）",
+    )
+    universe_sector_parser.add_argument(
+        "--atr-ratio-min",
+        type=float,
+        default=None,
+        help="可选：ATR_Ratio 下限覆盖（默认沿用 1.5%%）",
+    )
+    universe_sector_parser.add_argument(
+        "--atr-ratio-max",
+        type=float,
+        default=None,
+        help="可选：ATR_Ratio 上限覆盖（默认沿用 5.0%%）",
     )
     universe_sector_parser.add_argument(
         "--write-monitor-list",

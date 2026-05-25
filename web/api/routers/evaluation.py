@@ -281,6 +281,38 @@ def _append_multi_flag(args: list[str], flag: str, values: list[str] | list[int]
     args.extend(normalized)
 
 
+def _normalize_string_list(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    normalized: list[str] = []
+    for value in values:
+        item = str(value).strip()
+        if item and item not in normalized:
+            normalized.append(item)
+    return normalized
+
+
+def _resolve_requested_universe_files(
+    req: EvaluationRunRequest,
+) -> list[str]:
+    requested_files = _normalize_string_list(req.universe_files)
+    if requested_files:
+        return requested_files
+
+    requested_pool_ids = _normalize_string_list(req.universe_pool_ids)
+    if requested_pool_ids:
+        config_manager = get_config_manager()
+        try:
+            pools = config_manager.resolve_stock_pools(requested_pool_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [pool.monitor_list_file for pool in pools]
+
+    prod_cfg = get_production_config()
+    default_file = str(getattr(prod_cfg, "monitor_list_file", "") or "").strip()
+    return [default_file] if default_file else []
+
+
 def _resolve_requested_launch_dates(req: EvaluationRunRequest) -> list[str]:
     requested_dates = req.launch_dates or ([req.launch_date] if req.launch_date else [])
     resolved: list[str] = []
@@ -457,7 +489,7 @@ def _build_cli_args(
     if req.output_dir:
         args.extend(["--output-dir", req.output_dir])
 
-    _append_multi_flag(args, "--universe-file", [str(prod_cfg.monitor_list_file)])
+    _append_multi_flag(args, "--universe-file", _resolve_requested_universe_files(req))
 
     if req.verbose:
         args.append("--verbose")
@@ -531,6 +563,7 @@ def get_options() -> dict[str, object]:
     production_entry, production_exit = _resolve_production_strategy_defaults(prod_cfg)
     default_ranking_strategy = _resolve_production_ranking_strategy(raw_config)
     default_universe_file = getattr(prod_cfg, "monitor_list_file", None)
+    stock_pools = [pool.to_api_dict() for pool in cm.list_stock_pools()]
     return {
         "commands": COMMANDS,
         "entry_strategies": strategies.get("entry", []),
@@ -545,11 +578,13 @@ def get_options() -> dict[str, object]:
         "capacity_regime_modes": CAPACITY_REGIME_MODES,
         "ranking_modes": RANKING_MODES,
         "position_profiles": position_profiles,
+        "stock_pools": stock_pools,
         "production": {
             "entry_strategy": production_entry,
             "exit_strategy": production_exit,
             "ranking_strategy": str(default_ranking_strategy or ""),
             "monitor_list_file": str(default_universe_file or ""),
+            "stock_pool_catalog_file": str(getattr(prod_cfg, "stock_pool_catalog_file", "") or ""),
             "report_file_pattern": str(getattr(prod_cfg, "report_file_pattern", "") or ""),
         },
         "defaults": {
@@ -578,6 +613,7 @@ def get_options() -> dict[str, object]:
             "universe_files": (
                 [str(default_universe_file)] if default_universe_file else []
             ),
+            "universe_pool_ids": [],
             "position_file": default_position_file,
             "profile_names": default_profile_names,
             "report_file": "",

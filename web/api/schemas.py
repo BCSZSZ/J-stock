@@ -156,6 +156,7 @@ class EvaluationRunRequest(BaseModel):
     profile_names: list[str] | None = None
     report_file: str | None = None
     universe_files: list[str] | None = None
+    universe_pool_ids: list[str] | None = None
     output_dir: str | None = None
     verbose: bool = False
 
@@ -218,6 +219,7 @@ class EntryAnalysisAggregateRequest(BaseModel):
 
 class ProductionDailyRequest(BaseModel):
     no_fetch: bool = False
+    pool_id: str | None = None
     confirm: bool = False
 
 

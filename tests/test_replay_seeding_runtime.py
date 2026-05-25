@@ -301,6 +301,7 @@ def test_strategy_evaluator_emits_last_day_production_style_report(
     evaluator = StrategyEvaluator(
         output_dir=str(tmp_path),
         replay_seed=_seed(),
+        portfolio_overrides={"position_sizing_mode": "fixed"},
     )
     evaluator.replay_run_snapshots = [
         {

@@ -15,6 +15,13 @@
     "output_dir": "backtest_results"
   },
   "portfolio": {
+    "starting_capital_jpy": 9000000,
+    "position_sizing_mode": "atr",
+    "atr_position_sizing": {
+      "risk_per_trade_pct": 0.006,
+      "atr_stop_multiple": 2.0,
+      "min_position_value_jpy": 0
+    },
     "max_positions": 7,
     "max_position_pct": 0.18,
     "output_dir": "portfolio_backtest_results"
@@ -88,12 +95,13 @@
     "filters": {
       "mode": "single",
       "default": {
-        "enabled": false,
-        "require_ema_bull_stack": true,
-        "rsi_min": 55,
-        "rsi_max": 75,
-        "atr_price_max": 0.04,
-        "min_price": 1000
+        "enabled": true,
+        "require_ema_bull_stack": false,
+        "rsi_min": null,
+        "rsi_max": null,
+        "atr_price_min": 0.015,
+        "atr_price_max": 0.03,
+        "min_price": null
       },
       "variants": {
         "f01_base": {
@@ -101,6 +109,7 @@
           "require_ema_bull_stack": true,
           "rsi_min": 55,
           "rsi_max": 75,
+          "atr_price_min": 0.015,
           "atr_price_max": 0.04,
           "min_price": 1000
         },
@@ -109,14 +118,15 @@
           "require_ema_bull_stack": true,
           "rsi_min": 58,
           "rsi_max": 70,
+          "atr_price_min": 0.015,
           "atr_price_max": 0.04,
           "min_price": 1000
         }
       }
     },
-    "default_position_file": "evaluation-position-1x9x4.json",
+    "default_position_file": "evaluation-position-atr.json",
     "default_profile_names": [
-      "p7x018"
+      "atr_risk0p6_n2"
     ]
   },
   "overlays": {
@@ -143,6 +153,9 @@
       "block_new_entries_when_off": false
     }
   },
+  "stock_pools": {
+    "catalog_file": "stock_pools.example.json"
+  },
   "production": {
     "monitor_list_file": "data/production_monitor_list.json",
     "fetch_universe_file": "output/state/fetch_universe.json",
@@ -154,13 +167,19 @@
     "cash_history_file": "output/state/cash_history.json",
     "max_positions_per_group": 8,
     "max_position_pct": 0.18,
+    "position_sizing_mode": "atr",
+    "atr_position_sizing": {
+      "risk_per_trade_pct": 0.006,
+      "atr_stop_multiple": 2.0,
+      "min_position_value_jpy": 0
+    },
     "capacity_regime_mode": "off",
     "buy_threshold": 65,
     "strategy_groups": [
       {
         "id": "group_main",
         "name": "main",
-        "initial_capital": 3000000,
+        "initial_capital": 9000000,
         "entry_strategy": "MACDCrossoverStrategy",
         "exit_strategy": "MVX_N9_R3p4_T1p6_D18_B20p0"
       }

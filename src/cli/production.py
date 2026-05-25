@@ -1,3 +1,4 @@
+from src.production.config_manager import ProductionConfig
 from src.cli.production_daily import run_daily_workflow
 from src.cli.production_input import run_input_workflow
 from src.cli.production_price_check import run_signal_price_check_command
@@ -12,6 +13,24 @@ from src.cli.production_utils import ensure_groups
 from src.config.runtime import get_config_file_path
 
 
+def _apply_stock_pool_override(args, config_mgr, prod_cfg: ProductionConfig) -> None:
+    pool_id = str(getattr(args, "pool_id", "") or "").strip()
+    if not pool_id:
+        return
+
+    if args.input or args.status or args.sync_positions or args.set_cash or args.add_cash:
+        raise ValueError("--pool-id is only supported for production daily runs in phase 1")
+    if args.set_position or getattr(args, "check_price", None):
+        raise ValueError("--pool-id is only supported for production daily runs in phase 1")
+
+    selected_pool = config_mgr.resolve_stock_pools([pool_id])[0]
+    prod_cfg.monitor_list_file = selected_pool.monitor_list_file
+    if selected_pool.sector_pool_file:
+        prod_cfg.sector_pool_file = selected_pool.sector_pool_file
+    setattr(prod_cfg, "selected_stock_pool_id", selected_pool.id)
+    setattr(prod_cfg, "selected_stock_pool_label", selected_pool.label)
+
+
 def cmd_production(args):
     """Production workflows: daily signal generation / next-day manual input / tools."""
     from src.production import ConfigManager, ProductionState
@@ -22,6 +41,7 @@ def cmd_production(args):
 
     config_mgr = ConfigManager(str(get_config_file_path()))
     prod_cfg = config_mgr.get_production_config()
+    _apply_stock_pool_override(args, config_mgr, prod_cfg)
     state = ProductionState(state_file=prod_cfg.state_file)
     ensure_groups(state, config_mgr, prod_cfg)
 
@@ -30,6 +50,12 @@ def cmd_production(args):
     )
     print(f"  State file: {prod_cfg.state_file}")
     print(f"  Monitor list: {prod_cfg.monitor_list_file}")
+    if getattr(prod_cfg, "selected_stock_pool_id", None):
+        print(
+            "  Stock pool override: "
+            f"{getattr(prod_cfg, 'selected_stock_pool_id')}"
+            f" ({getattr(prod_cfg, 'selected_stock_pool_label', '')})"
+        )
     print(f"  Signal pattern: {prod_cfg.signal_file_pattern}")
 
     if args.status:

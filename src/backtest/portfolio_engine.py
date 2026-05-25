@@ -21,6 +21,12 @@ from ..data.benchmark_manager import BenchmarkManager
 from ..data.stock_data_manager import StockDataManager
 from ..overlays import OverlayContext, OverlayManager
 from ..signal_generator import generate_signal_v2
+from ..utils.atr_position_sizing import (
+    AtrSizingInput,
+    PortfolioSizingConfig,
+    atr_sizing_metadata,
+    calculate_atr_position_size,
+)
 from ..utils.signal_sizing import extract_buy_size_multiplier
 from .fill_buffer import (
     apply_buy_fill_buffer,
@@ -74,6 +80,7 @@ class PortfolioBacktestEngine:
         fill_buffer_enabled: bool = False,
         fill_buffer_pct: float = 0.02,
         entry_reference_mode: str = "raw_fill",
+        position_sizing_config: Optional[PortfolioSizingConfig] = None,
     ):
         """
         Args:
@@ -93,7 +100,14 @@ class PortfolioBacktestEngine:
             fill_buffer_enabled: 是否启用成交价缓冲
             fill_buffer_pct: 成交价缓冲比例（0.02 = 2%）
             entry_reference_mode: 信号语义使用的入场参考价模式（raw_fill 或 buffered_fill）
+            position_sizing_config: fixed/ATR 仓位配置
         """
+        if position_sizing_config is None:
+            position_sizing_config = PortfolioSizingConfig(
+                mode="fixed",
+                max_positions=max_positions,
+                max_position_pct=max_position_pct,
+            )
         self.starting_capital = starting_capital
         self.initial_cash = (
             float(initial_cash) if initial_cash is not None else float(starting_capital)
@@ -108,8 +122,9 @@ class PortfolioBacktestEngine:
         self.last_execution_events: List[Dict[str, object]] = []
         self.last_processed_date: Optional[str] = None
         self.daily_snapshots: List[Dict[str, object]] = []
-        self.max_positions = max_positions
-        self.max_position_pct = max_position_pct
+        self.position_sizing_config = position_sizing_config
+        self.max_positions = position_sizing_config.max_positions
+        self.max_position_pct = position_sizing_config.max_position_pct
         self.min_position_pct = min_position_pct
         self.capacity_regime = capacity_regime
         self.capacity_regime_mode = str(capacity_regime_mode)
@@ -183,6 +198,7 @@ class PortfolioBacktestEngine:
             max_positions=self.max_positions,
             max_position_pct=self.max_position_pct,
             min_position_pct=self.min_position_pct,
+            unlimited_positions=self.position_sizing_config.unlimited_positions,
         )
 
         for seeded_position in self.seeded_positions:
@@ -482,10 +498,10 @@ class PortfolioBacktestEngine:
                         else:
                             market_data_dict = {}
 
-                        ranked_signals = self.signal_ranker.rank_buy_signals(
-                            pending_buy_signals,
-                            market_data_dict,
-                            top_k=max(
+                        if self.position_sizing_config.unlimited_positions:
+                            rank_top_k = max(1, len(pending_buy_signals))
+                        else:
+                            rank_top_k = max(
                                 1,
                                 (
                                     day_capacity_snapshot.max_positions
@@ -493,7 +509,11 @@ class PortfolioBacktestEngine:
                                     else self.max_positions
                                 )
                                 + self.buy_rank_buffer,
-                            ),
+                            )
+                        ranked_signals = self.signal_ranker.rank_buy_signals(
+                            pending_buy_signals,
+                            market_data_dict,
+                            top_k=rank_top_k,
                         )
 
                     # 依次尝试买入
@@ -559,6 +579,8 @@ class PortfolioBacktestEngine:
                             ):
                                 signal_buy_scale *= overlay_decision.position_scale
 
+                            atr_order_value_cap = available_exposure
+                            market_data_for_capacity = None
                             if day_capacity_snapshot is not None:
                                 market_data_for_capacity = get_market_data_for_today(ticker)
                                 turnover_jpy = self._extract_turnover_value(
@@ -586,6 +608,7 @@ class PortfolioBacktestEngine:
                                     continue
 
                                 max_cash = capacity_decision.order_cap_jpy
+                                atr_order_value_cap = capacity_decision.order_cap_jpy
                                 if capacity_decision.is_trimmed:
                                     capacity_trimmed_buys += 1
                                 capacity_cash_drag_jpy += max(
@@ -619,9 +642,37 @@ class PortfolioBacktestEngine:
                                     max_cash = min(max_cash, available_exposure)
                                 max_cash *= signal_buy_scale
 
-                            shares = LotSizeManager.calculate_buyable_shares(
-                                ticker, max_cash, entry_price
-                            )
+                            if self.position_sizing_config.mode == "atr":
+                                market_data_for_sizing = market_data_for_capacity or get_market_data_for_today(ticker)
+                                atr_value, atr_ratio = self._extract_atr_values(
+                                    market_data_for_sizing
+                                )
+                                lot_size = LotSizeManager.get_lot_size(ticker)
+                                sizing_result = calculate_atr_position_size(
+                                    AtrSizingInput(
+                                        ticker=ticker,
+                                        planning_price=entry_price,
+                                        portfolio_value_jpy=get_portfolio_total_value(),
+                                        available_cash_jpy=portfolio.cash,
+                                        atr_jpy=atr_value,
+                                        lot_size=lot_size,
+                                        config=self.position_sizing_config.atr,
+                                        signal_scale=signal_buy_scale,
+                                        order_value_cap_jpy=atr_order_value_cap,
+                                        atr_ratio=atr_ratio,
+                                    )
+                                )
+                                entry_metadata.update(
+                                    atr_sizing_metadata(
+                                        sizing_result,
+                                        self.position_sizing_config.atr,
+                                    )
+                                )
+                                shares = sizing_result.quantity
+                            else:
+                                shares = LotSizeManager.calculate_buyable_shares(
+                                    ticker, max_cash, entry_price
+                                )
 
                         if shares > 0:
                             buy_signal.metadata = entry_metadata
@@ -927,6 +978,27 @@ class PortfolioBacktestEngine:
         if pd.isna(value):
             return None
         return float(value)
+
+    @staticmethod
+    def _extract_atr_values(market_data: Optional[MarketData]) -> tuple[float, float | None]:
+        if market_data is None or market_data.df_features.empty:
+            return 0.0, None
+
+        latest = market_data.df_features.iloc[-1]
+        atr_raw = latest.get("ATR", 0.0)
+        atr = 0.0 if pd.isna(atr_raw) else float(atr_raw or 0.0)
+
+        ratio_raw = latest.get("ATR_Ratio")
+        if ratio_raw is not None and not pd.isna(ratio_raw):
+            ratio = float(ratio_raw)
+            if ratio > 0:
+                return atr, ratio
+
+        close_raw = latest.get("Close", 0.0)
+        close = 0.0 if pd.isna(close_raw) else float(close_raw or 0.0)
+        if close > 0 and atr > 0:
+            return atr, atr / close
+        return atr, None
 
     def _calculate_sell_quantity(
         self, ticker: str, total_qty: int, sell_pct: float

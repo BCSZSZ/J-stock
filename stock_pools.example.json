@@ -1,0 +1,14 @@
+{
+  "pools": [
+    {
+      "id": "production_default",
+      "label": "Production Default Pool",
+      "monitor_list_file": "data/production_monitor_list.json",
+      "sector_pool_file": "G:/My Drive/AI-Stock-Sync/universe/sector_pool",
+      "atr_ratio_min": 0.015,
+      "atr_ratio_max": 0.05,
+      "notes": "Example baseline pool. Add more entries here later without changing code.",
+      "enabled": true
+    }
+  ]
+}

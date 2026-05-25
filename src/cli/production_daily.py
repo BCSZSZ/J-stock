@@ -313,6 +313,7 @@ def _build_sell_execution_guidance(
 
 
 def run_daily_workflow(args, prod_cfg, state) -> None:
+    from src.analysis.filters import EntrySecondaryFilter
     from src.analysis.signals import Position, SignalAction
     from src.data.market_data_builder import MarketDataBuilder
     from src.data.stock_data_manager import StockDataManager
@@ -321,6 +322,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     from src.production.report_builder import AbnormalSignalTicker
     from src.production.comprehensive_evaluator import ComprehensiveEvaluator
     from src.production.signal_generator import Signal
+    from src.utils.atr_position_sizing import (
+        AtrSizingInput,
+        atr_sizing_metadata,
+        calculate_atr_position_size,
+    )
     from src.utils.strategy_loader import load_exit_strategy, load_strategy_pair
 
     load_dotenv()
@@ -340,6 +346,15 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     )
     buy_price_buffer_pct = min(max(buy_price_buffer_pct, 0.0), 0.20)
     sell_price_buffer_pct = min(max(sell_price_buffer_pct, 0.0), 0.20)
+    entry_filter_raw = prod_runtime_cfg.get("entry_filter")
+    if not isinstance(entry_filter_raw, dict):
+        entry_filter_raw = raw_config.get("evaluation", {}).get("filters", {}).get(
+            "default", {}
+        )
+    entry_filter = EntrySecondaryFilter.from_dict(entry_filter_raw)
+    position_sizing_mode = str(
+        getattr(prod_cfg, "position_sizing_mode", "fixed") or "fixed"
+    ).lower()
 
     monitor_tickers = load_monitor_tickers(prod_cfg.monitor_list_file)
 
@@ -1328,7 +1343,21 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             if not strategy_eval or strategy_eval.signal_action != "BUY":
                 continue
 
+            technicals = dict(getattr(eval_obj, "technical_indicators", {}) or {})
+            close_price = float(eval_obj.current_price)
+            atr_value = float(technicals.get("ATR", 0.0) or 0.0)
+            latest_for_filter = dict(technicals)
+            latest_for_filter["Close"] = close_price
+            if close_price > 0 and atr_value > 0:
+                latest_for_filter.setdefault("ATR_Ratio", atr_value / close_price)
+            if not entry_filter.passes_latest(latest_for_filter):
+                continue
+
             estimated_buy_price = _estimate_buy_price(float(eval_obj.current_price))
+            signal_metadata = dict(getattr(strategy_eval, "metadata", {}) or {})
+            signal_metadata.setdefault("ATR", atr_value)
+            if close_price > 0 and atr_value > 0:
+                signal_metadata.setdefault("ATR_Ratio", atr_value / close_price)
 
             signal = Signal(
                 group_id=group.id,
@@ -1347,6 +1376,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 suggested_qty=0,
                 required_capital=0.0,
                 strategy_name=entry_strategy_name,
+                signal_metadata=signal_metadata,
             )
             all_signals.append(signal)
             buy_count += 1
@@ -1459,22 +1489,23 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             if capacity_snapshot is not None:
                 _apply_capacity_fields(sig, capacity_snapshot, None)
 
-            execution_max_positions = int(prod_cfg.max_positions_per_group)
-            if capacity_snapshot is not None and capacity_mode == "enforce":
-                execution_max_positions = capacity_snapshot.max_positions
-
-            # Position limit check (same as evaluation's can_open_new_position)
-            if (
-                projected_position_count + new_positions_opened
-                >= execution_max_positions
-            ):
-                sig.reason = (
-                    f"{sig.reason}; Skipped: max positions ({execution_max_positions}) reached"
-                )
+            if position_sizing_mode != "atr":
+                execution_max_positions = int(prod_cfg.max_positions_per_group)
                 if capacity_snapshot is not None and capacity_mode == "enforce":
-                    sig.capacity_blocking_reason = "max_positions"
-                    ctx["capacity_blocked_buys"] += 1
-                continue
+                    execution_max_positions = capacity_snapshot.max_positions
+
+                # Position limit check (same as evaluation's can_open_new_position)
+                if (
+                    projected_position_count + new_positions_opened
+                    >= execution_max_positions
+                ):
+                    sig.reason = (
+                        f"{sig.reason}; Skipped: max positions ({execution_max_positions}) reached"
+                    )
+                    if capacity_snapshot is not None and capacity_mode == "enforce":
+                        sig.capacity_blocking_reason = "max_positions"
+                        ctx["capacity_blocked_buys"] += 1
+                    continue
 
             if max_new_positions is not None and new_positions_opened >= max_new_positions:
                 sig.reason = f"{sig.reason}; Skipped: max new positions ({max_new_positions}) reached"
@@ -1484,7 +1515,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 sig.reason = f"{sig.reason}; Overlay blocked new entries"
                 continue
 
-            signal_buy_scale = extract_buy_size_multiplier({})
+            signal_buy_scale = extract_buy_size_multiplier(
+                getattr(sig, "signal_metadata", {}) or {}
+            )
             if overlay_decision and overlay_decision.position_scale is not None:
                 signal_buy_scale *= overlay_decision.position_scale
 
@@ -1520,7 +1553,43 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 elif capacity_decision.is_trimmed:
                     ctx["capacity_trimmed_buys"] += 1
 
-            if capacity_snapshot is not None and capacity_mode == "enforce" and capacity_decision is not None:
+            if position_sizing_mode == "atr":
+                metadata = dict(getattr(sig, "signal_metadata", {}) or {})
+                atr_value = float(metadata.get("ATR") or metadata.get("atr") or 0.0)
+                atr_ratio_raw = metadata.get("ATR_Ratio", metadata.get("atr_ratio"))
+                atr_ratio = float(atr_ratio_raw) if atr_ratio_raw is not None else None
+                lot_size = int(lot_sizes.get(sig.ticker, default_lot_size) or default_lot_size)
+                order_value_cap = available_exposure
+                if (
+                    capacity_snapshot is not None
+                    and capacity_mode == "enforce"
+                    and capacity_decision is not None
+                ):
+                    order_value_cap = capacity_decision.order_cap_jpy
+                sizing_result = calculate_atr_position_size(
+                    AtrSizingInput(
+                        ticker=sig.ticker,
+                        planning_price=float(sig.current_price),
+                        portfolio_value_jpy=total_value,
+                        available_cash_jpy=planning_cash,
+                        atr_jpy=atr_value,
+                        lot_size=lot_size,
+                        config=prod_cfg.atr_position_sizing,
+                        signal_scale=signal_buy_scale,
+                        order_value_cap_jpy=order_value_cap,
+                        atr_ratio=atr_ratio,
+                    )
+                )
+                suggested_qty = sizing_result.quantity
+                required_capital = sizing_result.required_capital_jpy
+                sig.signal_metadata = dict(sig.signal_metadata or {})
+                sig.signal_metadata.update(
+                    atr_sizing_metadata(
+                        sizing_result,
+                        prod_cfg.atr_position_sizing,
+                    )
+                )
+            elif capacity_snapshot is not None and capacity_mode == "enforce" and capacity_decision is not None:
                 lot_size = int(lot_sizes.get(sig.ticker, default_lot_size) or default_lot_size)
                 lot_value = float(sig.current_price) * lot_size
                 lots = int(capacity_decision.order_cap_jpy // lot_value) if lot_value > 0 else 0
@@ -1530,7 +1599,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 max_position_pct = float(prod_cfg.max_position_pct)
                 if overlay_decision and overlay_decision.position_scale is not None:
                     max_position_pct *= overlay_decision.position_scale
-                max_position_pct *= extract_buy_size_multiplier({})
+                max_position_pct *= signal_buy_scale
                 suggested_qty, required_capital, lot_size = _calc_suggested_qty(
                     ticker=sig.ticker,
                     current_price=sig.current_price,
@@ -1546,13 +1615,24 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 planning_cash = max(0.0, planning_cash - required_capital)
                 planning_invested_value += required_capital
             else:
-                if capacity_snapshot is not None and capacity_mode == "enforce":
+                atr_blocking_reason = None
+                if position_sizing_mode == "atr":
+                    atr_blocking_reason = (sig.signal_metadata or {}).get(
+                        "atr_sizing_blocking_reason"
+                    )
+                if (
+                    capacity_snapshot is not None
+                    and capacity_mode == "enforce"
+                    and position_sizing_mode != "atr"
+                ):
                     sig.capacity_blocking_reason = sig.capacity_blocking_reason or "lot_size"
                     ctx["capacity_blocked_buys"] += 1
-                sig.reason = (
-                    f"{sig.reason}; SuggestedQty=0: projected cash/exposure "
-                    f"insufficient for lot size {lot_size}"
+                reason_detail = (
+                    str(atr_blocking_reason)
+                    if atr_blocking_reason
+                    else f"projected cash/exposure insufficient for lot size {lot_size}"
                 )
+                sig.reason = f"{sig.reason}; SuggestedQty=0: {reason_detail}"
 
     capacity_summary = None
     if capacity_mode != "off" and capacity_regime is not None:

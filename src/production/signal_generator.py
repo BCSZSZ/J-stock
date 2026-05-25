@@ -16,12 +16,20 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
+from ..analysis.filters import EntrySecondaryFilter
 from ..analysis.signals import MarketData, Position, SignalAction, TradingSignal
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
+from ..backtest.lot_size_manager import LotSizeManager
 from ..data.market_data_builder import MarketDataBuilder
 from ..data.stock_data_manager import StockDataManager
 from ..signal_generator import generate_signal_v2
+from ..utils.atr_position_sizing import (
+    AtrSizingInput,
+    atr_sizing_metadata,
+    calculate_atr_position_size,
+    parse_portfolio_sizing_config,
+)
 from ..utils.signal_sizing import extract_buy_size_multiplier
 from ..utils.strategy_loader import create_strategy_instance, load_strategy_pair
 from .state_manager import ProductionState, StrategyGroupState
@@ -133,6 +141,14 @@ class SignalGenerator:
         self.config = config
         self.data_manager = data_manager
         self.state = state
+        sizing_overrides = dict(config)
+        if "max_positions_per_group" in config:
+            sizing_overrides["max_positions"] = config["max_positions_per_group"]
+        self.position_sizing_config = parse_portfolio_sizing_config(
+            config,
+            sizing_overrides,
+        )
+        self.entry_filter = EntrySecondaryFilter.from_dict(config.get("entry_filter", {}))
 
         # Strategy cache (loaded on-demand)
         self._strategy_cache: Dict[tuple[str, str], BaseEntryStrategy] = {}
@@ -459,17 +475,45 @@ class SignalGenerator:
 
             if trading_signal.action == SignalAction.BUY and score >= buy_threshold:
                 current_price = market_data.latest_price
+                if not self.entry_filter.passes(market_data):
+                    return None
+
+                signal_metadata = dict(trading_signal.metadata or {})
+                signal_buy_scale = extract_buy_size_multiplier(signal_metadata)
 
                 # Calculate suggested quantity
-                max_position_pct = self.config.get("max_position_pct", 0.30)
-                signal_buy_scale = extract_buy_size_multiplier(trading_signal.metadata)
-                max_position_pct *= signal_buy_scale
-                max_position_value = group.cash * max_position_pct
+                if self.position_sizing_config.mode == "atr":
+                    atr_value, atr_ratio = self._extract_atr_values(market_data)
+                    sizing_result = calculate_atr_position_size(
+                        AtrSizingInput(
+                            ticker=ticker,
+                            planning_price=current_price,
+                            portfolio_value_jpy=group.total_value({ticker: current_price}),
+                            available_cash_jpy=group.cash,
+                            atr_jpy=atr_value,
+                            lot_size=LotSizeManager.get_lot_size(ticker),
+                            config=self.position_sizing_config.atr,
+                            signal_scale=signal_buy_scale,
+                            atr_ratio=atr_ratio,
+                        )
+                    )
+                    signal_metadata.update(
+                        atr_sizing_metadata(
+                            sizing_result,
+                            self.position_sizing_config.atr,
+                        )
+                    )
+                    suggested_qty = sizing_result.quantity
+                    required_capital = sizing_result.required_capital_jpy
+                else:
+                    max_position_pct = self.config.get("max_position_pct", 0.30)
+                    max_position_pct *= signal_buy_scale
+                    max_position_value = group.cash * max_position_pct
 
-                suggested_qty = (
-                    int(max_position_value / current_price) if current_price > 0 else 0
-                )
-                required_capital = suggested_qty * current_price
+                    suggested_qty = (
+                        int(max_position_value / current_price) if current_price > 0 else 0
+                    )
+                    required_capital = suggested_qty * current_price
 
                 return Signal(
                     group_id=group_id,
@@ -484,7 +528,7 @@ class SignalGenerator:
                     suggested_qty=suggested_qty,
                     required_capital=required_capital,
                     strategy_name=entry_strategy.strategy_name,
-                    signal_metadata=dict(trading_signal.metadata or {}),
+                    signal_metadata=signal_metadata,
                 )
             else:
                 # Below threshold or HOLD
@@ -494,6 +538,23 @@ class SignalGenerator:
             if verbose:
                 print(f"   ⚠️  {ticker} entry error: {e}")
             return None
+
+    @staticmethod
+    def _extract_atr_values(market_data: MarketData) -> tuple[float, float | None]:
+        latest = market_data.latest_features
+        if latest.empty:
+            return 0.0, None
+        atr_raw = latest.get("ATR", 0.0)
+        atr = 0.0 if pd.isna(atr_raw) else float(atr_raw or 0.0)
+        ratio_raw = latest.get("ATR_Ratio")
+        if ratio_raw is not None and not pd.isna(ratio_raw):
+            ratio = float(ratio_raw)
+            if ratio > 0:
+                return atr, ratio
+        close_price = market_data.latest_price
+        if close_price > 0 and atr > 0:
+            return atr, atr / close_price
+        return atr, None
 
     def _load_market_data(self, ticker: str, current_date: str) -> Optional[MarketData]:
         """使用 MarketDataBuilder 加载 MarketData"""

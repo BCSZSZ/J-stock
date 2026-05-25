@@ -24,6 +24,18 @@
 - `src/cli/production_daily.py` 解析顺序：`--enable-overlay` / `--disable-overlay` > `config.overlays.enabled` → 默认 False。
 - `src/config/service.py::_normalize_overlays` 强制 `enabled` 必须为 bool，否则归一化为 False。
 
+## 全局策略：ATR 动态仓位 + ATR% 入场过滤
+
+当前默认仓位模型为 ATR 风险定额模型，不再以固定 `7 x 0.18` 作为生产目标。
+
+- 本金口径：生产/组合本金按 9,000,000 JPY 配置。
+- 默认参数：`risk_per_trade_pct=0.006`，`atr_stop_multiple=2.0`，即单笔止损风险约 54,000 JPY。
+- 公式：`risk_amount = total_equity * risk_per_trade_pct`；`per_share_risk = ATR * atr_stop_multiple`；`quantity = risk_amount / per_share_risk`，再按日本股票 lot size 向下取整。
+- “数量不设上限”只表示 ATR 模式不再用固定 `max_positions` 阻断新仓；仍然保留现金、lot size、已持仓去重、capacity 流动性/参与率约束和 overlay 约束。
+- 买入二级过滤默认只做 ATR% 窗口：`ATR_Ratio` 必须在 `1.5% - 3.0%`。不改变主入场策略维度。
+- `fixed` 模式仍保留，用于历史 `p7x018` 基线复现和对比。
+- `pos-evaluation` 的 ATR 参数扫文件为 `evaluation-position-atr.json`，默认 profile 为 `atr_risk0p6_n2`。
+
 ## Task 1: 入场退场策略评估
 
 ### 目标

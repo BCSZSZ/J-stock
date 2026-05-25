@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from web.api.dependencies import get_production_config, get_project_root
+from web.api.dependencies import get_config_manager, get_production_config, get_project_root
 from web.api.schemas import (
     ProductionDailyRequest,
     SetCashRequest,
@@ -100,6 +100,24 @@ def production_status() -> dict[str, object]:
     }
 
 
+@router.get("/options")
+def production_options() -> dict[str, object]:
+    cfg = get_production_config()
+    cm = get_config_manager()
+    stock_pools = [pool.to_api_dict() for pool in cm.list_stock_pools()]
+    return {
+        "production": {
+            "monitor_list_file": str(getattr(cfg, "monitor_list_file", "") or ""),
+            "sector_pool_file": str(getattr(cfg, "sector_pool_file", "") or ""),
+            "stock_pool_catalog_file": str(getattr(cfg, "stock_pool_catalog_file", "") or ""),
+        },
+        "defaults": {
+            "pool_id": "",
+        },
+        "stock_pools": stock_pools,
+    }
+
+
 @router.post("/daily")
 async def run_daily(req: ProductionDailyRequest) -> StreamingResponse:
     if not req.confirm:
@@ -107,6 +125,8 @@ async def run_daily(req: ProductionDailyRequest) -> StreamingResponse:
     args = ["production", "--daily"]
     if req.no_fetch:
         args.append("--no-fetch")
+    if req.pool_id:
+        args.extend(["--pool-id", req.pool_id])
     return await _run_cli_streaming(args)
 
 

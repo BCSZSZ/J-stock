@@ -27,6 +27,7 @@ from src.evaluation.scoring import candidate_key_columns, rank_final_prs, summar
 from src.evaluation.trade_indicator_enrichment import write_enriched_trades_sidecar
 from src.config.runtime import get_config_file_path, is_local_path
 from src.production.config_manager import ConfigManager
+from src.utils.atr_position_sizing import normalize_position_sizing_mode
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
 from .common import load_config
@@ -3030,14 +3031,27 @@ def _load_position_profiles(args, eval_cfg):
         name = str(item.get("name") or f"p{idx}")
         if selected_profile_names and name not in selected_profile_names:
             continue
-        if "max_positions" not in item or "max_position_pct" not in item:
+        position_sizing_mode = normalize_position_sizing_mode(
+            item.get("position_sizing_mode", "fixed")
+        )
+        if position_sizing_mode == "fixed" and (
+            "max_positions" not in item or "max_position_pct" not in item
+        ):
             print(f"⚠️ 跳过 {name}: 缺少 max_positions 或 max_position_pct")
             continue
+        atr_position_sizing = item.get("atr_position_sizing") or {}
+        if not isinstance(atr_position_sizing, dict):
+            atr_position_sizing = {}
+        for key in ("risk_per_trade_pct", "atr_stop_multiple", "min_position_value_jpy"):
+            if key in item:
+                atr_position_sizing[key] = item[key]
         normalized_profiles.append(
             {
                 "name": name,
-                "max_positions": int(item["max_positions"]),
-                "max_position_pct": float(item["max_position_pct"]),
+                "position_sizing_mode": position_sizing_mode,
+                "max_positions": int(item.get("max_positions", 7)),
+                "max_position_pct": float(item.get("max_position_pct", 0.18)),
+                "atr_position_sizing": atr_position_sizing,
                 "starting_capital_jpy": (
                     int(item["starting_capital_jpy"])
                     if item.get("starting_capital_jpy") is not None
@@ -3569,9 +3583,12 @@ def cmd_pos_evaluation(args):
     for profile in normalized_profiles:
         name = profile["name"]
         overrides = {
+            "position_sizing_mode": profile["position_sizing_mode"],
             "max_positions": profile["max_positions"],
             "max_position_pct": profile["max_position_pct"],
         }
+        if profile.get("atr_position_sizing"):
+            overrides["atr_position_sizing"] = profile["atr_position_sizing"]
         if profile["starting_capital_jpy"] is not None:
             overrides["starting_capital_jpy"] = profile["starting_capital_jpy"]
 
@@ -3589,6 +3606,7 @@ def cmd_pos_evaluation(args):
                         enable_overlay=(overlay_mode == "on"),
                         metadata={
                             "position_profile": name,
+                            "position_sizing_mode": overrides["position_sizing_mode"],
                             "overlay_mode": overlay_mode,
                             "universe_name": universe_name,
                             "universe_file": universe_file or "",
@@ -3622,6 +3640,7 @@ def cmd_pos_evaluation(args):
         print(
             f"🚀 运行组合 {meta['position_profile']} [{meta['overlay_mode'].upper()}] × "
             f"股票池 {meta['universe_name']}: "
+            f"sizing={meta['position_sizing_mode']}, "
             f"max_positions={meta['max_positions']}, "
             f"max_position_pct={meta['max_position_pct']}, "
             f"starting_capital_jpy={meta['starting_capital_jpy']}"

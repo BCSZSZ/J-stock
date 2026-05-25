@@ -15,7 +15,13 @@
     "output_dir": "backtest_results"
   },
   "portfolio": {
-    "starting_capital_jpy": 8000000,
+    "starting_capital_jpy": 9000000,
+    "position_sizing_mode": "atr",
+    "atr_position_sizing": {
+      "risk_per_trade_pct": 0.006,
+      "atr_stop_multiple": 2.0,
+      "min_position_value_jpy": 0
+    },
     "max_positions": 7,
     "max_position_pct": 0.18,
     "output_dir": "portfolio_backtest_results"
@@ -85,12 +91,18 @@
     "filters": {
       "mode": "single",
       "default": {
-        "enabled": false
+        "enabled": true,
+        "require_ema_bull_stack": false,
+        "rsi_min": null,
+        "rsi_max": null,
+        "atr_price_min": 0.015,
+        "atr_price_max": 0.03,
+        "min_price": null
       },
       "variants": {}
     },
-    "default_position_file": "evaluation-position-1x9x4.json",
-    "default_profile_names": ["p7x018"]
+    "default_position_file": "evaluation-position-atr.json",
+    "default_profile_names": ["atr_risk0p6_n2"]
   },
   "overlays": {
     "_policy": "DEFAULT OFF. See instruction.md «全局策略：Overlay 默认 OFF». Set 'enabled' to true only for explicit overlay backtests.",
@@ -115,6 +127,9 @@
       "block_new_entries_when_off": false
     }
   },
+  "stock_pools": {
+    "catalog_file": "G:/My Drive/AI-Stock-Sync/stock_pools.json"
+  },
   "production": {
     "ops_s3_prefix": "s3://bcszsz-ai-j-stock-bucket/prod/ops",
     "monitor_list_file": "G:/My Drive/AI-Stock-Sync/state/production_monitor_list.json",
@@ -127,13 +142,19 @@
     "sector_pool_file": "G:/My Drive/AI-Stock-Sync/universe/sector_pool",
     "max_positions_per_group": 7,
     "max_position_pct": 0.18,
+    "position_sizing_mode": "atr",
+    "atr_position_sizing": {
+      "risk_per_trade_pct": 0.006,
+      "atr_stop_multiple": 2.0,
+      "min_position_value_jpy": 0
+    },
     "capacity_regime_mode": "off",
     "buy_threshold": 65,
     "strategy_groups": [
       {
         "id": "group_main",
         "name": "主策略组",
-        "initial_capital": 8000000,
+        "initial_capital": 9000000,
         "entry_strategy": "MACDHist2BarAnySignEntry",
         "exit_strategy": "MVXW_N3_R0p54_T1p3_D10_B20p0"
       }
