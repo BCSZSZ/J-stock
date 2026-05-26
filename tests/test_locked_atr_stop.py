@@ -6,6 +6,7 @@ from src.analysis.strategies.exit.locked_atr_stop import calculate_locked_atr_st
 from src.analysis.strategies.exit.multiview_grid_exit import (
     MultiViewWindowDecayLockedStopExit,
 )
+from src.backtest.portfolio import Position as BacktestPosition
 from src.utils.strategy_loader import load_exit_strategy
 
 
@@ -108,6 +109,33 @@ def test_locked_mvxw_uses_previous_locked_stop_when_atr_expands() -> None:
     assert signal.action == SignalAction.SELL
     assert signal.metadata["locked_stop_price"] == pytest.approx(92.0)
     assert position.locked_stop_price == pytest.approx(92.0)
+
+
+def test_locked_mvxw_accepts_backtest_position_instances() -> None:
+    market_data = _market_data([100.0, 89.0], [5.0, 10.0])
+    position = BacktestPosition(
+        ticker="7203",
+        entry_price=100.0,
+        entry_date=market_data.df_features.index[0],
+        quantity=100,
+        entry_signal=_entry_signal(),
+        peak_price_since_entry=100.0,
+    )
+    strategy = MultiViewWindowDecayLockedStopExit(
+        hist_shrink_n=1,
+        r_mult=1.0,
+        trail_mult=2.0,
+        time_stop_days=18,
+        bias_exit_threshold_pct=20.0,
+        initial_stop_mult=2.0,
+    )
+
+    signal = strategy.generate_exit_signal(position, market_data)
+
+    assert signal.action == SignalAction.SELL
+    assert position.entry_atr == pytest.approx(5.0)
+    assert position.initial_stop_price == pytest.approx(90.0)
+    assert position.locked_stop_price == pytest.approx(90.0)
 
 
 def test_locked_mvxw_variants_are_loader_registered() -> None:

@@ -22,6 +22,9 @@ class Position:
     entry_signal: 'TradingSignal'  # Forward reference
     peak_price_since_entry: float = None
     signal_entry_price: float | None = None
+    entry_atr: float | None = None
+    initial_stop_price: float | None = None
+    locked_stop_price: float | None = None
     
     def __post_init__(self):
         if self.signal_entry_price is None:

@@ -77,6 +77,19 @@ def _add_entry_reference_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_ranking_strategy_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--ranking-strategies",
+        nargs="+",
+        default=None,
+        help=(
+            "信号排序策略（默认: default）。"
+            "可选: default, random, score_only, confidence_weighted, "
+            "risk_adjusted, composite, momentum, fresh_momentum, volatility_penalty, trend_alignment"
+        ),
+    )
+
+
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
@@ -179,6 +192,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
             "prs_train=生产稳健训练评分"
         ),
     )
+    _add_ranking_strategy_arguments(parser)
 
 
 def _add_atr_runtime_override_arguments(parser: argparse.ArgumentParser) -> None:
@@ -308,16 +322,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
             "prs_train=生产稳健训练评分"
         ),
     )
-    parser.add_argument(
-        "--ranking-strategies",
-        nargs="+",
-        default=None,
-        help=(
-            "信号排序策略（默认: default）。"
-            "可选: default, random, score_only, confidence_weighted, "
-            "risk_adjusted, composite, momentum, fresh_momentum, volatility_penalty, trend_alignment"
-        ),
-    )
+    _add_ranking_strategy_arguments(parser)
 
 
 def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -400,16 +405,7 @@ def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
             "prs_train=生产稳健训练评分"
         ),
     )
-    parser.add_argument(
-        "--ranking-strategies",
-        nargs="+",
-        default=None,
-        help=(
-            "信号排序策略（默认: default）。"
-            "可选: default, random, score_only, confidence_weighted, "
-            "risk_adjusted, composite, momentum, fresh_momentum, volatility_penalty, trend_alignment"
-        ),
-    )
+    _add_ranking_strategy_arguments(parser)
 
 # Force UTF-8 output on Windows (一劳永逸解决 emoji 编码问题)
 if sys.platform == "win32":
