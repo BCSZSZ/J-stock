@@ -204,6 +204,24 @@ def _resolve_entry_filter_variants(cfg, mode, selected_names):
     if mode == "off":
         return [("off", {"enabled": False})]
 
+    if mode == "atr":
+        if selected_names:
+            raise ValueError("atr模式不支持 --entry-filter-name；它只启用ATR%过滤")
+        return [
+            (
+                "atr",
+                {
+                    "enabled": True,
+                    "require_ema_bull_stack": False,
+                    "rsi_min": None,
+                    "rsi_max": None,
+                    "atr_price_min": default_filter_cfg.get("atr_price_min"),
+                    "atr_price_max": default_filter_cfg.get("atr_price_max", 0.04),
+                    "min_price": None,
+                },
+            )
+        ]
+
     if mode == "single":
         if selected_names:
             if len(selected_names) != 1:

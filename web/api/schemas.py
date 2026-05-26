@@ -204,7 +204,7 @@ class EvaluationRunRequest(BaseModel):
     exit_confirm_days: int | None = None
     enable_overlay: bool = False
     overlay_modes: list[Literal["off", "on"]] | None = None
-    entry_filter_mode: Literal["auto", "off", "single", "grid"] = "off"
+    entry_filter_mode: Literal["auto", "off", "atr", "single", "grid"] = "atr"
     entry_filter_names: list[str] | None = None
     position_file: str | None = None
     profile_names: list[str] | None = None

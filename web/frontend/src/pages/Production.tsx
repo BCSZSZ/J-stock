@@ -115,8 +115,18 @@ export default function Production() {
     parsedAtrRatioMin !== undefined &&
     parsedAtrRatioMax !== undefined &&
     parsedAtrRatioMin > parsedAtrRatioMax;
+  const atrRatioMinInvalid =
+    atrRatioMin.trim() !== "" &&
+    (parsedAtrRatioMin === undefined || parsedAtrRatioMin < 0);
+  const atrRatioMaxInvalid =
+    atrRatioMax.trim() !== "" &&
+    (parsedAtrRatioMax === undefined || parsedAtrRatioMax <= 0);
   const atrRuntimeInvalid =
-    riskPerTradeInvalid || atrStopMultipleInvalid || atrRatioRangeInvalid;
+    riskPerTradeInvalid ||
+    atrStopMultipleInvalid ||
+    atrRatioMinInvalid ||
+    atrRatioMaxInvalid ||
+    atrRatioRangeInvalid;
 
   useEffect(() => {
     if (!options.data) {
@@ -205,6 +215,10 @@ export default function Production() {
     if (atrRuntimeInvalid) {
       return;
     }
+    const normalizedAtrRatioMin =
+      atrRatioMin.trim() === "" ? null : parsedAtrRatioMin;
+    const normalizedAtrRatioMax =
+      atrRatioMax.trim() === "" ? null : parsedAtrRatioMax;
     const ok = await confirm(
       "Run Production Daily",
       [
@@ -213,7 +227,7 @@ export default function Production() {
         atrSizingRuntimeEnabled
           ? `Position Sizing: ${positionSizingMode} | risk ${parsedRiskPerTradePct} | stop ${parsedAtrStopMultiple} ATR`
           : `Position Sizing: ${positionSizingMode} (ATR runtime parameters ignored)`,
-        `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`,
+        `ATR% Filter Bounds: ${normalizedAtrRatioMin ?? "-"} - ${normalizedAtrRatioMax ?? "-"}`,
       ].join("\n"),
     );
     if (!ok) return;
@@ -224,8 +238,8 @@ export default function Production() {
       position_sizing_mode: positionSizingMode,
       risk_per_trade_pct: atrSizingRuntimeEnabled ? parsedRiskPerTradePct : undefined,
       atr_stop_multiple: atrSizingRuntimeEnabled ? parsedAtrStopMultiple : undefined,
-      atr_ratio_min: parsedAtrRatioMin,
-      atr_ratio_max: parsedAtrRatioMax,
+      atr_ratio_min: normalizedAtrRatioMin,
+      atr_ratio_max: normalizedAtrRatioMax,
     });
   }
 
@@ -367,7 +381,7 @@ export default function Production() {
             )}
             {atrRuntimeInvalid && (
               <p className="text-xs text-red-400">
-                Risk and stop multiple must be positive, and ATR% min must be no greater than max.
+                Risk and stop multiple must be positive, ATR% values must be valid, and ATR% min must be no greater than max.
               </p>
             )}
           </div>

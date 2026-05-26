@@ -20,6 +20,21 @@ from src.utils.strategy_loader import ENTRY_STRATEGIES, EXIT_STRATEGIES
 DEFAULT_EVALUATION_OUTPUT_DIR = "strategy_evaluation"
 
 
+ATR_RATIO_UNBOUNDED_ARG = "none"
+
+
+def _parse_optional_atr_ratio_bound(value: str) -> float | str:
+    normalized = str(value).strip().lower()
+    if normalized in {"", "none", "null", "off", "unlimited"}:
+        return ATR_RATIO_UNBOUNDED_ARG
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "ATR ratio bound must be a number or 'none'"
+        ) from exc
+
+
 def _cmd_evaluate(args):
     from src.cli.evaluate import cmd_evaluate
 
@@ -148,9 +163,9 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--entry-filter-mode",
-        choices=["auto", "off", "single", "grid"],
+        choices=["auto", "off", "atr", "single", "grid"],
         default="auto",
-        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
+        help="入场过滤器模式: auto=自动, off=关闭, atr=仅ATR%%, single=单组, grid=多组网格",
     )
     parser.add_argument(
         "--entry-filter-name",
@@ -216,15 +231,15 @@ def _add_atr_runtime_override_arguments(parser: argparse.ArgumentParser) -> None
     )
     parser.add_argument(
         "--atr-ratio-min",
-        type=float,
+        type=_parse_optional_atr_ratio_bound,
         default=None,
-        help="本次运行入场ATR%%下限，例如0.015表示1.5%%",
+        help="本次运行入场ATR%%下限，例如0.015表示1.5%%；none表示不限制",
     )
     parser.add_argument(
         "--atr-ratio-max",
-        type=float,
+        type=_parse_optional_atr_ratio_bound,
         default=None,
-        help="本次运行入场ATR%%上限，例如0.030表示3.0%%",
+        help="本次运行入场ATR%%上限，例如0.030表示3.0%%；none表示不限制",
     )
 
 
@@ -278,9 +293,9 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
     )
     parser.add_argument(
         "--entry-filter-mode",
-        choices=["auto", "off", "single", "grid"],
+        choices=["auto", "off", "atr", "single", "grid"],
         default="auto",
-        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
+        help="入场过滤器模式: auto=自动, off=关闭, atr=仅ATR%%, single=单组, grid=多组网格",
     )
     parser.add_argument(
         "--entry-filter-name",
@@ -361,9 +376,9 @@ def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--entry-filter-mode",
-        choices=["auto", "off", "single", "grid"],
+        choices=["auto", "off", "atr", "single", "grid"],
         default="auto",
-        help="入场过滤器模式: auto=自动, off=关闭, single=单组, grid=多组网格",
+        help="入场过滤器模式: auto=自动, off=关闭, atr=仅ATR%%, single=单组, grid=多组网格",
     )
     parser.add_argument(
         "--entry-filter-name",

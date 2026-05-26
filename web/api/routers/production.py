@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/production", tags=["production"])
 
 
 def _append_atr_runtime_flags(args: list[str], req: ProductionDailyRequest) -> None:
+    fields_set = getattr(req, "model_fields_set", set())
     if req.position_sizing_mode:
         args.extend(["--position-sizing-mode", req.position_sizing_mode])
     if req.position_sizing_mode != "fixed":
@@ -34,8 +35,12 @@ def _append_atr_runtime_flags(args: list[str], req: ProductionDailyRequest) -> N
             args.extend(["--atr-stop-multiple", str(req.atr_stop_multiple)])
     if req.atr_ratio_min is not None:
         args.extend(["--atr-ratio-min", str(req.atr_ratio_min)])
+    elif "atr_ratio_min" in fields_set:
+        args.extend(["--atr-ratio-min", "none"])
     if req.atr_ratio_max is not None:
         args.extend(["--atr-ratio-max", str(req.atr_ratio_max)])
+    elif "atr_ratio_max" in fields_set:
+        args.extend(["--atr-ratio-max", "none"])
 
 
 def _resolve_production_atr_defaults(cfg) -> dict[str, object]:

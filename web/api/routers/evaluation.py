@@ -34,7 +34,7 @@ COMMANDS = [
     "replay-evaluation",
 ]
 EVALUATION_MODES = ["annual", "quarterly", "monthly", "custom"]
-ENTRY_FILTER_MODES = ["off", "single", "grid", "auto"]
+ENTRY_FILTER_MODES = ["atr", "off", "single", "grid", "auto"]
 RANKING_MODES = ["prs_train"]
 OVERLAY_MODES = ["off", "on"]
 BUY_FILL_MODES = ["next_open", "next_close"]
@@ -283,6 +283,7 @@ def _append_multi_flag(args: list[str], flag: str, values: list[str] | list[int]
 
 
 def _append_atr_runtime_flags(args: list[str], req: EvaluationRunRequest) -> None:
+    fields_set = getattr(req, "model_fields_set", set())
     if req.position_sizing_mode:
         args.extend(["--position-sizing-mode", req.position_sizing_mode])
     if req.position_sizing_mode != "fixed":
@@ -292,8 +293,12 @@ def _append_atr_runtime_flags(args: list[str], req: EvaluationRunRequest) -> Non
             args.extend(["--atr-stop-multiple", str(req.atr_stop_multiple)])
     if req.atr_ratio_min is not None:
         args.extend(["--atr-ratio-min", str(req.atr_ratio_min)])
+    elif req.entry_filter_mode == "atr" and "atr_ratio_min" in fields_set:
+        args.extend(["--atr-ratio-min", "none"])
     if req.atr_ratio_max is not None:
         args.extend(["--atr-ratio-max", str(req.atr_ratio_max)])
+    elif req.entry_filter_mode == "atr" and "atr_ratio_max" in fields_set:
+        args.extend(["--atr-ratio-max", "none"])
 
 
 def _resolve_atr_runtime_defaults(raw_config: dict[str, object]) -> dict[str, object]:
@@ -642,7 +647,7 @@ def get_options() -> dict[str, object]:
             "ranking_strategies": (
                 [str(default_ranking_strategy)] if default_ranking_strategy else []
             ),
-            "entry_filter_mode": "off",
+            "entry_filter_mode": "atr",
             "entry_filter_names": [],
             "enable_overlay": False,
             "overlay_modes": ["off"],

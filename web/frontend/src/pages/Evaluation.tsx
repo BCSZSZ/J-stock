@@ -14,7 +14,7 @@ type EvaluationCommand =
   | "walk-forward-evaluate"
   | "replay-evaluation";
 type EvaluationMode = "annual" | "quarterly" | "monthly" | "custom";
-type EntryFilterMode = "off" | "single" | "grid" | "auto";
+type EntryFilterMode = "atr" | "off" | "single" | "grid" | "auto";
 type BuyFillMode = "next_open" | "next_close";
 type EntryReferenceMode = "raw_fill" | "buffered_fill";
 type CapacityRegimeMode = "off" | "enforce";
@@ -277,6 +277,12 @@ function isPositionSizingMode(value: string): value is PositionSizingMode {
   return value === "fixed" || value === "atr";
 }
 
+function formatEntryFilterModeLabel(mode: string): string {
+  if (mode === "atr") return "atr (ATR only)";
+  if (mode === "single") return "single (configured)";
+  return mode;
+}
+
 function formatBuyFillModeLabel(mode: BuyFillMode): string {
   return mode === "next_open"
     ? "next_open (次日开盘成交)"
@@ -311,7 +317,7 @@ export default function Evaluation() {
   const [launchDates, setLaunchDates] = useState<string[]>([]);
   const [exitConfirmDays, setExitConfirmDays] = useState("");
   const [entryFilterMode, setEntryFilterMode] =
-    useState<EntryFilterMode>("off");
+    useState<EntryFilterMode>("atr");
   const [selectedFilterNames, setSelectedFilterNames] = useState<string[]>([]);
   const [verbose, setVerbose] = useState(false);
   const [enableOverlay, setEnableOverlay] = useState(false);
@@ -411,6 +417,12 @@ export default function Evaluation() {
     parsedAtrRatioMin !== undefined &&
     parsedAtrRatioMax !== undefined &&
     parsedAtrRatioMin > parsedAtrRatioMax;
+  const atrRatioMinInvalid =
+    atrRatioMin.trim() !== "" &&
+    (parsedAtrRatioMin === undefined || parsedAtrRatioMin < 0);
+  const atrRatioMaxInvalid =
+    atrRatioMax.trim() !== "" &&
+    (parsedAtrRatioMax === undefined || parsedAtrRatioMax <= 0);
   const productionStockPoolCatalogFile =
     options.data?.production.stock_pool_catalog_file ?? "";
   const stockPools = options.data?.stock_pools ?? [];
@@ -523,7 +535,7 @@ export default function Evaluation() {
     );
     setOverrideStrategies(Boolean(defaults.override_strategies));
     setEntryFilterMode(
-      (defaults.entry_filter_mode as EntryFilterMode) ?? "off",
+      (defaults.entry_filter_mode as EntryFilterMode) ?? "atr",
     );
     setSelectedFilterNames(defaults.entry_filter_names ?? []);
     setEnableOverlay(Boolean(defaults.enable_overlay));
@@ -562,10 +574,14 @@ export default function Evaluation() {
   }, [options.data, initializedFromOptions]);
 
   useEffect(() => {
+    if (!showFilterNames && selectedFilterNames.length > 0) {
+      setSelectedFilterNames([]);
+      return;
+    }
     if (entryFilterMode === "single" && selectedFilterNames.length > 1) {
       setSelectedFilterNames((current) => current.slice(0, 1));
     }
-  }, [entryFilterMode, selectedFilterNames]);
+  }, [entryFilterMode, selectedFilterNames, showFilterNames]);
 
   useEffect(() => {
     if (isWalkForward && mode !== "annual" && mode !== "quarterly") {
@@ -602,13 +618,23 @@ export default function Evaluation() {
     if (fillBufferPctInvalid) {
       return;
     }
-    if (riskPerTradeInvalid || atrStopMultipleInvalid || atrRatioRangeInvalid) {
+    if (
+      riskPerTradeInvalid ||
+      atrStopMultipleInvalid ||
+      atrRatioMinInvalid ||
+      atrRatioMaxInvalid ||
+      atrRatioRangeInvalid
+    ) {
       return;
     }
 
     const normalizedFillBufferPct = parsedFillBufferPct ?? 0.02;
     const normalizedRiskPerTradePct = parsedRiskPerTradePct ?? 0.006;
     const normalizedAtrStopMultiple = parsedAtrStopMultiple ?? 2.0;
+    const normalizedAtrRatioMin =
+      atrRatioMin.trim() === "" ? null : parsedAtrRatioMin;
+    const normalizedAtrRatioMax =
+      atrRatioMax.trim() === "" ? null : parsedAtrRatioMax;
     const payload: Record<string, unknown> = {
       command,
       buy_fill_modes: selectedBuyFillModes,
@@ -636,8 +662,8 @@ export default function Evaluation() {
       ranking_mode: rankingMode || undefined,
       universe_pool_ids:
         selectedUniversePoolIds.length > 0 ? selectedUniversePoolIds : undefined,
-      atr_ratio_min: parsedAtrRatioMin,
-      atr_ratio_max: parsedAtrRatioMax,
+      atr_ratio_min: normalizedAtrRatioMin,
+      atr_ratio_max: normalizedAtrRatioMax,
     };
 
     if (includeSizingRuntimeOverrides) {
@@ -1049,11 +1075,15 @@ export default function Evaluation() {
                   className={compactInputClassName}
                 >
                   {(options.data?.entry_filter_modes ?? []).map((item) => (
-                    <option key={item}>{item}</option>
+                    <option key={item} value={item}>
+                      {formatEntryFilterModeLabel(item)}
+                    </option>
                   ))}
                 </select>
               <p className="mt-2 text-[11px] text-gray-500">
-                {selectedFilterNames.length} named filters currently selected.
+                {entryFilterMode === "atr"
+                  ? "ATR-only"
+                  : `${selectedFilterNames.length} named filters currently selected.`}
               </p>
             </div>
           </div>

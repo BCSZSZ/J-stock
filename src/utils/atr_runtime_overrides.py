@@ -5,6 +5,21 @@ from typing import Any
 from src.utils.atr_position_sizing import normalize_position_sizing_mode
 
 
+ATR_RATIO_UNBOUNDED = "none"
+
+
+def _normalize_runtime_atr_bound(value: Any) -> float | None:
+    if isinstance(value, str) and value.strip().lower() in {
+        ATR_RATIO_UNBOUNDED,
+        "null",
+        "off",
+        "unlimited",
+        "",
+    }:
+        return None
+    return float(value)
+
+
 def has_portfolio_runtime_overrides(args: object) -> bool:
     return any(
         getattr(args, name, None) is not None
@@ -64,11 +79,11 @@ def merge_entry_filter_runtime_bounds(
 
     atr_ratio_min = getattr(args, "atr_ratio_min", None)
     if atr_ratio_min is not None:
-        config["atr_price_min"] = float(atr_ratio_min)
+        config["atr_price_min"] = _normalize_runtime_atr_bound(atr_ratio_min)
 
     atr_ratio_max = getattr(args, "atr_ratio_max", None)
     if atr_ratio_max is not None:
-        config["atr_price_max"] = float(atr_ratio_max)
+        config["atr_price_max"] = _normalize_runtime_atr_bound(atr_ratio_max)
 
     return config
 

@@ -77,3 +77,17 @@ def test_production_daily_cli_args_ignore_atr_sizing_flags_when_fixed() -> None:
         "--atr-ratio-max",
         "0.03",
     ]
+
+
+def test_production_daily_cli_args_send_none_for_explicit_blank_atr_bounds() -> None:
+    req = ProductionDailyRequest(atr_ratio_min=None, atr_ratio_max=None)
+    args: list[str] = []
+
+    _append_atr_runtime_flags(args, req)
+
+    assert args == [
+        "--atr-ratio-min",
+        "none",
+        "--atr-ratio-max",
+        "none",
+    ]

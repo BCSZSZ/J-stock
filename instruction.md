@@ -75,21 +75,23 @@ uv run main.py pos-evaluation --mode annual --years 2021 2022 2023 2024 2025 --e
 uv run main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverEnhancedA2_V11 MACDCrossoverEnhancedA2_V12 MACDCrossoverEnhancedA2_V13 MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --enable-overlay
 ```
 
-5年双MVX对比（使用默认：overlay=off、filter=off、仓位=7x0.18、evaluation输出目录=G盘）：
+5年双MVX对比（overlay=off、显式 filter=off、仓位=7x0.18、evaluation输出目录=G盘）：
 
 ```powershell
-.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
-uv run main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-filter-mode off --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
+uv run main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-filter-mode off --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
 ```
 
 ### Entry Filter 层开关（evaluation）
 
-- `--entry-filter-mode off|single|grid|auto`
+- `--entry-filter-mode off|atr|single|grid|auto`
   - `off`: 关闭过滤层（不启用二级过滤）
-  - `single`: 只使用单一过滤器（默认 `evaluation.filters.default`）
+  - `atr`: 只启用 ATR% 过滤（读取 `evaluation.filters.default` 的 `atr_price_min/max`；CLI 传 `--atr-ratio-min none` 或 `--atr-ratio-max none` 表示该边界不限制）
+  - `single`: 只使用单一配置过滤器（默认 `evaluation.filters.default`，可能包含 ATR 以外条件）
   - `grid`: 使用 `evaluation.filters.variants` 做网格评估
-  - `auto`: 有 `filters.variants` 就走网格，否则走单一（默认）
+  - `auto`: 有 `filters.variants` 就走网格，否则走默认过滤器（CLI 默认）
 - `--entry-filter-name ...`
+  - `atr` 模式不支持指定过滤器名
   - `single` 模式下指定 1 个过滤器名
   - `grid` 模式下可指定多个过滤器名作为子集
 - `--list-entry-filters`
@@ -98,9 +100,13 @@ uv run main.py evaluate --mode annual --years 2021 2022 2023 2024 2025 --entry-s
 示例：
 
 ```powershell
-# 默认filter=off时，无需显式传 --entry-filter-mode off
-.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
-uv run main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
+# 不做二级过滤时，显式传 --entry-filter-mode off
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-filter-mode off --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
+uv run main.py evaluate --mode annual --years 2021 2022 2023 --entry-filter-mode off --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 MVX_N9_R3p4_T1p6_D18_B20p0
+
+# 仅启用ATR%过滤；max=none 表示不限制上界
+.venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode atr --atr-ratio-max none
+uv run main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode atr --atr-ratio-max none
 
 # 仅使用单一filter
 .venv/Scripts/python.exe main.py evaluate --mode annual --years 2021 2022 2023 --entry-strategies MACDCrossoverStrategy --exit-strategies MVX_N9_R3p6_T1p7_D18_B20p0 --entry-filter-mode single --entry-filter-name f01_base

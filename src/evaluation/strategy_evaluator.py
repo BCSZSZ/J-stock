@@ -175,24 +175,6 @@ LAST_DAY_POSITION_COLUMNS = [
 ]
 
 
-DAILY_SIGNAL_COLUMNS = [
-    "period",
-    "requested_end_date",
-    "snapshot_date",
-    "entry_strategy",
-    "exit_strategy",
-    "entry_filter",
-    "ranking_strategy",
-    "signal_type",
-    "ticker",
-    "action",
-    "confidence",
-    "strategy_name",
-    "reasons_json",
-    "metadata_json",
-]
-
-
 DAILY_POSITION_COLUMNS = [
     "period",
     "requested_end_date",
@@ -2446,46 +2428,6 @@ class StrategyEvaluator:
                 position_df[col] = pd.NA
         return position_df[LAST_DAY_POSITION_COLUMNS]
 
-    def _create_daily_signal_dataframe(self) -> pd.DataFrame:
-        rows: List[Dict[str, object]] = []
-        for run_snapshot in self.evaluation_daily_snapshots:
-            for daily_snapshot in run_snapshot.get("daily_snapshots", []) or []:
-                snapshot_date = daily_snapshot.get("date")
-                for signal_type, key in (
-                    ("BUY", "pending_buy_signals"),
-                    ("SELL", "pending_sell_signals"),
-                ):
-                    for signal_payload in daily_snapshot.get(key, []) or []:
-                        payload = dict(signal_payload or {})
-                        rows.append(
-                            {
-                                "period": run_snapshot.get("period"),
-                                "requested_end_date": run_snapshot.get("end_date"),
-                                "snapshot_date": snapshot_date,
-                                "entry_strategy": run_snapshot.get("entry_strategy"),
-                                "exit_strategy": run_snapshot.get("exit_strategy"),
-                                "entry_filter": run_snapshot.get("entry_filter"),
-                                "ranking_strategy": run_snapshot.get("ranking_strategy"),
-                                "signal_type": signal_type,
-                                "ticker": payload.get("ticker"),
-                                "action": payload.get("action"),
-                                "confidence": payload.get("confidence"),
-                                "strategy_name": payload.get("strategy_name"),
-                                "reasons_json": self._safe_json_dumps(
-                                    payload.get("reasons", [])
-                                ),
-                                "metadata_json": self._safe_json_dumps(
-                                    payload.get("metadata", {})
-                                ),
-                            }
-                        )
-
-        signal_df = pd.DataFrame(rows)
-        for col in DAILY_SIGNAL_COLUMNS:
-            if col not in signal_df.columns:
-                signal_df[col] = pd.NA
-        return signal_df[DAILY_SIGNAL_COLUMNS]
-
     def _create_daily_position_dataframe(self) -> pd.DataFrame:
         rows: List[Dict[str, object]] = []
         for run_snapshot in self.evaluation_daily_snapshots:
@@ -2522,6 +2464,31 @@ class StrategyEvaluator:
             if col not in position_df.columns:
                 position_df[col] = pd.NA
         return position_df[DAILY_POSITION_COLUMNS]
+
+    @staticmethod
+    def _create_daily_snapshot_output(
+        daily_snapshots: List[Dict[str, object]],
+    ) -> List[Dict[str, object]]:
+        output: List[Dict[str, object]] = []
+        for run_snapshot in daily_snapshots:
+            run_payload = dict(run_snapshot or {})
+            run_payload.pop("period", None)
+
+            sanitized_days: List[Dict[str, object]] = []
+            for daily_snapshot in run_payload.get("daily_snapshots", []) or []:
+                daily_payload = dict(daily_snapshot or {})
+                for key in ("pending_buy_signals", "pending_sell_signals"):
+                    sanitized_signals = []
+                    for signal_payload in daily_payload.get(key, []) or []:
+                        payload = dict(signal_payload or {})
+                        payload.pop("reasons", None)
+                        sanitized_signals.append(payload)
+                    daily_payload[key] = sanitized_signals
+                sanitized_days.append(daily_payload)
+
+            run_payload["daily_snapshots"] = sanitized_days
+            output.append(run_payload)
+        return output
 
     @staticmethod
     def _coerce_full_exit_flags(values: pd.Series) -> pd.Series:
@@ -3166,16 +3133,6 @@ class StrategyEvaluator:
         print(f"✅ 最后一天快照已保存: {last_day_snapshot_file}")
         files["last_day_snapshot"] = str(last_day_snapshot_file)
 
-        daily_signal_df = self._create_daily_signal_dataframe()
-        daily_signal_file = self.output_dir / f"{prefix}_daily_signals_{timestamp}.csv"
-        daily_signal_df.to_csv(
-            daily_signal_file,
-            index=False,
-            encoding="utf-8-sig",
-        )
-        print(f"✅ 全流程日级信号已保存: {daily_signal_file}")
-        files["daily_signals"] = str(daily_signal_file)
-
         daily_position_df = self._create_daily_position_dataframe()
         daily_position_file = self.output_dir / f"{prefix}_daily_positions_{timestamp}.csv"
         daily_position_df.to_csv(
@@ -3188,7 +3145,11 @@ class StrategyEvaluator:
 
         daily_snapshot_file = self.output_dir / f"{prefix}_daily_snapshots_{timestamp}.json"
         daily_snapshot_file.write_text(
-            json.dumps(self.evaluation_daily_snapshots, indent=2, ensure_ascii=False),
+            json.dumps(
+                self._create_daily_snapshot_output(self.evaluation_daily_snapshots),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
             encoding="utf-8",
         )
         print(f"✅ 全流程日级快照已保存: {daily_snapshot_file}")
