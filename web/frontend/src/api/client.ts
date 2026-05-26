@@ -173,6 +173,29 @@ export type StockPoolOption = {
   catalog_file?: string | null;
 };
 
+export type MvxExitFamily = "MVX" | "MVXW" | "MVXWL";
+
+export type MvxExitStrategyResolveRequest = {
+  family: MvxExitFamily;
+  n_values: string;
+  r_values: string;
+  t_values: string;
+  d_values: string;
+  b_values: string;
+  i_values?: string | null;
+  max_combinations?: number;
+};
+
+export type MvxExitStrategyResolveResponse = {
+  family: MvxExitFamily;
+  parameters: Record<string, string[]>;
+  generated_names: string[];
+  already_registered: string[];
+  newly_registered: string[];
+  duplicate_count: number;
+  combination_count: number;
+};
+
 function withOutputDir(path: string, outputDir?: string): string {
   if (!outputDir) return path;
   const params = new URLSearchParams({ output_dir: outputDir });
@@ -458,6 +481,12 @@ export const api = {
     }>("/strategies"),
   strategy: (name: string, type = "entry") =>
     request<Record<string, unknown>>(`/strategies/${name}?type=${type}`),
+  resolveMvxExitStrategies: (body: MvxExitStrategyResolveRequest) =>
+    request<MvxExitStrategyResolveResponse>("/strategies/exit/mvx-family/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
 };
 
 /** Connect to an SSE endpoint and yield lines. */

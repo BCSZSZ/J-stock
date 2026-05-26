@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type StockPoolOption } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
+import ExitStrategyFamilyBuilder from "../components/ExitStrategyFamilyBuilder";
 import MultiDatePicker from "../components/MultiDatePicker";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import LogOutput from "../components/LogOutput";
@@ -1418,12 +1419,11 @@ export default function Evaluation() {
               </div>
 
               <div className="xl:col-span-3 h-full">
-                <StrategyMultiSelect
-                  label="Exit Strategies"
-                  options={options.data?.exit_strategies ?? []}
+                <ExitStrategyFamilyBuilder
                   selected={selectedExit}
                   onChange={setSelectedExit}
-                  searchPlaceholder="Search exit strategies..."
+                  defaultStrategy={productionExit || options.data?.defaults.exit_strategies?.[0]}
+                  className={tallFieldCardClassName}
                 />
               </div>
             </div>

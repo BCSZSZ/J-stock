@@ -619,6 +619,11 @@ def _resolve_entry_exit_strategies(args, eval_cfg, announce: bool = True):
     exit_strategies = _dedupe_preserve_order(exit_strategies)
     if exit_strategies and len(exit_strategies) != original_exit_count:
         print(f"⚠️ 出场策略去重: {original_exit_count} -> {len(exit_strategies)}")
+    if exit_strategies:
+        from src.utils.strategy_loader import ensure_exit_strategy_registered
+
+        for exit_strategy in exit_strategies:
+            ensure_exit_strategy_registered(exit_strategy)
 
     return entry_strategies, exit_strategies
 

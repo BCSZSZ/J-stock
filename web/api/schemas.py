@@ -148,6 +148,31 @@ class StrategyInfo(BaseModel):
     parameters: list[dict[str, str]]
 
 
+MvxParameterValue = str | int | float
+MvxParameterInput = MvxParameterValue | list[MvxParameterValue]
+
+
+class MvxExitStrategyResolveRequest(BaseModel):
+    family: Literal["MVX", "MVXW", "MVXWL"]
+    n_values: MvxParameterInput = ""
+    r_values: MvxParameterInput = ""
+    t_values: MvxParameterInput = ""
+    d_values: MvxParameterInput = ""
+    b_values: MvxParameterInput = ""
+    i_values: MvxParameterInput | None = None
+    max_combinations: int = Field(default=200, ge=1, le=1000)
+
+
+class MvxExitStrategyResolveResponse(BaseModel):
+    family: str
+    parameters: dict[str, list[str]]
+    generated_names: list[str]
+    already_registered: list[str]
+    newly_registered: list[str]
+    duplicate_count: int = 0
+    combination_count: int
+
+
 class EvaluationRunRequest(BaseModel):
     command: Literal[
         "evaluate",

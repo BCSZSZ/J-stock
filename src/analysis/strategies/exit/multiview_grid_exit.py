@@ -13,8 +13,10 @@ single default MVX parameter set for evaluation and production use.
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict
+from typing import Dict, Literal, cast
 
 import pandas as pd
 
@@ -1197,6 +1199,105 @@ def _float_token(value: float) -> str:
     return normalized.replace(".", "p")
 
 
+MvxExitFamily = Literal["MVX", "MVXW", "MVXWL"]
+
+
+@dataclass(frozen=True)
+class MvxExitStrategySpec:
+    family: MvxExitFamily
+    n: int
+    r: float
+    t: float
+    d: int
+    b: float
+    i: float | None = None
+
+
+_MVX_VALUE_TOKEN_PATTERN = r"\d+(?:p\d+)?"
+_MVX_EXIT_NAME_PATTERN = re.compile(
+    rf"^(?P<family>MVXWL|MVXW|MVX)_N(?P<n>\d+)_"
+    rf"R(?P<r>{_MVX_VALUE_TOKEN_PATTERN})_"
+    rf"T(?P<t>{_MVX_VALUE_TOKEN_PATTERN})_"
+    rf"D(?P<d>\d+)_B(?P<b>{_MVX_VALUE_TOKEN_PATTERN})"
+    rf"(?:_I(?P<i>{_MVX_VALUE_TOKEN_PATTERN}))?$"
+)
+
+
+def _parse_float_token(token: str) -> float:
+    return float(token.replace("p", "."))
+
+
+def _normalize_mvx_family(family: str) -> MvxExitFamily:
+    normalized = family.strip().upper()
+    if normalized not in {"MVX", "MVXW", "MVXWL"}:
+        raise ValueError(f"Unsupported MVX exit family: {family}")
+    return cast(MvxExitFamily, normalized)
+
+
+def make_mvx_exit_strategy_name(
+    family: str,
+    n: int,
+    r: float,
+    t: float,
+    d: int,
+    b: float,
+    i: float | None = None,
+) -> str:
+    normalized_family = _normalize_mvx_family(family)
+    if n <= 0 or d <= 0:
+        raise ValueError("N and D must be positive integers")
+    if r <= 0 or t <= 0 or b <= 0:
+        raise ValueError("R, T, and B must be positive")
+
+    base = (
+        f"{normalized_family}_N{int(n)}_R{_float_token(r)}_"
+        f"T{_float_token(t)}_D{int(d)}_B{_float_token(b)}"
+    )
+    if normalized_family != "MVXWL":
+        return base
+
+    initial_stop_mult = 2.0 if i is None else float(i)
+    if initial_stop_mult <= 0:
+        raise ValueError("I must be positive for MVXWL")
+    return f"{base}_I{_float_token(initial_stop_mult)}"
+
+
+def parse_mvx_exit_strategy_name(name: str) -> MvxExitStrategySpec | None:
+    match = _MVX_EXIT_NAME_PATTERN.fullmatch(name.strip())
+    if match is None:
+        return None
+
+    family = _normalize_mvx_family(match.group("family"))
+    i_token = match.group("i")
+    if family == "MVXWL" and i_token is None:
+        return None
+    if family != "MVXWL" and i_token is not None:
+        return None
+
+    spec = MvxExitStrategySpec(
+        family=family,
+        n=int(match.group("n")),
+        r=_parse_float_token(match.group("r")),
+        t=_parse_float_token(match.group("t")),
+        d=int(match.group("d")),
+        b=_parse_float_token(match.group("b")),
+        i=_parse_float_token(i_token) if i_token is not None else None,
+    )
+    try:
+        canonical_name = make_mvx_exit_strategy_name(
+            spec.family,
+            spec.n,
+            spec.r,
+            spec.t,
+            spec.d,
+            spec.b,
+            spec.i,
+        )
+    except ValueError:
+        return None
+    return spec if canonical_name == name.strip() else None
+
+
 GRID_EXIT_STRATEGY_MAP: Dict[str, str] = {}
 
 # 固定参数 (来自最优参数D18_B20)
@@ -1336,6 +1437,46 @@ def _register_locked_window_decay_variant(
         name,
         _build_locked_window_decay_variant_class(name, n, r, t, d, b, i),
     )
+
+
+def register_mvx_exit_variant(
+    family: str,
+    n: int,
+    r: float,
+    t: float,
+    d: int,
+    b: float,
+    i: float | None = None,
+) -> str:
+    normalized_family = _normalize_mvx_family(family)
+    name = make_mvx_exit_strategy_name(normalized_family, n, r, t, d, b, i)
+    if name in GRID_EXIT_STRATEGY_MAP:
+        return name
+
+    if normalized_family == "MVX":
+        cls = _build_variant_class(name, n, r, t, d, b)
+    elif normalized_family == "MVXW":
+        cls = _build_window_decay_variant_class(name, n, r, t, d, b)
+    else:
+        cls = _build_locked_window_decay_variant_class(
+            name,
+            n,
+            r,
+            t,
+            d,
+            b,
+            2.0 if i is None else float(i),
+        )
+    _register_grid_exit_variant(name, cls)
+    return name
+
+
+def register_mvx_exit_strategy_name(name: str) -> bool:
+    spec = parse_mvx_exit_strategy_name(name)
+    if spec is None:
+        return False
+    register_mvx_exit_variant(spec.family, spec.n, spec.r, spec.t, spec.d, spec.b, spec.i)
+    return True
 
 
 def _expand_refinement_values(base_values, step: float, rounds: int):

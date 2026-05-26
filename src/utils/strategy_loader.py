@@ -223,6 +223,31 @@ except Exception:
 # ==================== 策略加载函数 ====================
 
 
+def ensure_exit_strategy_registered(strategy_name: str) -> bool:
+    """Register deterministic MVX-family exit variants on demand."""
+    if strategy_name in EXIT_STRATEGIES:
+        return True
+
+    try:
+        from src.analysis.strategies.exit.multiview_grid_exit import (
+            GRID_EXIT_STRATEGY_MAP,
+            register_mvx_exit_strategy_name,
+        )
+    except Exception:
+        return False
+
+    if not register_mvx_exit_strategy_name(strategy_name):
+        return False
+
+    module_path = GRID_EXIT_STRATEGY_MAP.get(strategy_name)
+    if not module_path:
+        return False
+
+    EXIT_STRATEGIES[strategy_name] = module_path
+    STRATEGY_CLASS_CACHE.pop(("exit", strategy_name), None)
+    return True
+
+
 def load_strategy_class(strategy_name: str, strategy_type: str = "entry"):
     """
     动态加载策略类
@@ -241,6 +266,7 @@ def load_strategy_class(strategy_name: str, strategy_type: str = "entry"):
         mapping = ENTRY_STRATEGIES
     elif strategy_type == "exit":
         mapping = EXIT_STRATEGIES
+        ensure_exit_strategy_registered(strategy_name)
     else:
         raise ValueError(f"Unknown strategy type: {strategy_type}")
 
@@ -340,6 +366,7 @@ def get_strategy_combinations_from_lists(
             raise ValueError(f"Unknown entry strategy '{name}'. Available: {available}")
 
     for name in exit_names:
+        ensure_exit_strategy_registered(name)
         if name not in EXIT_STRATEGIES:
             available = ", ".join(EXIT_STRATEGIES.keys())
             raise ValueError(f"Unknown exit strategy '{name}'. Available: {available}")
