@@ -15,7 +15,12 @@ from ..analysis.signals import MarketData, SignalAction, TradingSignal
 from ..analysis.filters import EntrySecondaryFilter
 from ..analysis.strategies.base_entry_strategy import BaseEntryStrategy
 from ..analysis.strategies.base_exit_strategy import BaseExitStrategy
-from ..capacity import capacity_mode_enabled, compute_order_capacity, resolve_capacity_tier
+from ..capacity import (
+    capacity_mode_enabled,
+    capacity_order_cap_applies_to_sizing,
+    compute_order_capacity,
+    resolve_capacity_tier,
+)
 from ..config.capacity import CapacityRegimeConfig
 from ..data.benchmark_manager import BenchmarkManager
 from ..data.stock_data_manager import StockDataManager
@@ -582,6 +587,9 @@ class PortfolioBacktestEngine:
                             atr_order_value_cap = available_exposure
                             market_data_for_capacity = None
                             if day_capacity_snapshot is not None:
+                                capacity_cap_applies = capacity_order_cap_applies_to_sizing(
+                                    self.position_sizing_config.mode
+                                )
                                 market_data_for_capacity = get_market_data_for_today(ticker)
                                 turnover_jpy = self._extract_turnover_value(
                                     market_data_for_capacity
@@ -600,26 +608,28 @@ class PortfolioBacktestEngine:
                                         "liquidity_floor",
                                     }:
                                         capacity_liquidity_blocked_buys += 1
+                                    if capacity_cap_applies:
+                                        capacity_cash_drag_jpy += max(
+                                            0.0,
+                                            capacity_decision.equity_cap_jpy
+                                            - capacity_decision.order_cap_jpy,
+                                        )
+                                    continue
+
+                                if capacity_cap_applies:
+                                    max_cash = capacity_decision.order_cap_jpy
+                                    atr_order_value_cap = capacity_decision.order_cap_jpy
+                                    if capacity_decision.is_trimmed:
+                                        capacity_trimmed_buys += 1
                                     capacity_cash_drag_jpy += max(
                                         0.0,
                                         capacity_decision.equity_cap_jpy
                                         - capacity_decision.order_cap_jpy,
                                     )
-                                    continue
-
-                                max_cash = capacity_decision.order_cap_jpy
-                                atr_order_value_cap = capacity_decision.order_cap_jpy
-                                if capacity_decision.is_trimmed:
-                                    capacity_trimmed_buys += 1
-                                capacity_cash_drag_jpy += max(
-                                    0.0,
-                                    capacity_decision.equity_cap_jpy
-                                    - capacity_decision.order_cap_jpy,
-                                )
-                                if capacity_decision.participation_pct is not None:
-                                    capacity_participations.append(
-                                        capacity_decision.participation_pct * 100.0
-                                    )
+                                    if capacity_decision.participation_pct is not None:
+                                        capacity_participations.append(
+                                            capacity_decision.participation_pct * 100.0
+                                        )
 
                                 entry_metadata.update(
                                     {

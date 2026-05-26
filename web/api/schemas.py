@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
-def _validate_atr_runtime_fields(model: BaseModel) -> BaseModel:
+def _validate_atr_sizing_runtime_fields(model: BaseModel) -> BaseModel:
     risk_per_trade_pct = getattr(model, "risk_per_trade_pct", None)
     if risk_per_trade_pct is not None and risk_per_trade_pct <= 0:
         raise ValueError("risk_per_trade_pct must be greater than 0")
@@ -15,7 +15,10 @@ def _validate_atr_runtime_fields(model: BaseModel) -> BaseModel:
     atr_stop_multiple = getattr(model, "atr_stop_multiple", None)
     if atr_stop_multiple is not None and atr_stop_multiple <= 0:
         raise ValueError("atr_stop_multiple must be greater than 0")
+    return model
 
+
+def _validate_atr_filter_runtime_fields(model: BaseModel) -> BaseModel:
     atr_ratio_min = getattr(model, "atr_ratio_min", None)
     if atr_ratio_min is not None and atr_ratio_min < 0:
         raise ValueError("atr_ratio_min must be greater than or equal to 0")
@@ -194,7 +197,9 @@ class EvaluationRunRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_atr_runtime_fields(self) -> "EvaluationRunRequest":
-        _validate_atr_runtime_fields(self)
+        if self.position_sizing_mode != "fixed":
+            _validate_atr_sizing_runtime_fields(self)
+        _validate_atr_filter_runtime_fields(self)
         return self
 
 
@@ -266,9 +271,9 @@ class ProductionDailyRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_atr_runtime_fields(self) -> "ProductionDailyRequest":
-        if self.position_sizing_mode == "fixed":
-            return self
-        _validate_atr_runtime_fields(self)
+        if self.position_sizing_mode != "fixed":
+            _validate_atr_sizing_runtime_fields(self)
+        _validate_atr_filter_runtime_fields(self)
         return self
 
 

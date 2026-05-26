@@ -17,11 +17,18 @@ def test_production_daily_request_allows_ignored_atr_runtime_fields_when_fixed()
         position_sizing_mode="fixed",
         risk_per_trade_pct=0.0,
         atr_stop_multiple=0.0,
-        atr_ratio_min=0.03,
-        atr_ratio_max=0.015,
     )
 
     assert req.position_sizing_mode == "fixed"
+
+
+def test_production_daily_request_rejects_invalid_atr_range_when_fixed() -> None:
+    with pytest.raises(ValueError):
+        ProductionDailyRequest(
+            position_sizing_mode="fixed",
+            atr_ratio_min=0.03,
+            atr_ratio_max=0.015,
+        )
 
 
 def test_production_daily_cli_args_include_atr_runtime_flags() -> None:
@@ -50,7 +57,7 @@ def test_production_daily_cli_args_include_atr_runtime_flags() -> None:
     ]
 
 
-def test_production_daily_cli_args_ignore_atr_runtime_flags_when_fixed() -> None:
+def test_production_daily_cli_args_ignore_atr_sizing_flags_when_fixed() -> None:
     req = ProductionDailyRequest(
         position_sizing_mode="fixed",
         risk_per_trade_pct=0.006,
@@ -65,4 +72,8 @@ def test_production_daily_cli_args_ignore_atr_runtime_flags_when_fixed() -> None
     assert args == [
         "--position-sizing-mode",
         "fixed",
+        "--atr-ratio-min",
+        "0.015",
+        "--atr-ratio-max",
+        "0.03",
     ]

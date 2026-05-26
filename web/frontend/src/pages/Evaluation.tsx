@@ -251,7 +251,7 @@ function formatReplayAnchorSummary(reportFiles: string[]): string {
     return "Replay anchor not set";
   }
   if (reportFiles.length === 1) {
-    return reportFiles[0];
+    return reportFiles[0] ?? "";
   }
   const preview = reportFiles.slice(0, 3).join(" | ");
   if (reportFiles.length <= 3) {
@@ -366,7 +366,7 @@ export default function Evaluation() {
     [...selectedQuickReplayReports, ...parseStringList(reportFilesText)].join("\n"),
   );
   const singleReplayReportFile =
-    replayReportFiles.length === 1 ? replayReportFiles[0] : "";
+    replayReportFiles.length === 1 ? replayReportFiles[0] ?? "" : "";
   const replayAnchorSummary = formatReplayAnchorSummary(replayReportFiles);
   const replayUsesAutoStrategy = isReplayEvaluation && !overrideStrategies;
   const replayReportContext = useQuery<ReplayReportContext>({
@@ -397,10 +397,15 @@ export default function Evaluation() {
   const parsedAtrStopMultiple = parseOptionalFloat(atrStopMultiple);
   const parsedAtrRatioMin = parseOptionalFloat(atrRatioMin);
   const parsedAtrRatioMax = parseOptionalFloat(atrRatioMax);
+  const includeSizingRuntimeOverrides = !isPosEvaluation || overrideProfileSizing;
+  const atrSizingRuntimeEnabled =
+    includeSizingRuntimeOverrides && positionSizingMode === "atr";
   const riskPerTradeInvalid =
-    parsedRiskPerTradePct === undefined || parsedRiskPerTradePct <= 0;
+    atrSizingRuntimeEnabled &&
+    (parsedRiskPerTradePct === undefined || parsedRiskPerTradePct <= 0);
   const atrStopMultipleInvalid =
-    parsedAtrStopMultiple === undefined || parsedAtrStopMultiple <= 0;
+    atrSizingRuntimeEnabled &&
+    (parsedAtrStopMultiple === undefined || parsedAtrStopMultiple <= 0);
   const atrRatioRangeInvalid =
     parsedAtrRatioMin !== undefined &&
     parsedAtrRatioMax !== undefined &&
@@ -596,11 +601,13 @@ export default function Evaluation() {
     if (fillBufferPctInvalid) {
       return;
     }
+    if (riskPerTradeInvalid || atrStopMultipleInvalid || atrRatioRangeInvalid) {
+      return;
+    }
 
     const normalizedFillBufferPct = parsedFillBufferPct ?? 0.02;
     const normalizedRiskPerTradePct = parsedRiskPerTradePct ?? 0.006;
     const normalizedAtrStopMultiple = parsedAtrStopMultiple ?? 2.0;
-    const includeSizingRuntimeOverrides = !isPosEvaluation || overrideProfileSizing;
     const payload: Record<string, unknown> = {
       command,
       buy_fill_modes: selectedBuyFillModes,
@@ -634,8 +641,10 @@ export default function Evaluation() {
 
     if (includeSizingRuntimeOverrides) {
       payload.position_sizing_mode = positionSizingMode;
-      payload.risk_per_trade_pct = normalizedRiskPerTradePct;
-      payload.atr_stop_multiple = normalizedAtrStopMultiple;
+      if (positionSizingMode === "atr") {
+        payload.risk_per_trade_pct = normalizedRiskPerTradePct;
+        payload.atr_stop_multiple = normalizedAtrStopMultiple;
+      }
     }
 
     if (!isReplayEvaluation) {
@@ -673,7 +682,7 @@ export default function Evaluation() {
         `Buy Fill Modes: ${selectedBuyFillModes.join(", ")}`,
         `Entry Reference Modes: ${selectedEntryReferenceModes.join(", ")}`,
         `Fill Buffer: ${fillBufferEnabled ? `ON (${(normalizedFillBufferPct * 100).toFixed(2)}%)` : `OFF (${(normalizedFillBufferPct * 100).toFixed(2)}% configured)`}`,
-        `Position Sizing: ${includeSizingRuntimeOverrides ? `${positionSizingMode} | risk ${normalizedRiskPerTradePct} | stop ${normalizedAtrStopMultiple} ATR` : "profile defaults"}`,
+        `Position Sizing: ${includeSizingRuntimeOverrides ? (positionSizingMode === "atr" ? `${positionSizingMode} | risk ${normalizedRiskPerTradePct} | stop ${normalizedAtrStopMultiple} ATR` : "fixed | ATR sizing params ignored") : "profile defaults"}`,
         `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`,
         `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
@@ -1076,7 +1085,8 @@ export default function Evaluation() {
               <input
                 value={riskPerTradePct}
                 onChange={(e) => setRiskPerTradePct(e.target.value)}
-                className={compactInputClassName}
+                disabled={!atrSizingRuntimeEnabled}
+                className={`${compactInputClassName} disabled:cursor-not-allowed disabled:bg-gray-900 disabled:text-gray-500`}
               />
               {riskPerTradeInvalid && (
                 <p className="mt-2 text-[11px] text-red-400">Enter a positive ratio.</p>
@@ -1088,7 +1098,8 @@ export default function Evaluation() {
               <input
                 value={atrStopMultiple}
                 onChange={(e) => setAtrStopMultiple(e.target.value)}
-                className={compactInputClassName}
+                disabled={!atrSizingRuntimeEnabled}
+                className={`${compactInputClassName} disabled:cursor-not-allowed disabled:bg-gray-900 disabled:text-gray-500`}
               />
               {atrStopMultipleInvalid && (
                 <p className="mt-2 text-[11px] text-red-400">Enter a positive multiple.</p>
@@ -1120,7 +1131,9 @@ export default function Evaluation() {
               <div className="text-xs text-gray-400">
                 {isPosEvaluation && !overrideProfileSizing
                   ? "Profile sizing is active for pos-evaluation."
-                  : `Runtime sizing will be sent as ${positionSizingMode}.`}
+                  : positionSizingMode === "atr"
+                    ? "Runtime ATR sizing will use risk and stop settings."
+                    : "Fixed sizing ignores ATR risk and stop settings."}
               </div>
             </div>
           </div>

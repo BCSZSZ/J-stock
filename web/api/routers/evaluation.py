@@ -285,10 +285,11 @@ def _append_multi_flag(args: list[str], flag: str, values: list[str] | list[int]
 def _append_atr_runtime_flags(args: list[str], req: EvaluationRunRequest) -> None:
     if req.position_sizing_mode:
         args.extend(["--position-sizing-mode", req.position_sizing_mode])
-    if req.risk_per_trade_pct is not None:
-        args.extend(["--risk-per-trade-pct", str(req.risk_per_trade_pct)])
-    if req.atr_stop_multiple is not None:
-        args.extend(["--atr-stop-multiple", str(req.atr_stop_multiple)])
+    if req.position_sizing_mode != "fixed":
+        if req.risk_per_trade_pct is not None:
+            args.extend(["--risk-per-trade-pct", str(req.risk_per_trade_pct)])
+        if req.atr_stop_multiple is not None:
+            args.extend(["--atr-stop-multiple", str(req.atr_stop_multiple)])
     if req.atr_ratio_min is not None:
         args.extend(["--atr-ratio-min", str(req.atr_ratio_min)])
     if req.atr_ratio_max is not None:

@@ -36,6 +36,10 @@ def capacity_mode_enabled(mode: str, regime: CapacityRegimeConfig | None) -> boo
     return regime is not None and str(mode).lower() == "enforce"
 
 
+def capacity_order_cap_applies_to_sizing(position_sizing_mode: str) -> bool:
+    return str(position_sizing_mode or "fixed").strip().lower() != "atr"
+
+
 def _resolve_tier(
     regime: CapacityRegimeConfig, effective_equity_jpy: float
 ) -> tuple[int, CapacityTierConfig]:

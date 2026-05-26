@@ -8,7 +8,11 @@ from typing import Dict, List, Optional
 import pandas as pd
 from dotenv import load_dotenv
 
-from src.capacity import compute_order_capacity, resolve_capacity_tier
+from src.capacity import (
+    capacity_order_cap_applies_to_sizing,
+    compute_order_capacity,
+    resolve_capacity_tier,
+)
 from src.cli.production_price_check import run_signal_price_check
 from src.cli.production_utils import load_monitor_tickers
 from src.config.runtime import (
@@ -436,8 +440,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     position_sizing_mode = str(
         getattr(prod_cfg, "position_sizing_mode", "fixed") or "fixed"
     ).lower()
-    if position_sizing_mode == "atr":
-        entry_filter_raw = merge_entry_filter_runtime_bounds(entry_filter_raw, args)
+    entry_filter_raw = merge_entry_filter_runtime_bounds(entry_filter_raw, args)
     entry_filter = EntrySecondaryFilter.from_dict(entry_filter_raw)
 
     monitor_tickers = load_monitor_tickers(prod_cfg.monitor_list_file)
@@ -1640,7 +1643,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                             f"{sig.reason}; Capacity blocked: {capacity_decision.blocking_reason}"
                         )
                         continue
-                elif capacity_decision.is_trimmed:
+                elif capacity_decision.is_trimmed and capacity_order_cap_applies_to_sizing(
+                    position_sizing_mode
+                ):
                     ctx["capacity_trimmed_buys"] += 1
 
             if position_sizing_mode == "atr":
@@ -1654,6 +1659,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     capacity_snapshot is not None
                     and capacity_mode == "enforce"
                     and capacity_decision is not None
+                    and capacity_order_cap_applies_to_sizing(position_sizing_mode)
                 ):
                     order_value_cap = capacity_decision.order_cap_jpy
                 sizing_result = calculate_atr_position_size(

@@ -90,6 +90,47 @@ def test_build_cli_args_includes_atr_runtime_flags(monkeypatch) -> None:
     assert args[args.index("--atr-ratio-max") + 1] == "0.03"
 
 
+def test_evaluation_request_allows_ignored_atr_sizing_fields_when_fixed() -> None:
+    req = EvaluationRunRequest(
+        position_sizing_mode="fixed",
+        risk_per_trade_pct=0.0,
+        atr_stop_multiple=0.0,
+    )
+
+    assert req.position_sizing_mode == "fixed"
+
+
+def test_evaluation_request_rejects_invalid_atr_range_when_fixed() -> None:
+    with pytest.raises(ValueError):
+        EvaluationRunRequest(
+            position_sizing_mode="fixed",
+            atr_ratio_min=0.03,
+            atr_ratio_max=0.015,
+        )
+
+
+def test_evaluation_cli_args_ignore_atr_sizing_flags_when_fixed() -> None:
+    req = EvaluationRunRequest(
+        position_sizing_mode="fixed",
+        risk_per_trade_pct=0.006,
+        atr_stop_multiple=2.0,
+        atr_ratio_min=0.015,
+        atr_ratio_max=0.03,
+    )
+    args: list[str] = []
+
+    evaluation_router._append_atr_runtime_flags(args, req)
+
+    assert args == [
+        "--position-sizing-mode",
+        "fixed",
+        "--atr-ratio-min",
+        "0.015",
+        "--atr-ratio-max",
+        "0.03",
+    ]
+
+
 def test_evaluation_request_rejects_invalid_atr_range() -> None:
     with pytest.raises(ValueError):
         EvaluationRunRequest(atr_ratio_min=0.03, atr_ratio_max=0.015)
