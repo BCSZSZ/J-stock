@@ -23,6 +23,7 @@ type PositionSizingMode = "fixed" | "atr";
 interface EvaluationDefaults {
   command: string;
   mode: string;
+  include_continuous: boolean;
   override_strategies: boolean;
   buy_fill_mode: string;
   buy_fill_modes?: string[];
@@ -311,6 +312,7 @@ export default function Evaluation() {
   const [selectedEntry, setSelectedEntry] = useState<string[]>([]);
   const [selectedExit, setSelectedExit] = useState<string[]>([]);
   const [mode, setMode] = useState<EvaluationMode>("annual");
+  const [includeContinuous, setIncludeContinuous] = useState(false);
   const [years, setYears] = useState(DEFAULT_YEARS);
   const [months, setMonths] = useState("");
   const [customPeriods, setCustomPeriods] = useState("");
@@ -386,6 +388,7 @@ export default function Evaluation() {
   });
   const showMonths = !isWalkForward && !isReplayEvaluation && mode === "monthly";
   const showCustomPeriods = !isWalkForward && !isReplayEvaluation && mode === "custom";
+  const supportsContinuousCompanion = !isWalkForward && !isReplayEvaluation;
   const modeOptions = (options.data?.modes ?? []).filter(
     (item) => !isWalkForward || item === "annual" || item === "quarterly",
   );
@@ -528,6 +531,7 @@ export default function Evaluation() {
     setSelectedEntry(defaults.entry_strategies ?? []);
     setSelectedExit(defaults.exit_strategies ?? []);
     setMode((defaults.mode as EvaluationMode) ?? "annual");
+    setIncludeContinuous(Boolean(defaults.include_continuous));
     setExitConfirmDays(
       defaults.exit_confirm_days !== null && defaults.exit_confirm_days !== undefined
         ? String(defaults.exit_confirm_days)
@@ -666,6 +670,10 @@ export default function Evaluation() {
       atr_ratio_max: normalizedAtrRatioMax,
     };
 
+    if (supportsContinuousCompanion) {
+      payload.include_continuous = includeContinuous;
+    }
+
     if (includeSizingRuntimeOverrides) {
       payload.position_sizing_mode = positionSizingMode;
       if (positionSizingMode === "atr") {
@@ -713,6 +721,7 @@ export default function Evaluation() {
         `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`,
         `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
+        `Continuous Companion: ${supportsContinuousCompanion ? (includeContinuous ? "on" : "off") : "n/a"}`,
         isReplayEvaluation
           ? `Report Anchors: ${replayAnchorSummary}`
           : undefined,
@@ -775,7 +784,7 @@ export default function Evaluation() {
           </div>
           <div className="mt-2 text-base font-semibold text-white">{modeLabel}</div>
           <div className="mt-1 text-xs text-gray-400">
-            ranking {rankingMode} / exit confirm {exitConfirmDays.trim() || "config"}
+            ranking {rankingMode} / exit confirm {exitConfirmDays.trim() || "config"} / continuous {supportsContinuousCompanion ? (includeContinuous ? "on" : "off") : "n/a"}
           </div>
           <div className="mt-auto pt-3 text-xs text-gray-500">
             Replay uses the selected report anchors instead of period presets.
@@ -960,6 +969,16 @@ export default function Evaluation() {
             <div className={fieldCardClassName}>
               <label className={compactLabelClassName}>Run Flags</label>
               <div className="space-y-2 text-sm text-gray-300">
+                {supportsContinuousCompanion && (
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includeContinuous}
+                      onChange={(e) => setIncludeContinuous(e.target.checked)}
+                    />
+                    Include Continuous Companion
+                  </label>
+                )}
                 {!isPosEvaluation && (
                   <label className="flex items-center gap-2">
                     <input
@@ -974,6 +993,11 @@ export default function Evaluation() {
                   <input
                     type="checkbox"
                     checked={verbose}
+              {supportsContinuousCompanion && (
+                <p className="mt-2 text-[11px] text-gray-500">
+                  Adds one full-span companion run after segmented annual or quarterly periods.
+                </p>
+              )}
                     onChange={(e) => setVerbose(e.target.checked)}
                   />
                   Verbose Output

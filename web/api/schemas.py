@@ -196,6 +196,7 @@ class EvaluationRunRequest(BaseModel):
     years: list[int] | None = None
     months: list[int] | None = None
     custom_periods: str | None = None
+    include_continuous: bool = False
     launch_date: str | None = None
     launch_dates: list[str] | None = None
     min_train_years: int | None = None

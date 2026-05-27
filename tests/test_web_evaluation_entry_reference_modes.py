@@ -50,6 +50,62 @@ def test_build_cli_args_includes_entry_reference_mode(monkeypatch) -> None:
     assert args[entry_reference_index + 1] == "buffered_fill"
 
 
+def test_build_cli_args_explicitly_disables_continuous_for_evaluate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_production_config",
+        lambda: SimpleNamespace(
+            monitor_list_file="data/monitor_list.json",
+            strategy_groups=[
+                {
+                    "id": "group_main",
+                    "entry_strategy": "EntryStrategy",
+                    "exit_strategy": "ExitStrategy",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_config_manager",
+        lambda: SimpleNamespace(raw_config={"production": {}}),
+    )
+
+    req = EvaluationRunRequest(command="evaluate", mode="annual", include_continuous=False)
+
+    args = evaluation_router._build_cli_args(req)
+
+    assert "--no-include-continuous" in args
+
+
+def test_build_cli_args_enables_continuous_for_evaluate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_production_config",
+        lambda: SimpleNamespace(
+            monitor_list_file="data/monitor_list.json",
+            strategy_groups=[
+                {
+                    "id": "group_main",
+                    "entry_strategy": "EntryStrategy",
+                    "exit_strategy": "ExitStrategy",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_config_manager",
+        lambda: SimpleNamespace(raw_config={"production": {}}),
+    )
+
+    req = EvaluationRunRequest(command="evaluate", mode="annual", include_continuous=True)
+
+    args = evaluation_router._build_cli_args(req)
+
+    assert "--include-continuous" in args
+
+
 def test_build_cli_args_includes_atr_runtime_flags(monkeypatch) -> None:
     monkeypatch.setattr(
         evaluation_router,

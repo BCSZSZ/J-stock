@@ -315,6 +315,13 @@ def _resolve_atr_runtime_defaults(raw_config: dict[str, object]) -> dict[str, ob
     }
 
 
+def _resolve_include_continuous_default(raw_config: dict[str, object]) -> bool:
+    evaluation_cfg = raw_config.get("evaluation", {})
+    if not isinstance(evaluation_cfg, dict):
+        return False
+    return bool(evaluation_cfg.get("include_continuous", False))
+
+
 def _normalize_string_list(values: list[str] | None) -> list[str]:
     if not values:
         return []
@@ -467,6 +474,11 @@ def _build_cli_args(
                 detail="walk-forward-evaluate only supports annual or quarterly mode.",
             )
         args.extend(["--mode", req.mode])
+
+    if req.command in {"evaluate", "pos-evaluation"}:
+        args.append(
+            "--include-continuous" if req.include_continuous else "--no-include-continuous"
+        )
 
     if req.command == "replay-evaluation":
         report_files = [
@@ -640,6 +652,7 @@ def get_options() -> dict[str, object]:
         "defaults": {
             "command": "evaluate",
             "mode": "annual",
+            "include_continuous": _resolve_include_continuous_default(raw_config),
             "override_strategies": False,
             "entry_strategies": [production_entry] if production_entry else [],
             "exit_strategies": [production_exit] if production_exit else [],

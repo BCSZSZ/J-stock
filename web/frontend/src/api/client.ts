@@ -418,6 +418,7 @@ export const api = {
       defaults: {
         command: string;
         mode: string;
+        include_continuous: boolean;
         override_strategies: boolean;
         buy_fill_mode: string;
         buy_fill_modes?: string[];

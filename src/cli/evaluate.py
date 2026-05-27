@@ -416,6 +416,13 @@ def _build_segmented_continuous_periods(args, periods: List[Tuple[str, str, str]
     return [(label, start_date, end_date)]
 
 
+def _resolve_include_continuous(args, eval_cfg: Dict[str, Any]) -> bool:
+    cli_value = getattr(args, "include_continuous", None)
+    if cli_value is not None:
+        return bool(cli_value)
+    return bool(eval_cfg.get("include_continuous", False))
+
+
 def _sanitize_name(name: str) -> str:
     return "".join(ch if (ch.isalnum() or ch in ["-", "_"]) else "_" for ch in name)
 
@@ -3017,6 +3024,16 @@ def _run_context_bundle(
         return None
 
     bundle = EvaluationOutputBundle(segmented=segmented_files)
+    eval_cfg = config.get("evaluation", {})
+    if not _resolve_include_continuous(args, eval_cfg):
+        bundle.final_report = _write_localized_final_review_report(
+            args=args,
+            output_dir=output_dir,
+            prefix=prefix,
+            bundle=bundle,
+        )
+        return bundle
+
     continuous_periods = _build_segmented_continuous_periods(args, periods)
     if not continuous_periods:
         bundle.final_report = _write_localized_final_review_report(

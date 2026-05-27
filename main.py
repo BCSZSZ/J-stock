@@ -140,6 +140,15 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         help='自定义时间段（JSON格式）: [["2021-Q1","2021-01-01","2021-03-31"], ...]',
     )
     parser.add_argument(
+        "--include-continuous",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "是否追加一个覆盖全部分段区间的continuous companion run；"
+            "默认读取evaluation.include_continuous，缺省关闭"
+        ),
+    )
+    parser.add_argument(
         "--launch-date",
         nargs="+",
         type=str,

@@ -42,6 +42,72 @@ def test_build_annual_continuous_periods_returns_full_span_for_multi_year_mode()
     ]
 
 
+def test_resolve_include_continuous_uses_cli_then_config_default() -> None:
+    assert (
+        evaluate_cli._resolve_include_continuous(
+            SimpleNamespace(include_continuous=None),
+            {"include_continuous": False},
+        )
+        is False
+    )
+    assert (
+        evaluate_cli._resolve_include_continuous(
+            SimpleNamespace(include_continuous=None),
+            {"include_continuous": True},
+        )
+        is True
+    )
+    assert (
+        evaluate_cli._resolve_include_continuous(
+            SimpleNamespace(include_continuous=False),
+            {"include_continuous": True},
+        )
+        is False
+    )
+
+
+def test_run_context_bundle_skips_continuous_when_disabled(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[str, list[tuple[str, str, str]]]] = []
+
+    def fake_run_once(**kwargs):
+        calls.append((kwargs["prefix"], list(kwargs["periods"])))
+        return {"raw": str(tmp_path / f"{kwargs['prefix']}_raw.csv")}
+
+    monkeypatch.setattr(evaluate_cli, "_run_once", fake_run_once)
+    monkeypatch.setattr(
+        evaluate_cli,
+        "_write_localized_final_review_report",
+        lambda **kwargs: str(tmp_path / "final_review.md"),
+    )
+    monkeypatch.setattr(
+        evaluate_cli,
+        "_write_annual_continuous_stability_rank",
+        lambda **kwargs: {"continuous_stability_rank": str(tmp_path / "rank.csv")},
+    )
+
+    args = SimpleNamespace(mode="annual", years=[2021, 2022], include_continuous=False)
+    periods = [
+        ("2021", "2021-01-01", "2021-12-31"),
+        ("2022", "2022-01-01", "2022-12-31"),
+    ]
+
+    bundle = evaluate_cli._run_context_bundle(
+        args=args,
+        config={"evaluation": {"include_continuous": True}},
+        periods=periods,
+        entry_filter_variants=[("off", {})],
+        output_dir=str(tmp_path),
+        prefix="strategy_evaluation",
+        ranking_mode="prs_train",
+    )
+
+    assert bundle is not None
+    assert calls == [("strategy_evaluation", periods)]
+    assert bundle.continuous is None
+    assert bundle.annual_companion is None
+    assert bundle.final_report == str(tmp_path / "final_review.md")
+
+
 def test_annual_continuous_stability_rank_prefers_continuous_then_stability():
     segmented_df = pd.DataFrame(
         [

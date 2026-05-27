@@ -92,6 +92,7 @@
     ],
     "exit_confirmation_days": 2,
     "capacity_regime_mode": "off",
+    "include_continuous": false,
     "filters": {
       "mode": "single",
       "default": {

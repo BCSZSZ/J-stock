@@ -88,6 +88,7 @@
     "default_exit_strategies": ["MVX_N9_R3p6_T1p7_D18_B20p0"],
     "exit_confirmation_days": 1,
     "capacity_regime_mode": "off",
+    "include_continuous": false,
     "filters": {
       "mode": "single",
       "default": {
