@@ -993,15 +993,15 @@ export default function Evaluation() {
                   <input
                     type="checkbox"
                     checked={verbose}
-              {supportsContinuousCompanion && (
-                <p className="mt-2 text-[11px] text-gray-500">
-                  Adds one full-span companion run after segmented annual or quarterly periods.
-                </p>
-              )}
                     onChange={(e) => setVerbose(e.target.checked)}
                   />
                   Verbose Output
                 </label>
+                {supportsContinuousCompanion && (
+                  <p className="mt-2 text-[11px] text-gray-500">
+                    Adds one full-span companion run after segmented annual or quarterly periods.
+                  </p>
+                )}
               </div>
             </div>
           </div>
