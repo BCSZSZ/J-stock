@@ -3,12 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import LogOutput from "../components/LogOutput";
 import { useStreamExec } from "../hooks/useStreamExec";
-import { api, type StockPoolOption } from "../api/client";
 import {
-  compareSignalsForDisplay,
-  getExecutionQuantity,
-  getNormalizedTradeAction,
-} from "../signalSemantics";
+  api,
+  type InputTradeImportPreviewResponse,
+  type StockPoolOption,
+} from "../api/client";
 import { useTickerNames } from "../hooks/useTickerNames";
 
 interface TradeRow {
@@ -36,6 +35,17 @@ interface ProductionOptionsResponse {
     atr_ratio_max: number | null;
   };
   stock_pools: StockPoolOption[];
+}
+
+interface ImportSummary {
+  signalDate: string;
+  tradeDate: string;
+  latestCsvFile: string | null;
+  latestCsvMtime: string | null;
+  matchedCount: number;
+  csvOnlyCount: number;
+  signalOnlyCount: number;
+  mode: string;
 }
 
 const emptyTrade = (): TradeRow => ({
@@ -74,6 +84,35 @@ function isPositionSizingMode(value: string): value is PositionSizingMode {
   return value === "fixed" || value === "atr";
 }
 
+function formatTradeNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return "";
+  }
+  return value.toFixed(6).replace(/\.?0+$/, "");
+}
+
+function previewToTradeRows(preview: InputTradeImportPreviewResponse): TradeRow[] {
+  return preview.rows.map((row) => ({
+    ticker: row.ticker,
+    action: row.action === "SELL" ? "SELL" : "BUY",
+    quantity: String(row.quantity),
+    price: formatTradeNumber(row.price),
+    date: row.date,
+  }));
+}
+
+function formatImportMode(mode: string): string {
+  return mode === "csv_authoritative" ? "CSV authoritative" : "Signal fallback";
+}
+
+function formatImportFileLabel(path: string | null): string {
+  if (!path) {
+    return "No CSV file";
+  }
+  const segments = path.split(/[\\/]/);
+  return segments[segments.length - 1] || path;
+}
+
 export default function Production() {
   const daily = useStreamExec();
   const fetchData = useStreamExec();
@@ -89,6 +128,10 @@ export default function Production() {
   const [atrStopMultiple, setAtrStopMultiple] = useState("2.0");
   const [atrRatioMin, setAtrRatioMin] = useState("0.015");
   const [atrRatioMax, setAtrRatioMax] = useState("0.030");
+  const [importingTrades, setImportingTrades] = useState(false);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const names = useTickerNames();
   const options = useQuery<ProductionOptionsResponse>({
     queryKey: ["production-options"],
@@ -165,50 +208,34 @@ export default function Production() {
     setImportDate(signalDates.data[0]);
   }
 
-  /** Get the next JPX trading day after a given date (via backend API). */
-  async function fetchNextTradingDay(dateStr: string): Promise<string> {
-    try {
-      const res = await api.nextTradingDay(dateStr);
-      return res.date;
-    } catch {
-      // Fallback: skip weekends only
-      const d = new Date(dateStr + "T00:00:00");
-      do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
-      return d.toISOString().slice(0, 10);
-    }
-  }
-
   async function handleImportFromSignals() {
-    if (!effectiveImportDate) return;
-    const [signals, tradeDate] = await Promise.all([
-      api.signals(effectiveImportDate),
-      fetchNextTradingDay(effectiveImportDate),
-    ]);
-    const newRows: TradeRow[] = [...signals]
-      .sort(compareSignalsForDisplay)
-      .map((s) => {
-        const action = getNormalizedTradeAction(s);
-        const qtyNum = getExecutionQuantity(s);
-        if (action === null) {
-          return null;
-        }
-        return {
-          ticker: String(s.ticker ?? ""),
-          action,
-          quantity: qtyNum > 0 ? String(qtyNum) : "",
-          price: "",
-          date: tradeDate,
-          _qtyNum: qtyNum,
-        } as TradeRow & { _qtyNum: number };
-      })
-      .filter((row): row is TradeRow & { _qtyNum: number } => row !== null)
-      // Only import actually-executable trades (qty > 0). Skip rows like
-      // "max positions reached" BUYs or HOLD-recommended SELLs which the
-      // backend report records with qty=0.
-      .filter((r) => (r as TradeRow & { _qtyNum: number })._qtyNum > 0)
-      .map(({ _qtyNum, ...rest }: any) => rest as TradeRow);
-    if (newRows.length === 0) return;
-    setTrades(newRows);
+    if (!effectiveImportDate || importingTrades) return;
+    setImportingTrades(true);
+    setImportError(null);
+    try {
+      const preview = await api.inputTradeImportPreview(effectiveImportDate);
+      const newRows = previewToTradeRows(preview);
+      setTrades(
+        newRows.length > 0
+          ? newRows
+          : [{ ...emptyTrade(), date: preview.trade_date }],
+      );
+      setImportWarnings(preview.warnings);
+      setImportSummary({
+        signalDate: preview.signal_date,
+        tradeDate: preview.trade_date,
+        latestCsvFile: preview.latest_csv_file,
+        latestCsvMtime: preview.latest_csv_mtime,
+        matchedCount: preview.matched_count,
+        csvOnlyCount: preview.csv_only_count,
+        signalOnlyCount: preview.signal_only_count,
+        mode: preview.mode,
+      });
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImportingTrades(false);
+    }
   }
 
   async function handleDaily(noFetch: boolean) {
@@ -486,12 +513,44 @@ export default function Production() {
           </select>
           <button
             onClick={handleImportFromSignals}
-            disabled={!effectiveImportDate}
+            disabled={!effectiveImportDate || importingTrades}
             className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 disabled:opacity-50 rounded text-xs"
           >
-            Import
+            {importingTrades ? "Importing..." : "Import"}
           </button>
         </div>
+        {importError ? (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            Failed to import trades: {importError}
+          </div>
+        ) : null}
+        {importSummary ? (
+          <div className="rounded-lg border border-gray-800 bg-gray-950/40 px-4 py-3 text-xs text-gray-300">
+            <div className="font-medium text-gray-100">Latest import summary</div>
+            <div className="mt-2 space-y-1">
+              <div>
+                Signal date {importSummary.signalDate}{" -> "}trade date {importSummary.tradeDate}
+              </div>
+              <div>
+                Mode: {formatImportMode(importSummary.mode)} | matched {importSummary.matchedCount} | csv-only {importSummary.csvOnlyCount} | signal-only {importSummary.signalOnlyCount}
+              </div>
+              <div className="break-all text-gray-400">
+                CSV: {formatImportFileLabel(importSummary.latestCsvFile)}
+                {importSummary.latestCsvMtime ? ` (${importSummary.latestCsvMtime})` : ""}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {importWarnings.length > 0 ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            <div className="font-medium">Imported with warnings</div>
+            <ul className="mt-2 space-y-1 text-xs text-amber-100/80">
+              {importWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <table className="w-full text-sm">
           <thead>
             <tr className="text-gray-500 text-left border-b border-gray-800">

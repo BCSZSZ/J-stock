@@ -7,21 +7,36 @@ import json
 import subprocess
 import sys
 import threading
+from datetime import date, timedelta
 from pathlib import Path
 from queue import Queue, Empty
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from src.aws.jpx_holidays import next_trading_day as _next_trading_day
+from src.cli.production_utils import find_latest_signal_file, parse_signal_payload
+from src.production.input_trade_import_preview import (
+    AggregatedSbiTrade,
+    aggregate_sbi_trades_for_date,
+    find_latest_sbi_history_csv,
+    format_sbi_history_mtime,
+    parse_sbi_trade_history_csv,
+)
 from web.api.dependencies import get_config_manager, get_production_config, get_project_root
 from web.api.schemas import (
+    InputTradeRequest,
+    InputTradeImportPreviewResponse,
+    InputTradeImportPreviewRow,
     ProductionDailyRequest,
     SetCashRequest,
-    InputTradeRequest,
 )
 
 router = APIRouter(prefix="/api/production", tags=["production"])
+
+TradeAction = Literal["BUY", "SELL"]
 
 
 def _append_atr_runtime_flags(args: list[str], req: ProductionDailyRequest) -> None:
@@ -57,6 +72,214 @@ def _resolve_production_atr_defaults(cfg) -> dict[str, object]:
         "atr_ratio_min": entry_filter.get("atr_price_min"),
         "atr_ratio_max": entry_filter.get("atr_price_max"),
     }
+
+
+def _resolve_import_trade_date(signal_date: str) -> str:
+    signal_day = date.fromisoformat(signal_date)
+    return _next_trading_day(signal_day + timedelta(days=1)).isoformat()
+
+
+def _signal_int(value: object) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(float(str(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _signal_trade_action(signal: dict[str, object]) -> TradeAction | None:
+    signal_type = str(signal.get("signal_type", "") or "").upper()
+    executable_sell = signal.get("is_executable_sell")
+    if isinstance(executable_sell, bool):
+        if executable_sell:
+            return "SELL"
+    elif signal_type == "SELL" and _signal_int(signal.get("planned_sell_qty")) > 0:
+        return "SELL"
+
+    executable_buy = signal.get("is_executable_buy")
+    if isinstance(executable_buy, bool):
+        if executable_buy:
+            return "BUY"
+    elif signal_type == "BUY" and _signal_int(signal.get("suggested_qty")) > 0:
+        return "BUY"
+
+    return None
+
+
+def _signal_trade_quantity(signal: dict[str, object]) -> int:
+    action = _signal_trade_action(signal)
+    if action == "SELL":
+        return _signal_int(signal.get("planned_sell_qty"))
+    if action == "BUY":
+        return _signal_int(signal.get("suggested_qty"))
+    return 0
+
+
+def _build_signal_preview_rows(
+    signals: list[dict[str, object]],
+    trade_date: str,
+) -> list[InputTradeImportPreviewRow]:
+    rows: list[InputTradeImportPreviewRow] = []
+    for signal in signals:
+        ticker = str(signal.get("ticker", "") or "").strip()
+        action = _signal_trade_action(signal)
+        quantity = _signal_trade_quantity(signal)
+        if not ticker or action is None or quantity <= 0:
+            continue
+        rows.append(
+            InputTradeImportPreviewRow(
+                ticker=ticker,
+                action=action,
+                quantity=quantity,
+                price=None,
+                date=trade_date,
+                source="signal",
+                fill_count=None,
+            )
+        )
+    return sorted(rows, key=lambda row: (0 if row.action == "SELL" else 1, row.ticker))
+
+
+def _build_broker_preview_row(trade: AggregatedSbiTrade) -> InputTradeImportPreviewRow:
+    return InputTradeImportPreviewRow(
+        ticker=trade.ticker,
+        action=trade.action,
+        quantity=trade.quantity,
+        price=trade.price,
+        date=trade.trade_date,
+        source="sbi_csv",
+        fill_count=trade.fill_count,
+    )
+
+
+def _append_warning_once(warnings: list[str], message: str) -> None:
+    if message not in warnings:
+        warnings.append(message)
+
+
+@router.get("/input-trades/import-preview", response_model=InputTradeImportPreviewResponse)
+def input_trade_import_preview(
+    signal_date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> InputTradeImportPreviewResponse:
+    cfg = get_production_config()
+    signal_path = find_latest_signal_file(cfg.signal_file_pattern, signal_date)
+    if not signal_path:
+        raise HTTPException(status_code=404, detail=f"Signal file not found for {signal_date}")
+
+    trade_date = _resolve_import_trade_date(signal_date)
+    signals = parse_signal_payload(signal_path)
+    signal_rows = _build_signal_preview_rows(signals, trade_date)
+    warnings: list[str] = []
+    if not signal_rows:
+        _append_warning_once(
+            warnings,
+            f"No executable signal rows found for {signal_date}.",
+        )
+
+    latest_csv_path = find_latest_sbi_history_csv(getattr(cfg, "sbi_history_dir", None))
+    latest_csv_mtime = format_sbi_history_mtime(latest_csv_path)
+    broker_rows: list[AggregatedSbiTrade] = []
+
+    if latest_csv_path is None:
+        _append_warning_once(
+            warnings,
+            "No SBI history CSV files were found; kept signal-derived rows.",
+        )
+    else:
+        try:
+            broker_records = parse_sbi_trade_history_csv(latest_csv_path)
+            broker_rows = aggregate_sbi_trades_for_date(broker_records, trade_date)
+        except (OSError, UnicodeError, ValueError) as exc:
+            _append_warning_once(
+                warnings,
+                f"Failed to read latest SBI CSV {latest_csv_path.name}: {exc}. Kept signal-derived rows.",
+            )
+            broker_rows = []
+
+    if not broker_rows:
+        if latest_csv_path is not None:
+            _append_warning_once(
+                warnings,
+                f"No rows for trade date {trade_date} were found in latest SBI CSV {latest_csv_path.name}; kept signal-derived rows.",
+            )
+        return InputTradeImportPreviewResponse(
+            signal_date=signal_date,
+            trade_date=trade_date,
+            latest_csv_file=str(latest_csv_path) if latest_csv_path else None,
+            latest_csv_mtime=latest_csv_mtime,
+            rows=signal_rows,
+            warnings=warnings,
+            matched_count=0,
+            csv_only_count=0,
+            signal_only_count=0,
+            mode="signal_fallback",
+        )
+
+    broker_map = {(row.ticker, row.action): row for row in broker_rows}
+    signal_tickers = {row.ticker for row in signal_rows}
+    used_broker_keys: set[tuple[str, str]] = set()
+    final_rows: list[InputTradeImportPreviewRow] = []
+    matched_count = 0
+    csv_only_count = 0
+    signal_only_count = 0
+    action_mismatch_tickers: set[str] = set()
+
+    for signal_row in signal_rows:
+        key = (signal_row.ticker, signal_row.action)
+        broker_row = broker_map.get(key)
+        if broker_row is not None:
+            final_rows.append(_build_broker_preview_row(broker_row))
+            used_broker_keys.add(key)
+            matched_count += 1
+            if broker_row.quantity != signal_row.quantity:
+                _append_warning_once(
+                    warnings,
+                    f"{signal_row.ticker}: signal qty {signal_row.quantity} differs from SBI CSV qty {broker_row.quantity}; using CSV.",
+                )
+            continue
+
+        broker_same_ticker = [row for row in broker_rows if row.ticker == signal_row.ticker]
+        if broker_same_ticker:
+            if signal_row.ticker not in action_mismatch_tickers:
+                actual_actions = ", ".join(sorted({row.action for row in broker_same_ticker}))
+                _append_warning_once(
+                    warnings,
+                    f"{signal_row.ticker}: signal action {signal_row.action} differs from SBI CSV action {actual_actions}; using CSV.",
+                )
+                action_mismatch_tickers.add(signal_row.ticker)
+            continue
+
+        signal_only_count += 1
+        _append_warning_once(
+            warnings,
+            f"{signal_row.ticker}: signal row was not found in the latest SBI CSV and was excluded because CSV is authoritative.",
+        )
+
+    for broker_row in broker_rows:
+        key = (broker_row.ticker, broker_row.action)
+        if key in used_broker_keys:
+            continue
+        final_rows.append(_build_broker_preview_row(broker_row))
+        if broker_row.ticker not in signal_tickers:
+            csv_only_count += 1
+            _append_warning_once(
+                warnings,
+                f"{broker_row.ticker}: present in the latest SBI CSV but missing from signals; included because CSV is authoritative.",
+            )
+
+    return InputTradeImportPreviewResponse(
+        signal_date=signal_date,
+        trade_date=trade_date,
+        latest_csv_file=str(latest_csv_path) if latest_csv_path else None,
+        latest_csv_mtime=latest_csv_mtime,
+        rows=final_rows,
+        warnings=warnings,
+        matched_count=matched_count,
+        csv_only_count=csv_only_count,
+        signal_only_count=signal_only_count,
+        mode="csv_authoritative",
+    )
 
 
 async def _run_cli_streaming(args: list[str]) -> StreamingResponse:

@@ -31,6 +31,7 @@ class ProductionConfig:
     report_file_pattern: str
     history_file: str
     cash_history_file: str
+    sbi_history_dir: str | None
 
     # Position management
     max_positions_per_group: int
@@ -92,6 +93,7 @@ class ConfigManager:
         "report_file_pattern": "output/reports/{date}.md",
         "history_file": "output/state/trade_history.json",
         "cash_history_file": "output/state/cash_history.json",
+        "sbi_history_dir": "G:/My Drive/AI-Stock-Sync/historySBI",
         "fetch_universe_file": "output/state/fetch_universe.json",
         "sector_pool_file": "G:/My Drive/AI-Stock-Sync/universe/sector_pool",
         "buy_threshold": 65.0,
@@ -209,6 +211,14 @@ class ConfigManager:
         cash_history_file = self._ensure_path_ready(cash_history_file_raw)
         signal_pattern = self._ensure_path_ready(signal_pattern_raw, is_pattern=True)
         report_pattern = self._ensure_path_ready(report_pattern_raw, is_pattern=True)
+        sbi_history_dir_raw = prod_cfg.get(
+            "sbi_history_dir", self.DEFAULTS["sbi_history_dir"]
+        )
+        sbi_history_dir = (
+            self._ensure_gdrive_dir_ready(sbi_history_dir_raw)
+            if sbi_history_dir_raw
+            else None
+        )
 
         monitor_list_file_raw = prod_cfg.get(
             "monitor_list_file", data_cfg.get("monitor_list_file")
@@ -245,6 +255,7 @@ class ConfigManager:
             report_file_pattern=report_pattern,
             history_file=history_file,
             cash_history_file=cash_history_file,
+            sbi_history_dir=sbi_history_dir,
             # Position management
             max_positions_per_group=position_sizing.max_positions,
             max_position_pct=position_sizing.max_position_pct,

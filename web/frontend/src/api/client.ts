@@ -173,6 +173,29 @@ export type StockPoolOption = {
   catalog_file?: string | null;
 };
 
+export type InputTradeImportPreviewRow = {
+  ticker: string;
+  action: string;
+  quantity: number;
+  price: number | null;
+  date: string;
+  source: string;
+  fill_count: number | null;
+};
+
+export type InputTradeImportPreviewResponse = {
+  signal_date: string;
+  trade_date: string;
+  latest_csv_file: string | null;
+  latest_csv_mtime: string | null;
+  rows: InputTradeImportPreviewRow[];
+  warnings: string[];
+  matched_count: number;
+  csv_only_count: number;
+  signal_only_count: number;
+  mode: string;
+};
+
 export type MvxExitFamily = "MVX" | "MVXW" | "MVXWL";
 
 export type MvxExitStrategyResolveRequest = {
@@ -362,6 +385,10 @@ export const api = {
       };
       stock_pools: StockPoolOption[];
     }>("/production/options"),
+  inputTradeImportPreview: (signalDate: string) =>
+    request<InputTradeImportPreviewResponse>(
+      `/production/input-trades/import-preview?${new URLSearchParams({ signal_date: signalDate }).toString()}`,
+    ),
 
   // Evaluation
   evalOptions: () =>

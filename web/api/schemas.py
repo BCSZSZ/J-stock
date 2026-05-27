@@ -312,3 +312,26 @@ class InputTradeRequest(BaseModel):
     trades: list[TradeEvent]
     confirm: bool = False
     aws_profile: str | None = None
+
+
+class InputTradeImportPreviewRow(BaseModel):
+    ticker: str
+    action: str
+    quantity: int
+    price: float | None = None
+    date: str
+    source: str
+    fill_count: int | None = None
+
+
+class InputTradeImportPreviewResponse(BaseModel):
+    signal_date: str
+    trade_date: str
+    latest_csv_file: str | None = None
+    latest_csv_mtime: str | None = None
+    rows: list[InputTradeImportPreviewRow]
+    warnings: list[str]
+    matched_count: int = 0
+    csv_only_count: int = 0
+    signal_only_count: int = 0
+    mode: str

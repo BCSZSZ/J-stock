@@ -165,6 +165,7 @@
     "report_file_pattern": "output/reports/{date}.md",
     "history_file": "output/state/trade_history.json",
     "cash_history_file": "output/state/cash_history.json",
+    "sbi_history_dir": "G:/My Drive/AI-Stock-Sync/historySBI",
     "max_positions_per_group": 8,
     "max_position_pct": 0.18,
     "position_sizing_mode": "atr",
