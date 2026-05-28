@@ -248,11 +248,46 @@ def _apply_signal_semantic_metadata(signals: List) -> List:
     ]
 
 
-def _coerce_positive_float(value: Optional[float]) -> Optional[float]:
-    if value is None or pd.isna(value):
+def _coerce_non_negative_int(value: object) -> int:
+    if value is None:
+        return 0
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _count_positive_rank_scores(signals: List) -> int:
+    positive_count = 0
+    for signal in signals:
+        rank_score = getattr(signal, "rank_score", None)
+        if rank_score is None or pd.isna(rank_score):
+            continue
+        try:
+            if float(rank_score) > 0:
+                positive_count += 1
+        except (TypeError, ValueError):
+            continue
+    return positive_count
+
+
+def _resolve_tail_guard_rank_limit(
+    raw_config: Dict[str, object],
+    positive_rank_score_count: int,
+) -> Optional[int]:
+    production_cfg = raw_config.get("production", {})
+    if not isinstance(production_cfg, dict):
         return None
-    numeric_value = float(value)
-    return numeric_value if numeric_value > 0 else None
+
+    tail_guard_cfg = production_cfg.get("tail_guard", {})
+    if not isinstance(tail_guard_cfg, dict):
+        return None
+    if not bool(tail_guard_cfg.get("enabled", False)):
+        return None
+
+    base_rank_limit = _coerce_non_negative_int(tail_guard_cfg.get("max_rank"))
+    effective_limit = max(base_rank_limit, max(int(positive_rank_score_count), 0))
+    return effective_limit if effective_limit > 0 else None
 
 
 def _round_order_price(value: float) -> float:
@@ -1577,10 +1612,30 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         new_positions_opened = 0
 
         group_buys = [s for s in buy_signals_all if s.group_id == group_id]
+        positive_momentum_count = _count_positive_rank_scores(group_buys)
+        tail_guard_rank_limit = _resolve_tail_guard_rank_limit(
+            raw_config=raw_config,
+            positive_rank_score_count=positive_momentum_count,
+        )
+        if tail_guard_rank_limit is not None:
+            print(
+                f"  Tail guard ({group_id}): rank <= {tail_guard_rank_limit} "
+                f"(positive momentum: {positive_momentum_count})"
+            )
 
         for sig in group_buys:
             if capacity_snapshot is not None:
                 _apply_capacity_fields(sig, capacity_snapshot, None)
+
+            if (
+                tail_guard_rank_limit is not None
+                and sig.rank is not None
+                and sig.rank > tail_guard_rank_limit
+            ):
+                sig.reason = (
+                    f"{sig.reason}; Skipped: tail guard rank ({sig.rank}) > {tail_guard_rank_limit}"
+                )
+                continue
 
             if position_sizing_mode != "atr":
                 execution_max_positions = int(prod_cfg.max_positions_per_group)

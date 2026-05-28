@@ -148,6 +148,10 @@
     "capacity_regime_mode": "enforce",
     "buy_threshold": 65,
     "signal_ranking_strategy": "momentum",
+    "tail_guard": {
+      "enabled": true,
+      "max_rank": 12
+    },
     "strategy_groups": [
       {
         "id": "group_main",
