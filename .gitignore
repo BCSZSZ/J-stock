@@ -64,6 +64,7 @@ htmlcov/
 # Backtest outputs (should NOT be in git)
 backtest_results/
 output/
+tmp/
 portfolio_backtest_results/
 backtest_debug.txt
 backtest_results_*.csv

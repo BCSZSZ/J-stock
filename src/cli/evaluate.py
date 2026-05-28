@@ -343,6 +343,9 @@ def _apply_launch_date_clip(
         for label, start, end in periods:
             start_dt = datetime.strptime(start, "%Y-%m-%d").date()
             end_dt = datetime.strptime(end, "%Y-%m-%d").date()
+            if multi_launch_mode and launch_dt < start_dt:
+                skipped += 1
+                continue
             if launch_dt > end_dt:
                 skipped += 1
                 continue
