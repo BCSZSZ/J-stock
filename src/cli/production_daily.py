@@ -290,6 +290,17 @@ def _resolve_tail_guard_rank_limit(
     return effective_limit if effective_limit > 0 else None
 
 
+def _coerce_positive_float(value: object) -> Optional[float]:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
 def _round_order_price(value: float) -> float:
     return round(max(float(value), 1.0), 2)
 
@@ -1450,7 +1461,15 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         projected_position_count -= 1
                     sell_count += 1
                     total_sell_signals += 1
-            except Exception:
+            except Exception as exc:
+                print(
+                    "      [WARN] Exit signal build failed for "
+                    f"{group.id}:{ticker} ({type(exc).__name__}: {exc})"
+                )
+                if getattr(args, "verbose", False):
+                    import traceback
+
+                    traceback.print_exc()
                 continue
 
         # Step 2) Build ALL BUY signals (no position-limit break).
