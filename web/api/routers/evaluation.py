@@ -301,15 +301,15 @@ def _append_atr_runtime_flags(args: list[str], req: EvaluationRunRequest) -> Non
         args.extend(["--atr-ratio-max", "none"])
 
 
-def _resolve_atr_runtime_defaults(raw_config: dict[str, object]) -> dict[str, object]:
-    sizing = parse_portfolio_sizing_config(raw_config.get("portfolio", {}))
-    default_filter = raw_config.get("evaluation", {}).get("filters", {}).get("default", {})
+def _resolve_atr_runtime_defaults(prod_cfg) -> dict[str, object]:
+    raw_config = getattr(prod_cfg, "raw_config", {}) or {}
+    default_filter = raw_config.get("production", {}).get("entry_filter")
     if not isinstance(default_filter, dict):
         default_filter = {}
     return {
-        "position_sizing_mode": sizing.mode,
-        "risk_per_trade_pct": sizing.atr.risk_per_trade_pct,
-        "atr_stop_multiple": sizing.atr.atr_stop_multiple,
+        "position_sizing_mode": str(getattr(prod_cfg, "position_sizing_mode", "fixed") or "fixed"),
+        "risk_per_trade_pct": float(getattr(prod_cfg.atr_position_sizing, "risk_per_trade_pct", 0.0078)),
+        "atr_stop_multiple": float(getattr(prod_cfg.atr_position_sizing, "atr_stop_multiple", 1.0)),
         "atr_ratio_min": default_filter.get("atr_price_min"),
         "atr_ratio_max": default_filter.get("atr_price_max"),
     }
@@ -625,7 +625,7 @@ def get_options() -> dict[str, object]:
     default_ranking_strategy = _resolve_production_ranking_strategy(raw_config)
     default_universe_file = getattr(prod_cfg, "monitor_list_file", None)
     stock_pools = [pool.to_api_dict() for pool in cm.list_stock_pools()]
-    atr_runtime_defaults = _resolve_atr_runtime_defaults(raw_config)
+    atr_runtime_defaults = _resolve_atr_runtime_defaults(prod_cfg)
     return {
         "commands": COMMANDS,
         "entry_strategies": strategies.get("entry", []),

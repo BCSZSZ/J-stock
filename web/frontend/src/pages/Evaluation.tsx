@@ -330,10 +330,10 @@ export default function Evaluation() {
     useState<CapacityRegimeMode>("off");
   const [positionSizingMode, setPositionSizingMode] =
     useState<PositionSizingMode>("fixed");
-  const [riskPerTradePct, setRiskPerTradePct] = useState("0.006");
-  const [atrStopMultiple, setAtrStopMultiple] = useState("2.0");
-  const [atrRatioMin, setAtrRatioMin] = useState("0.015");
-  const [atrRatioMax, setAtrRatioMax] = useState("0.030");
+  const [riskPerTradePct, setRiskPerTradePct] = useState("0.0078");
+  const [atrStopMultiple, setAtrStopMultiple] = useState("1.0");
+  const [atrRatioMin, setAtrRatioMin] = useState("");
+  const [atrRatioMax, setAtrRatioMax] = useState("");
   const [overrideProfileSizing, setOverrideProfileSizing] = useState(false);
   const [rankingMode, setRankingMode] = useState("prs_train");
   const [minTrainYears, setMinTrainYears] = useState("2");
@@ -554,8 +554,8 @@ export default function Evaluation() {
         ? defaults.position_sizing_mode
         : "fixed",
     );
-    setRiskPerTradePct(String(defaults.risk_per_trade_pct ?? 0.006));
-    setAtrStopMultiple(String(defaults.atr_stop_multiple ?? 2.0));
+    setRiskPerTradePct(String(defaults.risk_per_trade_pct ?? 0.0078));
+    setAtrStopMultiple(String(defaults.atr_stop_multiple ?? 1.0));
     setAtrRatioMin(
       defaults.atr_ratio_min !== null && defaults.atr_ratio_min !== undefined
         ? String(defaults.atr_ratio_min)

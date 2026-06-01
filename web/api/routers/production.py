@@ -62,13 +62,11 @@ def _resolve_production_atr_defaults(cfg) -> dict[str, object]:
     raw_config = getattr(cfg, "raw_config", {}) or {}
     entry_filter = raw_config.get("production", {}).get("entry_filter")
     if not isinstance(entry_filter, dict):
-        entry_filter = raw_config.get("evaluation", {}).get("filters", {}).get("default", {})
-    if not isinstance(entry_filter, dict):
         entry_filter = {}
     return {
         "position_sizing_mode": str(getattr(cfg, "position_sizing_mode", "fixed") or "fixed"),
-        "risk_per_trade_pct": float(getattr(cfg.atr_position_sizing, "risk_per_trade_pct", 0.006)),
-        "atr_stop_multiple": float(getattr(cfg.atr_position_sizing, "atr_stop_multiple", 2.0)),
+        "risk_per_trade_pct": float(getattr(cfg.atr_position_sizing, "risk_per_trade_pct", 0.0078)),
+        "atr_stop_multiple": float(getattr(cfg.atr_position_sizing, "atr_stop_multiple", 1.0)),
         "atr_ratio_min": entry_filter.get("atr_price_min"),
         "atr_ratio_max": entry_filter.get("atr_price_max"),
     }
