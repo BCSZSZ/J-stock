@@ -285,6 +285,37 @@ class EntryAnalysisAggregateRequest(BaseModel):
     min_samples: int = 1
 
 
+class EntrySignalAnalysisRunRequest(BaseModel):
+    entry_strategies: list[str] | None = None
+    universe_files: list[str] | None = None
+    start: str | None = None
+    end: str | None = None
+    years: list[int] | None = None
+    horizons: list[int] = Field(default_factory=lambda: [1, 3, 5])
+    primary_horizon: int = 5
+    label_mode: Literal["signal_close", "next_open"] = "next_open"
+    ranking_strategy: str | None = None
+    entry_filter_mode: Literal["auto", "off", "atr", "single", "grid"] = "auto"
+    entry_filter_names: list[str] | None = None
+    position_sizing_mode: Literal["fixed", "atr"] | None = None
+    risk_per_trade_pct: float | None = None
+    atr_stop_multiple: float | None = None
+    atr_ratio_min: float | None = None
+    atr_ratio_max: float | None = None
+    tail_guard_enabled: bool | None = None
+    tail_guard_max_rank: int | None = None
+    limit: int | None = None
+    data_root: str = "data"
+    output_dir: str | None = None
+
+    @model_validator(mode="after")
+    def validate_runtime_fields(self) -> "EntrySignalAnalysisRunRequest":
+        if self.position_sizing_mode != "fixed":
+            _validate_atr_sizing_runtime_fields(self)
+        _validate_atr_filter_runtime_fields(self)
+        return self
+
+
 class ProductionDailyRequest(BaseModel):
     no_fetch: bool = False
     pool_id: str | None = None

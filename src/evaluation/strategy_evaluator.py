@@ -668,6 +668,7 @@ class StrategyEvaluator:
         self._starting_capital_cache: Optional[int] = None
         self._capacity_mode_cache: Optional[str] = None
         self._capacity_regime_cache = None
+        self._tail_guard_config_cache: Optional[Dict[str, object]] = None
 
     def _build_seeded_positions(self, strategy_name: str):
         if self.replay_seed is None:
@@ -727,6 +728,24 @@ class StrategyEvaluator:
 
         self._starting_capital_cache = 8_000_000
         return self._starting_capital_cache
+
+    def _get_production_tail_guard_config(self) -> Dict[str, object]:
+        if self._tail_guard_config_cache is not None:
+            return self._tail_guard_config_cache
+
+        try:
+            config = load_config()
+            production_cfg = config.get("production", {})
+            if isinstance(production_cfg, dict):
+                tail_guard_cfg = production_cfg.get("tail_guard", {})
+                if isinstance(tail_guard_cfg, dict):
+                    self._tail_guard_config_cache = dict(tail_guard_cfg)
+                    return self._tail_guard_config_cache
+        except Exception:
+            pass
+
+        self._tail_guard_config_cache = {}
+        return self._tail_guard_config_cache
 
     def _get_capacity_regime_mode(self) -> str:
         if self.capacity_regime_mode_override is not None:
@@ -1274,6 +1293,7 @@ class StrategyEvaluator:
             fill_buffer_pct=self.fill_buffer_pct,
             initial_pending_buy_signals=initial_pending_buy_signals,
             initial_pending_sell_signals=initial_pending_sell_signals,
+            tail_guard_config=self._get_production_tail_guard_config(),
         )
         self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 

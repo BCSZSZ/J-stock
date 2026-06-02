@@ -28,6 +28,10 @@ from src.production.state_manager import build_state_as_of
 from src.utils.atr_position_sizing import normalize_position_sizing_mode
 from src.utils.atr_runtime_overrides import merge_entry_filter_runtime_bounds
 from src.utils.signal_sizing import extract_buy_size_multiplier
+from src.utils.tail_guard import (
+    count_positive_rank_scores as _shared_count_positive_rank_scores,
+    resolve_tail_guard_rank_limit as _shared_resolve_tail_guard_rank_limit,
+)
 
 
 @dataclass(frozen=True)
@@ -248,27 +252,8 @@ def _apply_signal_semantic_metadata(signals: List) -> List:
     ]
 
 
-def _coerce_non_negative_int(value: object) -> int:
-    if value is None:
-        return 0
-    try:
-        return max(int(value), 0)
-    except (TypeError, ValueError):
-        return 0
-
-
 def _count_positive_rank_scores(signals: List) -> int:
-    positive_count = 0
-    for signal in signals:
-        rank_score = getattr(signal, "rank_score", None)
-        if rank_score is None or pd.isna(rank_score):
-            continue
-        try:
-            if float(rank_score) > 0:
-                positive_count += 1
-        except (TypeError, ValueError):
-            continue
-    return positive_count
+    return _shared_count_positive_rank_scores(signals)
 
 
 def _resolve_tail_guard_rank_limit(
@@ -279,15 +264,10 @@ def _resolve_tail_guard_rank_limit(
     if not isinstance(production_cfg, dict):
         return None
 
-    tail_guard_cfg = production_cfg.get("tail_guard", {})
-    if not isinstance(tail_guard_cfg, dict):
-        return None
-    if not bool(tail_guard_cfg.get("enabled", False)):
-        return None
-
-    base_rank_limit = _coerce_non_negative_int(tail_guard_cfg.get("max_rank"))
-    effective_limit = max(base_rank_limit, max(int(positive_rank_score_count), 0))
-    return effective_limit if effective_limit > 0 else None
+    return _shared_resolve_tail_guard_rank_limit(
+        production_cfg.get("tail_guard"),
+        positive_rank_score_count=positive_rank_score_count,
+    )
 
 
 def _coerce_positive_float(value: object) -> Optional[float]:
@@ -300,6 +280,7 @@ def _coerce_positive_float(value: object) -> Optional[float]:
     if parsed <= 0:
         return None
     return parsed
+
 
 def _round_order_price(value: float) -> float:
     return round(max(float(value), 1.0), 2)

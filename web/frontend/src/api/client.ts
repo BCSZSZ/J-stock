@@ -161,6 +161,76 @@ export type EntryAnalysisAggregateResponse = {
   groups: Array<Record<string, unknown>>;
 };
 
+export type EntrySignalAnalysisOptions = {
+  entry_strategies: string[];
+  label_modes: string[];
+  entry_filter_modes: string[];
+  defaults: {
+    entry_strategies: string[];
+    universe_files: string[];
+    horizons: number[];
+    primary_horizon: number;
+    label_mode: string;
+    ranking_strategy: string;
+    entry_filter_mode: string;
+    entry_filter_names: string[];
+    position_sizing_mode: string;
+    risk_per_trade_pct: number;
+    atr_stop_multiple: number;
+    atr_ratio_min: number | null;
+    atr_ratio_max: number | null;
+    tail_guard_enabled: boolean;
+    tail_guard_max_rank: number;
+    data_root: string;
+    output_dir: string;
+  };
+};
+
+export type EntrySignalAnalysisRunRequest = {
+  entry_strategies?: string[];
+  universe_files?: string[];
+  start?: string;
+  end?: string;
+  years?: number[];
+  horizons: number[];
+  primary_horizon: number;
+  label_mode: "signal_close" | "next_open";
+  ranking_strategy?: string | null;
+  entry_filter_mode: "auto" | "off" | "atr" | "single" | "grid";
+  entry_filter_names?: string[];
+  position_sizing_mode?: "fixed" | "atr" | null;
+  risk_per_trade_pct?: number | null;
+  atr_stop_multiple?: number | null;
+  atr_ratio_min?: number | null;
+  atr_ratio_max?: number | null;
+  tail_guard_enabled?: boolean | null;
+  tail_guard_max_rank?: number | null;
+  limit?: number | null;
+  data_root: string;
+  output_dir?: string;
+};
+
+export type EntrySignalAnalysisDatasetSummary = {
+  id: string;
+  dataset_id: string;
+  generated_at: string;
+  candidate_count: number;
+  selected_count: number;
+  entry_strategies: string[];
+  start_date: string;
+  end_date: string;
+  horizons: number[];
+  label_mode: string;
+  ranking_strategy: string;
+  output_dir: string;
+};
+
+export type EntrySignalAnalysisDatasetDetail = {
+  id: string;
+  manifest: Record<string, unknown>;
+  summary: Record<string, unknown>;
+};
+
 export type StockPoolOption = {
   id: string;
   label: string;
@@ -499,6 +569,20 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       },
+    ),
+
+  entrySignalAnalysisOptions: () =>
+    request<EntrySignalAnalysisOptions>("/entry-signal-analysis/options"),
+  entrySignalAnalysisDatasets: (outputDir?: string) =>
+    request<EntrySignalAnalysisDatasetSummary[]>(
+      withOutputDir("/entry-signal-analysis/datasets", outputDir),
+    ),
+  entrySignalAnalysisDatasetSummary: (datasetId: string, outputDir?: string) =>
+    request<EntrySignalAnalysisDatasetDetail>(
+      withOutputDir(
+        `/entry-signal-analysis/datasets/${encodeDatasetId(datasetId)}/summary`,
+        outputDir,
+      ),
     ),
 
   // Strategies

@@ -33,6 +33,10 @@ from ..utils.atr_position_sizing import (
     calculate_atr_position_size,
 )
 from ..utils.signal_sizing import extract_buy_size_multiplier
+from ..utils.tail_guard import (
+    count_positive_priority_scores,
+    resolve_tail_guard_rank_limit,
+)
 from .fill_buffer import (
     apply_buy_fill_buffer,
     apply_sell_fill_buffer,
@@ -86,6 +90,7 @@ class PortfolioBacktestEngine:
         fill_buffer_pct: float = 0.02,
         entry_reference_mode: str = "raw_fill",
         position_sizing_config: Optional[PortfolioSizingConfig] = None,
+        tail_guard_config: Optional[Dict[str, object]] = None,
     ):
         """
         Args:
@@ -150,6 +155,7 @@ class PortfolioBacktestEngine:
         self.entry_reference_mode = normalize_entry_reference_mode(
             entry_reference_mode
         )
+        self.tail_guard_config = dict(tail_guard_config or {})
 
         # 创建信号排序器: 优先使用实例，否则按旧字符串方式
         if signal_ranker is not None:
@@ -493,6 +499,8 @@ class PortfolioBacktestEngine:
                         ranked_signals = self._order_preloaded_pending_buy_signals(
                             pending_buy_signals
                         )
+                        tail_guard_rank_limit = None
+                        positive_rank_score_count = 0
                     else:
                         if self.signal_ranker.requires_market_data():
                             market_data_dict = {
@@ -504,7 +512,7 @@ class PortfolioBacktestEngine:
                             market_data_dict = {}
 
                         if self.position_sizing_config.unlimited_positions:
-                            rank_top_k = max(1, len(pending_buy_signals))
+                            rank_top_k = None
                         else:
                             rank_top_k = max(
                                 1,
@@ -519,6 +527,17 @@ class PortfolioBacktestEngine:
                             pending_buy_signals,
                             market_data_dict,
                             top_k=rank_top_k,
+                        )
+                        (
+                            ranked_signals,
+                            tail_guard_rank_limit,
+                            positive_rank_score_count,
+                        ) = self._apply_tail_guard_to_ranked_signals(ranked_signals)
+
+                    if show_signal_ranking and tail_guard_rank_limit is not None:
+                        print(
+                            f"  Tail guard: rank <= {tail_guard_rank_limit} "
+                            f"(positive momentum: {positive_rank_score_count})"
                         )
 
                     # 依次尝试买入
@@ -1059,6 +1078,27 @@ class PortfolioBacktestEngine:
             ordered.append((ticker, signal, priority))
         ordered.sort(key=lambda item: item[2])
         return ordered
+
+    def _apply_tail_guard_to_ranked_signals(
+        self,
+        ranked_signals: List[tuple[str, TradingSignal, float]],
+    ) -> tuple[List[tuple[str, TradingSignal, float]], Optional[int], int]:
+        if not ranked_signals or not self.position_sizing_config.unlimited_positions:
+            return ranked_signals, None, 0
+
+        positive_rank_score_count = count_positive_priority_scores(ranked_signals)
+        tail_guard_rank_limit = resolve_tail_guard_rank_limit(
+            self.tail_guard_config,
+            positive_rank_score_count=positive_rank_score_count,
+        )
+        if tail_guard_rank_limit is None or len(ranked_signals) <= tail_guard_rank_limit:
+            return ranked_signals, tail_guard_rank_limit, positive_rank_score_count
+
+        return (
+            ranked_signals[:tail_guard_rank_limit],
+            tail_guard_rank_limit,
+            positive_rank_score_count,
+        )
 
     def _load_stock_data(
         self,

@@ -65,6 +65,12 @@ def _cmd_entry_analysis(args):
     return cmd_entry_analysis(args)
 
 
+def _cmd_entry_signal_analysis(args):
+    from src.cli.entry_signal_analysis import cmd_entry_signal_analysis
+
+    return cmd_entry_signal_analysis(args)
+
+
 def _add_fill_buffer_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--fill-buffer-enabled",
@@ -966,6 +972,96 @@ def build_parser() -> argparse.ArgumentParser:
         help="输出目录（默认: entry_analysis 或 config.entry_analysis.output_dir）",
     )
     entry_analysis_parser.set_defaults(func=_cmd_entry_analysis)
+
+    entry_signal_analysis_parser = subparsers.add_parser(
+        "entry-signal-analysis",
+        help="Production-style entry signal quality analysis without portfolio constraints",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--entry-strategies",
+        nargs="+",
+        help="入场策略列表（默认读取 production 主策略 entry）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--universe-file",
+        nargs="+",
+        default=None,
+        help="股票池文件路径（支持 json/csv/txt，可多个；默认读取 production monitor list）",
+    )
+    entry_signal_analysis_parser.add_argument("--start", help="开始日期 YYYY-MM-DD")
+    entry_signal_analysis_parser.add_argument("--end", help="结束日期 YYYY-MM-DD")
+    entry_signal_analysis_parser.add_argument(
+        "--years",
+        nargs="+",
+        type=int,
+        help="年份列表；指定后覆盖 --start/--end，例如 2024 2025",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--horizons",
+        nargs="+",
+        type=int,
+        default=[1, 3, 5],
+        help="前向收益交易日窗口（默认: 1 3 5）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--primary-horizon",
+        type=int,
+        default=5,
+        help="报告排序主窗口（默认: 5）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--label-mode",
+        choices=["signal_close", "next_open"],
+        default="next_open",
+        help="前向收益标签起点：signal_close 或 next_open（默认: next_open）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--ranking-strategy",
+        default=None,
+        help="信号排序策略（默认读取 production.signal_ranking_strategy，缺省 momentum）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--entry-filter-mode",
+        choices=["auto", "off", "atr", "single", "grid"],
+        default="auto",
+        help="入场过滤器模式；auto 优先使用 production.entry_filter",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--entry-filter-name",
+        nargs="+",
+        default=None,
+        help="指定 evaluation.filters.variants 中的过滤器名称",
+    )
+    _add_atr_runtime_override_arguments(entry_signal_analysis_parser)
+    entry_signal_analysis_parser.add_argument(
+        "--tail-guard-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="是否启用 daily tail guard（默认读取 production.tail_guard）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--tail-guard-max-rank",
+        type=int,
+        default=None,
+        help="覆盖 tail guard max_rank（默认读取 production.tail_guard.max_rank）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="仅扫描前 N 个 ticker（调试/冒烟用）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--data-root",
+        default="data",
+        help="数据根目录（默认: data）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="输出目录（默认: entry_signal_analysis 或 config.entry_signal_analysis.output_dir）",
+    )
+    entry_signal_analysis_parser.set_defaults(func=_cmd_entry_signal_analysis)
 
     pos_evaluate_parser = subparsers.add_parser(
         "pos-evaluation", help="仓位参数批量评价（读取evaluation-position.json）"
