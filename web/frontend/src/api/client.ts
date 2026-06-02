@@ -225,10 +225,70 @@ export type EntrySignalAnalysisDatasetSummary = {
   output_dir: string;
 };
 
+export type EntrySignalAnalysisHorizonStats = {
+  count?: number;
+  wins?: number;
+  losses?: number;
+  flats?: number;
+  win_rate?: number | null;
+  avg_return_pct?: number | null;
+  median_return_pct?: number | null;
+  mean_minus_median_pct?: number | null;
+  mean_gt_median?: boolean | null;
+  avg_loss_pct?: number | null;
+  p10_return_pct?: number | null;
+  p25_return_pct?: number | null;
+  p50_return_pct?: number | null;
+  p75_return_pct?: number | null;
+  p90_return_pct?: number | null;
+  avg_price_diff?: number | null;
+  [key: string]: unknown;
+};
+
+export type EntrySignalAnalysisPrimaryValidationSlice = {
+  group_key: string;
+  group_label: string;
+  stats: EntrySignalAnalysisHorizonStats;
+  strength_min?: number | null;
+  strength_max?: number | null;
+};
+
+export type EntrySignalAnalysisPrimaryHorizonValidation = {
+  primary_horizon: number;
+  primary_horizon_label: string;
+  primary_return_column: string;
+  signal_strength_metric?: string | null;
+  signal_strength_bucket_method?: string | null;
+  market_regime_source?: string | null;
+  market_regime_status?: string | null;
+  market_regime_definition?: string | null;
+  overall: EntrySignalAnalysisHorizonStats;
+  by_year: EntrySignalAnalysisPrimaryValidationSlice[];
+  by_month: EntrySignalAnalysisPrimaryValidationSlice[];
+  by_market_regime: EntrySignalAnalysisPrimaryValidationSlice[];
+  by_entry_filter: EntrySignalAnalysisPrimaryValidationSlice[];
+  by_signal_strength_bucket: EntrySignalAnalysisPrimaryValidationSlice[];
+};
+
+export type EntrySignalAnalysisRunSummary = {
+  generated_at?: string;
+  candidate_count?: number;
+  selected_count?: number;
+  trading_day_count?: number;
+  strategy_count?: number;
+  effective_entry_filter_mode?: string | null;
+  effective_entry_filter_names?: string[];
+  overall?: Record<string, unknown>;
+  primary_horizon_validation?: EntrySignalAnalysisPrimaryHorizonValidation;
+  per_strategy?: Array<Record<string, unknown>>;
+  top_daily_windows?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+};
+
 export type EntrySignalAnalysisDatasetDetail = {
   id: string;
   manifest: Record<string, unknown>;
-  summary: Record<string, unknown>;
+  summary: EntrySignalAnalysisRunSummary;
 };
 
 export type StockPoolOption = {

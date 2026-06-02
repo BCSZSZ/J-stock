@@ -1046,6 +1046,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="覆盖 tail guard max_rank（默认读取 production.tail_guard.max_rank）",
     )
     entry_signal_analysis_parser.add_argument(
+        "--tail-guard-rank-limit-mode",
+        choices=["max", "min"],
+        default=None,
+        help="tail guard 合成方式：max=max(max_rank, 正分数数量)，min=min(max_rank, 正分数数量)",
+    )
+    entry_signal_analysis_parser.add_argument(
         "--limit",
         type=int,
         default=None,

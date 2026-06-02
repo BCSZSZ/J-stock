@@ -50,5 +50,12 @@ def resolve_tail_guard_rank_limit(
         return None
 
     base_rank_limit = coerce_non_negative_int(tail_guard_config.get("max_rank"))
-    effective_limit = max(base_rank_limit, max(int(positive_rank_score_count), 0))
+    positive_count = max(int(positive_rank_score_count), 0)
+    rank_limit_mode = str(tail_guard_config.get("rank_limit_mode", "max") or "max").strip().lower()
+
+    if rank_limit_mode == "min":
+        effective_limit = min(base_rank_limit, positive_count)
+        return effective_limit
+
+    effective_limit = max(base_rank_limit, positive_count)
     return effective_limit if effective_limit > 0 else None

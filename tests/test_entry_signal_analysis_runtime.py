@@ -30,6 +30,7 @@ def _args(**overrides):
         "atr_ratio_max": None,
         "tail_guard_enabled": None,
         "tail_guard_max_rank": None,
+        "tail_guard_rank_limit_mode": None,
         "limit": None,
         "data_root": "data",
         "output_dir": None,
@@ -122,6 +123,27 @@ def test_resolve_tail_guard_for_request_defaults_to_enabled_rank12(monkeypatch) 
     config = resolve_tail_guard_for_request(request)
 
     assert config == {"enabled": True, "max_rank": 12}
+
+
+def test_resolve_tail_guard_for_request_supports_min_mode_override(monkeypatch) -> None:
+    import src.entry_signal_analysis.runtime as runtime
+
+    monkeypatch.setattr(runtime, "load_runtime_config", lambda: {})
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["FakeEntry"],
+        tickers=["7203"],
+        start_date="2026-01-01",
+        end_date="2026-01-31",
+        horizons=[1, 3, 5],
+        tail_guard_max_rank=8,
+        tail_guard_rank_limit_mode="min",
+        output_dir="output/entry_signal_analysis_test",
+    )
+
+    config = resolve_tail_guard_for_request(request)
+
+    assert config == {"enabled": True, "max_rank": 8, "rank_limit_mode": "min"}
 
 
 def test_resolve_effective_entry_filter_for_request_uses_off_for_disabled_production_filter(monkeypatch) -> None:

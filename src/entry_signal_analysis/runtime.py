@@ -173,6 +173,7 @@ def resolve_tail_guard_config(
     raw_config: dict[str, Any],
     enabled_override: bool | None,
     max_rank_override: int | None,
+    rank_limit_mode_override: str | None,
 ) -> dict[str, Any] | None:
     production_cfg = raw_config.get("production", {}) if isinstance(raw_config, dict) else {}
     base = production_cfg.get("tail_guard")
@@ -188,6 +189,9 @@ def resolve_tail_guard_config(
 
     if "max_rank" not in config:
         config["max_rank"] = 12
+
+    if rank_limit_mode_override is not None:
+        config["rank_limit_mode"] = str(rank_limit_mode_override)
 
     return config
 
@@ -244,6 +248,7 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         atr_ratio_max=atr_ratio_max,
         tail_guard_enabled=getattr(args, "tail_guard_enabled", None),
         tail_guard_max_rank=getattr(args, "tail_guard_max_rank", None),
+        tail_guard_rank_limit_mode=getattr(args, "tail_guard_rank_limit_mode", None),
         data_root=str(getattr(args, "data_root", None) or "data"),
         output_dir=resolve_output_dir(args, raw_config),
     )
@@ -285,4 +290,5 @@ def resolve_tail_guard_for_request(
         raw_config,
         enabled_override=request.tail_guard_enabled,
         max_rank_override=request.tail_guard_max_rank,
+        rank_limit_mode_override=request.tail_guard_rank_limit_mode,
     )

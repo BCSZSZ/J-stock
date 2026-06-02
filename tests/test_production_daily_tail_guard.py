@@ -54,6 +54,26 @@ def test_tail_guard_rank_limit_uses_base_rank_when_positive_rank_count_is_smalle
     )
 
 
+def test_tail_guard_rank_limit_supports_min_mode() -> None:
+    raw_config = {
+        "production": {
+            "tail_guard": {
+                "enabled": True,
+                "max_rank": 12,
+                "rank_limit_mode": "min",
+            }
+        }
+    }
+
+    assert (
+        _resolve_tail_guard_rank_limit(
+            raw_config=raw_config,
+            positive_rank_score_count=4,
+        )
+        == 4
+    )
+
+
 def test_count_positive_rank_scores_counts_only_strictly_positive_values() -> None:
     signals = [
         SimpleNamespace(rank_score=2.5),

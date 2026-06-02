@@ -5,9 +5,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.data.benchmark_manager import BenchmarkManager
 from src.entry_signal_analysis.models import (
     EntrySignalAnalysisArtifacts,
     EntrySignalAnalysisDatasetManifest,
+    EntrySignalAnalysisPrimaryGroupSummary,
+    EntrySignalAnalysisPrimaryStats,
     EntrySignalAnalysisRequest,
     EntrySignalAnalysisRunSummary,
 )
@@ -16,6 +19,7 @@ from src.entry_signal_analysis.scanner import scan_entry_signal_candidates
 from src.entry_signal_analysis.summary import (
     build_daily_summary,
     build_overall_summary,
+    build_primary_horizon_validation,
     build_strategy_summary,
     top_daily_windows,
 )
@@ -41,6 +45,60 @@ def _build_output_dir(request: EntrySignalAnalysisRequest, generated_at: datetim
     return Path(request.output_dir) / f"{generated_at:%Y%m%d}" / slug
 
 
+def _load_topix_benchmark_frame(data_root: str) -> pd.DataFrame | None:
+    manager = BenchmarkManager(client=None, data_root=data_root)
+    frame = manager.get_topix_data()
+    if frame is None or frame.empty:
+        return None
+    return frame.copy()
+
+
+def _format_percent(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.3f}%"
+
+
+def _format_ratio(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.2%}"
+
+
+def _format_primary_stats(stats: EntrySignalAnalysisPrimaryStats) -> str:
+    return (
+        f"count={stats.count}, win_rate={_format_ratio(stats.win_rate)}, "
+        f"avg_return={_format_percent(stats.avg_return_pct)}, "
+        f"median_return={_format_percent(stats.median_return_pct)}, "
+        f"mean_gt_median={'yes' if stats.mean_gt_median else 'no' if stats.mean_gt_median is not None else 'n/a'}, "
+        f"avg_loss={_format_percent(stats.avg_loss_pct)}, "
+        f"P10={_format_percent(stats.p10_return_pct)}, "
+        f"P25={_format_percent(stats.p25_return_pct)}, "
+        f"P50={_format_percent(stats.p50_return_pct)}, "
+        f"P75={_format_percent(stats.p75_return_pct)}, "
+        f"P90={_format_percent(stats.p90_return_pct)}"
+    )
+
+
+def _append_group_section(
+    lines: list[str],
+    title: str,
+    groups: list[EntrySignalAnalysisPrimaryGroupSummary],
+) -> None:
+    lines.extend(["", f"### {title}"])
+    if not groups:
+        lines.append("- none")
+        return
+
+    for item in groups:
+        suffix = ""
+        if item.strength_min is not None and item.strength_max is not None:
+            suffix = f" range=[{item.strength_min:.4f}, {item.strength_max:.4f}]"
+        lines.append(
+            f"- {item.group_label}: {_format_primary_stats(item.stats)}{suffix}"
+        )
+
+
 def _write_report(path: Path, summary: EntrySignalAnalysisRunSummary) -> None:
     lines = [
         "# Entry Signal Analysis Report",
@@ -61,6 +119,27 @@ def _write_report(path: Path, summary: EntrySignalAnalysisRunSummary) -> None:
             )
         else:
             lines.append(f"- {key}: {value}")
+
+    primary_validation = summary.primary_horizon_validation
+    lines.extend(
+        [
+            "",
+            "## Primary Horizon Validation",
+            f"- Primary Horizon: {primary_validation.primary_horizon_label}",
+            f"- Return Column: {primary_validation.primary_return_column}",
+            f"- Overall: {_format_primary_stats(primary_validation.overall)}",
+            f"- Signal Strength Metric: {primary_validation.signal_strength_metric or 'none'}",
+            f"- Signal Strength Buckets: {primary_validation.signal_strength_bucket_method or 'none'}",
+            f"- Market Regime Source: {primary_validation.market_regime_source or 'none'}",
+            f"- Market Regime Status: {primary_validation.market_regime_status}",
+            f"- Market Regime Definition: {primary_validation.market_regime_definition or 'n/a'}",
+        ]
+    )
+    _append_group_section(lines, "By Year", primary_validation.by_year)
+    _append_group_section(lines, "By Month", primary_validation.by_month)
+    _append_group_section(lines, "By Market Regime", primary_validation.by_market_regime)
+    _append_group_section(lines, "By Entry Filter", primary_validation.by_entry_filter)
+    _append_group_section(lines, "By Signal Strength Bucket", primary_validation.by_signal_strength_bucket)
 
     lines.extend(["", "## Top Daily Windows"])
     if summary.top_daily_windows:
@@ -96,6 +175,12 @@ def run_entry_signal_analysis(
     daily_summary = build_daily_summary(candidates, request.normalized_horizons)
     strategy_summary = build_strategy_summary(candidates, request.normalized_horizons)
     overall = build_overall_summary(candidates, request.normalized_horizons)
+    benchmark_frame = _load_topix_benchmark_frame(request.data_root)
+    primary_horizon_validation = build_primary_horizon_validation(
+        candidates,
+        request.primary_horizon,
+        benchmark_frame=benchmark_frame,
+    )
 
     output_dir = _build_output_dir(request, generated_at)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +218,7 @@ def run_entry_signal_analysis(
         effective_entry_filter_mode=effective_entry_filter_mode,
         effective_entry_filter_names=effective_entry_filter_names,
         overall=overall,
+        primary_horizon_validation=primary_horizon_validation,
         per_strategy=strategy_summary.where(pd.notna(strategy_summary), None).to_dict(orient="records") if not strategy_summary.empty else [],
         top_daily_windows=top_daily_windows(daily_summary, request.primary_horizon, limit=10),
         artifacts=artifacts,

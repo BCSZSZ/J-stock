@@ -4,7 +4,10 @@ import {
   api,
   type EntrySignalAnalysisDatasetDetail,
   type EntrySignalAnalysisDatasetSummary,
+  type EntrySignalAnalysisHorizonStats,
   type EntrySignalAnalysisOptions,
+  type EntrySignalAnalysisPrimaryHorizonValidation,
+  type EntrySignalAnalysisPrimaryValidationSlice,
   type EntrySignalAnalysisRunRequest,
 } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
@@ -46,6 +49,90 @@ function metricValue(
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function formatRate(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function formatPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  return `${value.toFixed(3)}%`;
+}
+
+function formatBooleanFlag(value: boolean | null | undefined): string {
+  if (typeof value !== "boolean") return "-";
+  return value ? "yes" : "no";
+}
+
+function metricFromUnknown(value: Record<string, unknown> | null): EntrySignalAnalysisHorizonStats | null {
+  if (!value) return null;
+  return value as EntrySignalAnalysisHorizonStats;
+}
+
+function sliceLabel(slice: EntrySignalAnalysisPrimaryValidationSlice): string {
+  if (
+    typeof slice.strength_min === "number" &&
+    Number.isFinite(slice.strength_min) &&
+    typeof slice.strength_max === "number" &&
+    Number.isFinite(slice.strength_max)
+  ) {
+    return `${slice.group_label} [${slice.strength_min.toFixed(2)}, ${slice.strength_max.toFixed(2)}]`;
+  }
+  return slice.group_label;
+}
+
+function ValidationTable({
+  title,
+  slices,
+}: {
+  title: string;
+  slices: EntrySignalAnalysisPrimaryValidationSlice[];
+}) {
+  return (
+    <div className={cardClassName}>
+      <label className={labelClassName}>{title}</label>
+      {slices.length === 0 ? (
+        <div className="text-sm text-gray-500">No validation rows.</div>
+      ) : (
+        <div className="max-h-[320px] overflow-auto rounded border border-gray-800">
+          <table className="min-w-full text-left text-xs text-gray-300">
+            <thead className="sticky top-0 bg-gray-950/95 text-gray-400">
+              <tr>
+                <th className="px-3 py-2">Group</th>
+                <th className="px-3 py-2 text-right">Count</th>
+                <th className="px-3 py-2 text-right">Win</th>
+                <th className="px-3 py-2 text-right">Mean</th>
+                <th className="px-3 py-2 text-right">Median</th>
+                <th className="px-3 py-2 text-right">Mean&gt;Median</th>
+                <th className="px-3 py-2 text-right">Avg Loss</th>
+                <th className="px-3 py-2 text-right">P10</th>
+                <th className="px-3 py-2 text-right">P50</th>
+                <th className="px-3 py-2 text-right">P90</th>
+              </tr>
+            </thead>
+            <tbody>
+              {slices.map((slice) => (
+                <tr key={slice.group_key} className="border-t border-gray-800 align-top">
+                  <td className="px-3 py-2 font-medium text-gray-200">{sliceLabel(slice)}</td>
+                  <td className="px-3 py-2 text-right">{String(slice.stats.count ?? "-")}</td>
+                  <td className="px-3 py-2 text-right">{formatRate(slice.stats.win_rate)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(slice.stats.avg_return_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(slice.stats.median_return_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatBooleanFlag(slice.stats.mean_gt_median)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(slice.stats.avg_loss_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(slice.stats.p10_return_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(slice.stats.p50_return_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(slice.stats.p90_return_pct)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function EntrySignalAnalysis() {
@@ -138,9 +225,13 @@ export default function EntrySignalAnalysis() {
       ? (value as Record<string, unknown>)
       : undefined;
   }, [summary]);
-  const oneDay = useMemo(() => metricValue(overall, "1d"), [overall]);
-  const threeDay = useMemo(() => metricValue(overall, "3d"), [overall]);
-  const fiveDay = useMemo(() => metricValue(overall, "5d"), [overall]);
+  const oneDay = useMemo(() => metricFromUnknown(metricValue(overall, "1d")), [overall]);
+  const threeDay = useMemo(() => metricFromUnknown(metricValue(overall, "3d")), [overall]);
+  const fiveDay = useMemo(() => metricFromUnknown(metricValue(overall, "5d")), [overall]);
+  const primaryValidation = useMemo(() => {
+    const value = summary?.primary_horizon_validation;
+    return value ?? null;
+  }, [summary]) as EntrySignalAnalysisPrimaryHorizonValidation | null;
 
   function handleRun() {
     const parsedYears = parseIntegerList(years);
@@ -398,21 +489,73 @@ export default function EntrySignalAnalysis() {
                 <div className={cardClassName}>
                   <label className={labelClassName}>1D</label>
                   <div className="space-y-1 text-sm text-gray-300">
-                    <div>win_rate: {String(oneDay?.win_rate ?? "-")}</div>
-                    <div>avg_return: {String(oneDay?.avg_return_pct ?? "-")}</div>
-                    <div>median_return: {String(oneDay?.median_return_pct ?? "-")}</div>
+                    <div>win_rate: {formatRate(oneDay?.win_rate)}</div>
+                    <div>avg_return: {formatPercent(oneDay?.avg_return_pct)}</div>
+                    <div>median_return: {formatPercent(oneDay?.median_return_pct)}</div>
                   </div>
                 </div>
                 <div className={cardClassName}>
                   <label className={labelClassName}>3D / 5D</label>
                   <div className="space-y-1 text-sm text-gray-300">
-                    <div>3D win_rate: {String(threeDay?.win_rate ?? "-")}</div>
-                    <div>3D avg_return: {String(threeDay?.avg_return_pct ?? "-")}</div>
-                    <div>5D win_rate: {String(fiveDay?.win_rate ?? "-")}</div>
-                    <div>5D avg_return: {String(fiveDay?.avg_return_pct ?? "-")}</div>
+                    <div>3D win_rate: {formatRate(threeDay?.win_rate)}</div>
+                    <div>3D avg_return: {formatPercent(threeDay?.avg_return_pct)}</div>
+                    <div>5D win_rate: {formatRate(fiveDay?.win_rate)}</div>
+                    <div>5D avg_return: {formatPercent(fiveDay?.avg_return_pct)}</div>
                   </div>
                 </div>
               </div>
+
+              {primaryValidation ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className={cardClassName}>
+                      <label className={labelClassName}>Primary Validation</label>
+                      <div className="space-y-1 text-sm text-gray-300">
+                        <div>primary: {primaryValidation.primary_horizon_label}</div>
+                        <div>count: {String(primaryValidation.overall.count ?? "-")}</div>
+                        <div>win_rate: {formatRate(primaryValidation.overall.win_rate)}</div>
+                        <div>mean: {formatPercent(primaryValidation.overall.avg_return_pct)}</div>
+                        <div>median: {formatPercent(primaryValidation.overall.median_return_pct)}</div>
+                        <div>mean &gt; median: {formatBooleanFlag(primaryValidation.overall.mean_gt_median)}</div>
+                      </div>
+                    </div>
+                    <div className={cardClassName}>
+                      <label className={labelClassName}>Primary Risk / Quantiles</label>
+                      <div className="space-y-1 text-sm text-gray-300">
+                        <div>avg_loss: {formatPercent(primaryValidation.overall.avg_loss_pct)}</div>
+                        <div>P10: {formatPercent(primaryValidation.overall.p10_return_pct)}</div>
+                        <div>P25: {formatPercent(primaryValidation.overall.p25_return_pct)}</div>
+                        <div>P50: {formatPercent(primaryValidation.overall.p50_return_pct)}</div>
+                        <div>P75: {formatPercent(primaryValidation.overall.p75_return_pct)}</div>
+                        <div>P90: {formatPercent(primaryValidation.overall.p90_return_pct)}</div>
+                      </div>
+                    </div>
+                    <div className={cardClassName}>
+                      <label className={labelClassName}>Regime / Strength Meta</label>
+                      <div className="space-y-1 text-sm text-gray-300">
+                        <div>strength_metric: {primaryValidation.signal_strength_metric ?? "-"}</div>
+                        <div>strength_buckets: {primaryValidation.signal_strength_bucket_method ?? "-"}</div>
+                        <div>regime_source: {primaryValidation.market_regime_source ?? "-"}</div>
+                        <div>regime_status: {primaryValidation.market_regime_status ?? "-"}</div>
+                        <div className="text-xs text-gray-500">{primaryValidation.market_regime_definition ?? "No market regime definition."}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4">
+                    <ValidationTable title="By Year" slices={primaryValidation.by_year ?? []} />
+                    <ValidationTable title="By Entry Filter" slices={primaryValidation.by_entry_filter ?? []} />
+                    <ValidationTable title="By Market Regime" slices={primaryValidation.by_market_regime ?? []} />
+                    <ValidationTable title="By Signal Strength Bucket" slices={primaryValidation.by_signal_strength_bucket ?? []} />
+                    <ValidationTable title="By Month" slices={primaryValidation.by_month ?? []} />
+                  </div>
+                </div>
+              ) : (
+                <div className={cardClassName}>
+                  <label className={labelClassName}>Primary Validation</label>
+                  <div className="text-sm text-gray-500">This dataset does not include primary-horizon validation yet.</div>
+                </div>
+              )}
 
               <div className={cardClassName}>
                 <label className={labelClassName}>Top Daily Windows</label>
