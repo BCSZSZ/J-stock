@@ -19,6 +19,7 @@ def _args(**overrides):
         "years": None,
         "horizons": [1, 3, 5],
         "primary_horizon": 5,
+        "primary_horizons": None,
         "label_mode": "next_open",
         "ranking_strategy": None,
         "entry_filter_mode": "auto",
@@ -72,6 +73,40 @@ def test_build_request_from_args_uses_production_defaults(monkeypatch) -> None:
     assert request.ranking_strategy == "momentum"
     assert request.risk_per_trade_pct == 0.0078
     assert request.atr_stop_multiple == 1.0
+    assert request.primary_horizons == [5]
+
+
+def test_build_request_from_args_supports_multiple_primary_horizons(monkeypatch) -> None:
+    import src.entry_signal_analysis.runtime as runtime
+
+    prod_cfg = SimpleNamespace(
+        strategy_groups=[{"entry_strategy": "ProdEntry"}],
+        default_entry_strategy="FallbackEntry",
+        monitor_list_file="data/production_monitor_list.json",
+        position_sizing_mode="atr",
+        atr_position_sizing=SimpleNamespace(
+            risk_per_trade_pct=0.0078,
+            atr_stop_multiple=1.0,
+        ),
+    )
+    config_mgr = SimpleNamespace(
+        raw_config={"production": {"signal_ranking_strategy": "momentum"}},
+        get_production_config=lambda: prod_cfg,
+    )
+
+    monkeypatch.setattr(runtime, "load_config_manager", lambda: config_mgr)
+    monkeypatch.setattr(runtime, "load_tickers", lambda universe_files, limit=None: ["7203"])
+
+    request = build_request_from_args(
+        _args(
+            horizons=[3, 5, 7, 9],
+            primary_horizons=[3, 5, 7, 9],
+            primary_horizon=5,
+        )
+    )
+
+    assert request.primary_horizons == [3, 5, 7, 9]
+    assert request.primary_horizon == 3
 
 
 def test_build_request_from_args_normalizes_unbounded_atr_ratio_strings(monkeypatch) -> None:

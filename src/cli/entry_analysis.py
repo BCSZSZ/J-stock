@@ -11,7 +11,7 @@ from src.entry_analysis.aggregation import build_preset_rules
 from src.entry_analysis.models import EntryAnalysisRequest, FeatureBucketRule
 from src.entry_analysis.paths import default_output_dir
 from src.entry_analysis.runner import run_entry_analysis
-from src.entry_analysis.signal_scanner import load_tickers_from_file
+from src.utils.universe_loader import load_tickers_from_file
 
 
 def _load_runtime_config() -> dict[str, Any]:

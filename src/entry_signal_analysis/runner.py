@@ -11,8 +11,10 @@ from src.entry_signal_analysis.models import (
     EntrySignalAnalysisDatasetManifest,
     EntrySignalAnalysisPrimaryGroupSummary,
     EntrySignalAnalysisPrimaryStats,
+    EntrySignalAnalysisPrimaryStrategyRiskRanking,
     EntrySignalAnalysisRequest,
     EntrySignalAnalysisRunSummary,
+    EntrySignalAnalysisTopDailyWindows,
 )
 from src.entry_signal_analysis.runtime import resolve_effective_entry_filter_for_request
 from src.entry_signal_analysis.scanner import scan_entry_signal_candidates
@@ -20,7 +22,9 @@ from src.entry_signal_analysis.summary import (
     build_daily_summary,
     build_overall_summary,
     build_primary_horizon_validation,
+    build_primary_horizon_validations,
     build_strategy_summary,
+    build_top_daily_windows_by_horizon,
     top_daily_windows,
 )
 
@@ -84,8 +88,9 @@ def _append_group_section(
     lines: list[str],
     title: str,
     groups: list[EntrySignalAnalysisPrimaryGroupSummary],
+    heading_level: int = 3,
 ) -> None:
-    lines.extend(["", f"### {title}"])
+    lines.extend(["", f"{'#' * heading_level} {title}"])
     if not groups:
         lines.append("- none")
         return
@@ -97,6 +102,118 @@ def _append_group_section(
         lines.append(
             f"- {item.group_label}: {_format_primary_stats(item.stats)}{suffix}"
         )
+
+
+def _append_strategy_risk_ranking_section(
+    lines: list[str],
+    rankings: list[EntrySignalAnalysisPrimaryStrategyRiskRanking],
+    title: str = "Primary Horizon Risk Ranking",
+    heading_level: int = 2,
+) -> None:
+    lines.extend(
+        [
+            "",
+            f"{'#' * heading_level} {title}",
+            "- Strategy groups are defined as entry_strategy + entry_filter_name.",
+            "- Primary score ranks avg_loss, P10, and P25 with lower downside preferred.",
+            "- Secondary score ranks median_return, win_rate, and count.",
+            "- Lower primary_score and secondary_score are better. avg_return is used only as a tie-break.",
+        ]
+    )
+    if not rankings:
+        lines.append("- none")
+        return
+
+    lines.extend(
+        [
+            "",
+            "| Rank | Strategy | Filter | Primary Score | Secondary Score | Count | Avg Return | Median | Avg Loss | P10 | P25 | Win Rate |",
+            "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for item in rankings:
+        stats = item.stats
+        lines.append(
+            "| "
+            f"{item.rank} | {item.entry_strategy} | {item.entry_filter_name} | {item.primary_score} | {item.secondary_score} | "
+            f"{stats.count} | {_format_percent(stats.avg_return_pct)} | {_format_percent(stats.median_return_pct)} | "
+            f"{_format_percent(stats.avg_loss_pct)} | {_format_percent(stats.p10_return_pct)} | "
+            f"{_format_percent(stats.p25_return_pct)} | {_format_ratio(stats.win_rate)} |"
+        )
+
+
+def _append_primary_validation_section(
+    lines: list[str],
+    validation: EntrySignalAnalysisPrimaryGroupSummary | EntrySignalAnalysisPrimaryStrategyRiskRanking | EntrySignalAnalysisPrimaryStats | object,
+) -> None:
+    primary_validation = validation
+    assert hasattr(primary_validation, "primary_horizon_label")
+    assert hasattr(primary_validation, "primary_return_column")
+    assert hasattr(primary_validation, "overall")
+    assert hasattr(primary_validation, "signal_strength_metric")
+    assert hasattr(primary_validation, "signal_strength_bucket_method")
+    assert hasattr(primary_validation, "market_regime_source")
+    assert hasattr(primary_validation, "market_regime_status")
+    assert hasattr(primary_validation, "market_regime_definition")
+    assert hasattr(primary_validation, "by_year")
+    assert hasattr(primary_validation, "by_month")
+    assert hasattr(primary_validation, "by_market_regime")
+    assert hasattr(primary_validation, "by_entry_filter")
+    assert hasattr(primary_validation, "by_signal_strength_bucket")
+    assert hasattr(primary_validation, "by_strategy_risk")
+
+    lines.extend(
+        [
+            "",
+            f"### {primary_validation.primary_horizon_label}",
+            f"- Return Column: {primary_validation.primary_return_column}",
+            f"- Overall: {_format_primary_stats(primary_validation.overall)}",
+            f"- Signal Strength Metric: {primary_validation.signal_strength_metric or 'none'}",
+            f"- Signal Strength Buckets: {primary_validation.signal_strength_bucket_method or 'none'}",
+            f"- Market Regime Source: {primary_validation.market_regime_source or 'none'}",
+            f"- Market Regime Status: {primary_validation.market_regime_status}",
+            f"- Market Regime Definition: {primary_validation.market_regime_definition or 'n/a'}",
+        ]
+    )
+    _append_group_section(lines, "By Year", primary_validation.by_year, heading_level=4)
+    _append_group_section(lines, "By Month", primary_validation.by_month, heading_level=4)
+    _append_group_section(lines, "By Market Regime", primary_validation.by_market_regime, heading_level=4)
+    _append_group_section(lines, "By Entry Filter", primary_validation.by_entry_filter, heading_level=4)
+    _append_group_section(lines, "By Signal Strength Bucket", primary_validation.by_signal_strength_bucket, heading_level=4)
+    _append_strategy_risk_ranking_section(
+        lines,
+        primary_validation.by_strategy_risk,
+        title=f"{primary_validation.primary_horizon_label} Strategy Risk Ranking",
+        heading_level=4,
+    )
+
+
+def _append_top_daily_windows_section(
+    lines: list[str],
+    top_daily_windows_by_horizon: list[EntrySignalAnalysisTopDailyWindows],
+) -> None:
+    lines.extend(["", "## Top Daily Windows"])
+    if not top_daily_windows_by_horizon:
+        lines.append("- none")
+        return
+
+    for grouped_windows in top_daily_windows_by_horizon:
+        lines.extend(
+            [
+                "",
+                f"### {grouped_windows.primary_horizon_label}",
+                f"- Sort Column: {grouped_windows.sort_column}",
+            ]
+        )
+        if not grouped_windows.windows:
+            lines.append("- none")
+            continue
+        for item in grouped_windows.windows:
+            sort_value = pd.to_numeric(item.get(grouped_windows.sort_column), errors="coerce")
+            sort_text = _format_percent(float(sort_value)) if pd.notna(sort_value) else "n/a"
+            lines.append(
+                f"- {item.get('signal_date')} {item.get('entry_strategy')} {item.get('entry_filter_name')} selected={item.get('selected_count')} metric={sort_text}"
+            )
 
 
 def _write_report(path: Path, summary: EntrySignalAnalysisRunSummary) -> None:
@@ -120,35 +237,29 @@ def _write_report(path: Path, summary: EntrySignalAnalysisRunSummary) -> None:
         else:
             lines.append(f"- {key}: {value}")
 
-    primary_validation = summary.primary_horizon_validation
+    primary_validations = summary.primary_horizon_validations or [summary.primary_horizon_validation]
     lines.extend(
         [
             "",
-            "## Primary Horizon Validation",
-            f"- Primary Horizon: {primary_validation.primary_horizon_label}",
-            f"- Return Column: {primary_validation.primary_return_column}",
-            f"- Overall: {_format_primary_stats(primary_validation.overall)}",
-            f"- Signal Strength Metric: {primary_validation.signal_strength_metric or 'none'}",
-            f"- Signal Strength Buckets: {primary_validation.signal_strength_bucket_method or 'none'}",
-            f"- Market Regime Source: {primary_validation.market_regime_source or 'none'}",
-            f"- Market Regime Status: {primary_validation.market_regime_status}",
-            f"- Market Regime Definition: {primary_validation.market_regime_definition or 'n/a'}",
+            "## Detailed Horizon Validations",
+            f"- Requested detailed horizons: {', '.join(item.primary_horizon_label for item in primary_validations)}",
+            f"- Legacy primary horizon: {summary.primary_horizon_validation.primary_horizon_label}",
         ]
     )
-    _append_group_section(lines, "By Year", primary_validation.by_year)
-    _append_group_section(lines, "By Month", primary_validation.by_month)
-    _append_group_section(lines, "By Market Regime", primary_validation.by_market_regime)
-    _append_group_section(lines, "By Entry Filter", primary_validation.by_entry_filter)
-    _append_group_section(lines, "By Signal Strength Bucket", primary_validation.by_signal_strength_bucket)
+    for primary_validation in primary_validations:
+        _append_primary_validation_section(lines, primary_validation)
 
-    lines.extend(["", "## Top Daily Windows"])
-    if summary.top_daily_windows:
-        for item in summary.top_daily_windows:
-            lines.append(
-                f"- {item.get('signal_date')} {item.get('entry_strategy')} {item.get('entry_filter_name')} selected={item.get('selected_count')}"
+    top_daily_windows_by_horizon = summary.top_daily_windows_by_horizon
+    if not top_daily_windows_by_horizon and summary.top_daily_windows:
+        top_daily_windows_by_horizon = [
+            EntrySignalAnalysisTopDailyWindows(
+                primary_horizon=summary.primary_horizon_validation.primary_horizon,
+                primary_horizon_label=summary.primary_horizon_validation.primary_horizon_label,
+                sort_column=f"selected_{summary.primary_horizon_validation.primary_horizon}d_avg_return_pct",
+                windows=summary.top_daily_windows,
             )
-    else:
-        lines.append("- none")
+        ]
+    _append_top_daily_windows_section(lines, top_daily_windows_by_horizon)
 
     lines.extend([
         "",
@@ -176,10 +287,25 @@ def run_entry_signal_analysis(
     strategy_summary = build_strategy_summary(candidates, request.normalized_horizons)
     overall = build_overall_summary(candidates, request.normalized_horizons)
     benchmark_frame = _load_topix_benchmark_frame(request.data_root)
-    primary_horizon_validation = build_primary_horizon_validation(
+    primary_horizon_validations = build_primary_horizon_validations(
+        candidates,
+        request.normalized_primary_horizons,
+        benchmark_frame=benchmark_frame,
+    )
+    primary_horizon_validation = primary_horizon_validations[0] if primary_horizon_validations else build_primary_horizon_validation(
         candidates,
         request.primary_horizon,
         benchmark_frame=benchmark_frame,
+    )
+    top_daily_windows_by_horizon = build_top_daily_windows_by_horizon(
+        daily_summary,
+        request.normalized_primary_horizons,
+        limit=10,
+    )
+    legacy_top_daily_windows = (
+        top_daily_windows_by_horizon[0].windows
+        if top_daily_windows_by_horizon
+        else top_daily_windows(daily_summary, request.primary_horizon, limit=10)
     )
 
     output_dir = _build_output_dir(request, generated_at)
@@ -219,8 +345,10 @@ def run_entry_signal_analysis(
         effective_entry_filter_names=effective_entry_filter_names,
         overall=overall,
         primary_horizon_validation=primary_horizon_validation,
+        primary_horizon_validations=primary_horizon_validations,
         per_strategy=strategy_summary.where(pd.notna(strategy_summary), None).to_dict(orient="records") if not strategy_summary.empty else [],
-        top_daily_windows=top_daily_windows(daily_summary, request.primary_horizon, limit=10),
+        top_daily_windows=legacy_top_daily_windows,
+        top_daily_windows_by_horizon=top_daily_windows_by_horizon,
         artifacts=artifacts,
     )
     manifest = EntrySignalAnalysisDatasetManifest(
@@ -239,6 +367,7 @@ def run_entry_signal_analysis(
         end_date=request.end_date.isoformat(),
         horizons=request.normalized_horizons,
         primary_horizon=request.primary_horizon,
+        primary_horizons=request.normalized_primary_horizons,
         label_mode=request.label_mode,
         ranking_strategy=request.ranking_strategy,
         entry_filter_mode=request.entry_filter_mode,

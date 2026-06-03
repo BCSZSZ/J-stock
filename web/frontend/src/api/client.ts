@@ -45,122 +45,6 @@ export type TradeHistoryResponse = {
   [key: string]: unknown;
 };
 
-export type EntryAnalysisBucketMode =
-  | "manual"
-  | "sliding"
-  | "fixed"
-  | "quantile"
-  | "categorical";
-
-export type EntryAnalysisRuleRange = {
-  label?: string | null;
-  min?: number | null;
-  max?: number | null;
-};
-
-export type EntryAnalysisRule = {
-  feature: string;
-  mode: EntryAnalysisBucketMode;
-  label?: string | null;
-  ranges?: EntryAnalysisRuleRange[];
-  min?: number | null;
-  max?: number | null;
-  window?: number | null;
-  step?: number | null;
-  bin_width?: number | null;
-  quantiles?: number | null;
-  include_null?: boolean;
-};
-
-export type EntryAnalysisOptions = {
-  entry_strategies: string[];
-  indicator_columns: string[];
-  derived_feature_columns: string[];
-  bucket_modes: EntryAnalysisBucketMode[];
-  label_modes: string[];
-  preset_rules: string[];
-  defaults: {
-    entry_strategies: string[];
-    universe_files: string[];
-    horizons: number[];
-    primary_horizon: number;
-    label_mode: string;
-    min_samples: number;
-    include_joint: boolean;
-    save_candidates: boolean;
-    data_root: string;
-    output_dir: string;
-  };
-};
-
-export type EntryAnalysisRunRequest = {
-  entry_strategies?: string[];
-  universe_files?: string[];
-  start?: string;
-  end?: string;
-  years?: number[];
-  horizons: number[];
-  primary_horizon: number;
-  indicator_columns?: string[];
-  rules?: EntryAnalysisRule[];
-  preset_rules?: string;
-  label_mode: string;
-  min_samples: number;
-  include_joint: boolean;
-  save_candidates: boolean;
-  limit?: number | null;
-  data_root: string;
-  output_dir?: string;
-};
-
-export type EntryAnalysisDatasetSummary = {
-  id: string;
-  dataset_id: string;
-  generated_at: string;
-  candidate_count: number;
-  entry_strategies: string[];
-  start_date: string;
-  end_date: string;
-  horizons: number[];
-  label_mode: string;
-  output_dir: string;
-};
-
-export type EntryAnalysisDatasetSchema = {
-  id: string;
-  manifest: Record<string, unknown>;
-  feature_columns: string[];
-  numeric_features: string[];
-  categorical_features: string[];
-  horizons: number[];
-  candidate_count: number;
-};
-
-export type EntryAnalysisFeatureCondition = {
-  feature: string;
-  operator: "between" | ">=" | ">" | "<=" | "<" | "==" | "!=" | "is_null" | "not_null";
-  min?: number | null;
-  max?: number | null;
-  value?: string | number | boolean | null;
-};
-
-export type EntryAnalysisAggregateRequest = {
-  conditions: EntryAnalysisFeatureCondition[];
-  logic: "all" | "any";
-  horizons: number[];
-  group_by?: string | null;
-  min_samples: number;
-};
-
-export type EntryAnalysisAggregateResponse = {
-  id: string;
-  manifest: Record<string, unknown>;
-  logic: "all" | "any";
-  baseline: Record<string, unknown>;
-  filtered: Record<string, unknown>;
-  groups: Array<Record<string, unknown>>;
-};
-
 export type EntrySignalAnalysisOptions = {
   entry_strategies: string[];
   label_modes: string[];
@@ -170,6 +54,7 @@ export type EntrySignalAnalysisOptions = {
     universe_files: string[];
     horizons: number[];
     primary_horizon: number;
+    primary_horizons?: number[];
     label_mode: string;
     ranking_strategy: string;
     entry_filter_mode: string;
@@ -194,6 +79,7 @@ export type EntrySignalAnalysisRunRequest = {
   years?: number[];
   horizons: number[];
   primary_horizon: number;
+  primary_horizons?: number[];
   label_mode: "signal_close" | "next_open";
   ranking_strategy?: string | null;
   entry_filter_mode: "auto" | "off" | "atr" | "single" | "grid";
@@ -268,6 +154,14 @@ export type EntrySignalAnalysisPrimaryHorizonValidation = {
   by_market_regime: EntrySignalAnalysisPrimaryValidationSlice[];
   by_entry_filter: EntrySignalAnalysisPrimaryValidationSlice[];
   by_signal_strength_bucket: EntrySignalAnalysisPrimaryValidationSlice[];
+  by_strategy_risk?: Array<Record<string, unknown>>;
+};
+
+export type EntrySignalAnalysisTopDailyWindows = {
+  primary_horizon: number;
+  primary_horizon_label: string;
+  sort_column: string;
+  windows: Array<Record<string, unknown>>;
 };
 
 export type EntrySignalAnalysisRunSummary = {
@@ -280,8 +174,10 @@ export type EntrySignalAnalysisRunSummary = {
   effective_entry_filter_names?: string[];
   overall?: Record<string, unknown>;
   primary_horizon_validation?: EntrySignalAnalysisPrimaryHorizonValidation;
+  primary_horizon_validations?: EntrySignalAnalysisPrimaryHorizonValidation[];
   per_strategy?: Array<Record<string, unknown>>;
   top_daily_windows?: Array<Record<string, unknown>>;
+  top_daily_windows_by_horizon?: EntrySignalAnalysisTopDailyWindows[];
   [key: string]: unknown;
 };
 
@@ -597,40 +493,6 @@ export const api = {
     request<Record<string, unknown>>(
       withOutputDir(`/evaluation/results/${filename}`, outputDir),
     ),
-
-  // Entry Analysis
-  entryAnalysisOptions: () =>
-    request<EntryAnalysisOptions>("/entry-analysis/options"),
-  entryAnalysisResults: (outputDir?: string) =>
-    request<Array<{ name: string; type: string; size: string }>>(
-      withOutputDir("/entry-analysis/results", outputDir),
-    ),
-  entryAnalysisResult: (filename: string, outputDir?: string) =>
-    request<Record<string, unknown>>(
-      withOutputDir(`/entry-analysis/results/${filename}`, outputDir),
-    ),
-  entryAnalysisDatasets: (outputDir?: string) =>
-    request<EntryAnalysisDatasetSummary[]>(
-      withOutputDir("/entry-analysis/datasets", outputDir),
-    ),
-  entryAnalysisDatasetSchema: (datasetId: string, outputDir?: string) =>
-    request<EntryAnalysisDatasetSchema>(
-      withOutputDir(`/entry-analysis/datasets/${encodeDatasetId(datasetId)}/schema`, outputDir),
-    ),
-  entryAnalysisAggregate: (
-    datasetId: string,
-    body: EntryAnalysisAggregateRequest,
-    outputDir?: string,
-  ) =>
-    request<EntryAnalysisAggregateResponse>(
-      withOutputDir(`/entry-analysis/datasets/${encodeDatasetId(datasetId)}/aggregate`, outputDir),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    ),
-
   entrySignalAnalysisOptions: () =>
     request<EntrySignalAnalysisOptions>("/entry-signal-analysis/options"),
   entrySignalAnalysisDatasets: (outputDir?: string) =>

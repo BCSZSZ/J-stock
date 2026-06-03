@@ -4,7 +4,6 @@ import Dashboard from "./pages/Dashboard";
 import Production from "./pages/Production";
 import Evaluation from "./pages/Evaluation";
 import EvaluationInsight from "./pages/EvaluationInsight";
-import EntryAnalysis from "./pages/EntryAnalysis";
 import EntrySignalAnalysis from "./pages/EntrySignalAnalysis";
 import Portfolio from "./pages/Portfolio";
 import TradeHistory from "./pages/TradeHistory";
@@ -22,7 +21,6 @@ export default function App() {
         <Route path="/production" element={<Production />} />
         <Route path="/evaluation" element={<Evaluation />} />
         <Route path="/evaluation-insight" element={<EvaluationInsight />} />
-        <Route path="/entry-analysis" element={<EntryAnalysis />} />
         <Route path="/entry-signal-analysis" element={<EntrySignalAnalysis />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/trade-history" element={<TradeHistory />} />

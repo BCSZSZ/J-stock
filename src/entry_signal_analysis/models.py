@@ -20,6 +20,7 @@ class EntrySignalAnalysisRequest(BaseModel):
     end_date: date
     horizons: list[int] = Field(default_factory=lambda: [1, 3, 5])
     primary_horizon: int = 5
+    primary_horizons: list[int] = Field(default_factory=list)
     label_mode: EntrySignalLabelMode = "next_open"
     ranking_strategy: str = "momentum"
     entry_filter_mode: EntrySignalEntryFilterMode = "auto"
@@ -39,12 +40,33 @@ class EntrySignalAnalysisRequest(BaseModel):
     def normalized_horizons(self) -> list[int]:
         return sorted({int(value) for value in self.horizons if int(value) > 0})
 
+    @property
+    def normalized_primary_horizons(self) -> list[int]:
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for value in self.primary_horizons:
+            parsed = int(value)
+            if parsed <= 0 or parsed in seen:
+                continue
+            seen.add(parsed)
+            normalized.append(parsed)
+        return normalized or [int(self.primary_horizon)]
+
     @model_validator(mode="after")
     def validate_horizons(self) -> "EntrySignalAnalysisRequest":
         if not self.normalized_horizons:
             raise ValueError("horizons must contain at least one positive integer")
+        requested_primary_horizons = self.normalized_primary_horizons
+        invalid_primary_horizons = [
+            value for value in requested_primary_horizons if value not in self.normalized_horizons
+        ]
+        if invalid_primary_horizons:
+            invalid_values = ", ".join(str(value) for value in invalid_primary_horizons)
+            raise ValueError(f"primary_horizons must be included in horizons: {invalid_values}")
         if self.primary_horizon not in self.normalized_horizons:
-            self.primary_horizon = self.normalized_horizons[0]
+            self.primary_horizon = requested_primary_horizons[0]
+        self.primary_horizons = requested_primary_horizons
+        self.primary_horizon = self.primary_horizons[0]
         return self
 
 
@@ -75,6 +97,7 @@ class EntrySignalAnalysisDatasetManifest(BaseModel):
     end_date: str
     horizons: list[int]
     primary_horizon: int
+    primary_horizons: list[int] = Field(default_factory=list)
     label_mode: EntrySignalLabelMode
     ranking_strategy: str
     entry_filter_mode: EntrySignalEntryFilterMode
@@ -112,6 +135,23 @@ class EntrySignalAnalysisPrimaryGroupSummary(BaseModel):
     strength_max: float | None = None
 
 
+class EntrySignalAnalysisPrimaryStrategyRiskRanking(BaseModel):
+    rank: int
+    group_key: str
+    group_label: str
+    entry_strategy: str
+    entry_filter_name: str
+    stats: EntrySignalAnalysisPrimaryStats
+    primary_score: int
+    secondary_score: int
+    avg_loss_rank: int
+    p10_rank: int
+    p25_rank: int
+    median_return_rank: int
+    win_rate_rank: int
+    count_rank: int
+
+
 class EntrySignalAnalysisPrimaryHorizonValidation(BaseModel):
     primary_horizon: int
     primary_horizon_label: str
@@ -127,6 +167,14 @@ class EntrySignalAnalysisPrimaryHorizonValidation(BaseModel):
     by_market_regime: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
     by_entry_filter: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
     by_signal_strength_bucket: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
+    by_strategy_risk: list[EntrySignalAnalysisPrimaryStrategyRiskRanking] = Field(default_factory=list)
+
+
+class EntrySignalAnalysisTopDailyWindows(BaseModel):
+    primary_horizon: int
+    primary_horizon_label: str
+    sort_column: str
+    windows: list[dict[str, object]] = Field(default_factory=list)
 
 
 class EntrySignalAnalysisRunSummary(BaseModel):
@@ -140,6 +188,8 @@ class EntrySignalAnalysisRunSummary(BaseModel):
     effective_entry_filter_names: list[str] = Field(default_factory=list)
     overall: dict[str, object]
     primary_horizon_validation: EntrySignalAnalysisPrimaryHorizonValidation
+    primary_horizon_validations: list[EntrySignalAnalysisPrimaryHorizonValidation] = Field(default_factory=list)
     per_strategy: list[dict[str, object]]
     top_daily_windows: list[dict[str, object]]
+    top_daily_windows_by_horizon: list[EntrySignalAnalysisTopDailyWindows] = Field(default_factory=list)
     artifacts: EntrySignalAnalysisArtifacts

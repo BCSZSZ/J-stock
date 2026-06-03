@@ -70,7 +70,12 @@ def _build_cli_args(req: EntrySignalAnalysisRunRequest) -> list[str]:
             args.extend(["--end", req.end])
 
     _append_multi_flag(args, "--horizons", req.horizons)
-    args.extend(["--primary-horizon", str(req.primary_horizon)])
+    primary_horizons = [int(value) for value in (req.primary_horizons or []) if int(value) > 0]
+    if primary_horizons:
+        _append_multi_flag(args, "--primary-horizons", primary_horizons)
+        args.extend(["--primary-horizon", str(primary_horizons[0])])
+    else:
+        args.extend(["--primary-horizon", str(req.primary_horizon)])
     args.extend(["--label-mode", req.label_mode])
     if ranking_strategy:
         args.extend(["--ranking-strategy", ranking_strategy])
@@ -241,6 +246,7 @@ def get_options() -> dict[str, object]:
             "universe_files": [str(getattr(prod_cfg, "monitor_list_file", "") or "")],
             "horizons": [1, 3, 5],
             "primary_horizon": 5,
+            "primary_horizons": [5],
             "label_mode": "next_open",
             "ranking_strategy": resolve_production_ranking_strategy(raw_config),
             "entry_filter_mode": "auto",

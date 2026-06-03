@@ -6,6 +6,8 @@ from src.entry_signal_analysis.models import (
     EntrySignalAnalysisPrimaryGroupSummary,
     EntrySignalAnalysisPrimaryHorizonValidation,
     EntrySignalAnalysisPrimaryStats,
+    EntrySignalAnalysisPrimaryStrategyRiskRanking,
+    EntrySignalAnalysisTopDailyWindows,
     SignalStrengthMetric,
 )
 
@@ -15,6 +17,8 @@ MARKET_REGIME_BULL_THRESHOLD_PCT = 3.0
 MARKET_REGIME_BEAR_THRESHOLD_PCT = -3.0
 MARKET_REGIME_SOURCE = "TOPIX"
 SIGNAL_STRENGTH_BUCKET_LIMIT = 5
+PRIMARY_RISK_RANK_COLUMNS = ("avg_loss_rank", "p10_rank", "p25_rank")
+SECONDARY_RISK_RANK_COLUMNS = ("median_return_rank", "win_rate_rank", "count_rank")
 
 
 def _empty_float_series() -> pd.Series:
@@ -113,6 +117,26 @@ def _build_group_summaries(groups: list[tuple[str, pd.DataFrame]]) -> list[Entry
     ]
 
 
+def _rank_descending(values: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(values, errors="coerce")
+    ranked = numeric.rank(ascending=False, method="min", na_option="bottom")
+    if ranked.isna().any():
+        ranked = ranked.fillna(len(values))
+    return ranked.astype(int)
+
+
+def _build_strategy_group_label(entry_strategy: str, entry_filter_name: str) -> str:
+    return f"{entry_strategy} [{entry_filter_name}]"
+
+
+def _avg_loss_value_for_ranking(stats: EntrySignalAnalysisPrimaryStats) -> float | None:
+    if stats.count <= 0:
+        return None
+    if stats.losses <= 0:
+        return 0.0
+    return stats.avg_loss_pct
+
+
 def _build_year_summaries(frame: pd.DataFrame) -> list[EntrySignalAnalysisPrimaryGroupSummary]:
     dated = frame[frame["signal_date_ts"].notna()].copy()
     if dated.empty:
@@ -145,6 +169,93 @@ def _build_entry_filter_summaries(frame: pd.DataFrame) -> list[EntrySignalAnalys
         for filter_name, group in frame.groupby("entry_filter_name", sort=True, dropna=False)
     ]
     return _build_group_summaries(groups)
+
+
+def build_primary_strategy_risk_ranking(
+    frame: pd.DataFrame,
+    primary_horizon: int,
+) -> list[EntrySignalAnalysisPrimaryStrategyRiskRanking]:
+    selected = _prepare_primary_selected_frame(frame, primary_horizon)
+    if selected.empty or "entry_strategy" not in selected.columns:
+        return []
+
+    if "entry_filter_name" not in selected.columns:
+        selected = selected.copy()
+        selected["entry_filter_name"] = "unknown"
+
+    rows: list[dict[str, object]] = []
+    for keys, group in selected.groupby(["entry_strategy", "entry_filter_name"], dropna=False):
+        entry_strategy, entry_filter_name = keys
+        normalized_strategy = _stringify_group_value(entry_strategy)
+        normalized_filter = _stringify_group_value(entry_filter_name)
+        stats = _build_primary_stats_from_series(group["primary_return_pct"])
+        rows.append(
+            {
+                "group_key": f"{normalized_strategy}::{normalized_filter}",
+                "group_label": _build_strategy_group_label(normalized_strategy, normalized_filter),
+                "entry_strategy": normalized_strategy,
+                "entry_filter_name": normalized_filter,
+                "stats": stats,
+                "avg_loss_rank_value": _avg_loss_value_for_ranking(stats),
+                "p10_rank_value": stats.p10_return_pct,
+                "p25_rank_value": stats.p25_return_pct,
+                "median_rank_value": stats.median_return_pct,
+                "win_rate_rank_value": stats.win_rate,
+                "count_rank_value": stats.count,
+                "avg_return_tiebreak": stats.avg_return_pct,
+            }
+        )
+
+    if not rows:
+        return []
+
+    ranking_frame = pd.DataFrame(rows)
+    ranking_frame["avg_loss_rank"] = _rank_descending(ranking_frame["avg_loss_rank_value"])
+    ranking_frame["p10_rank"] = _rank_descending(ranking_frame["p10_rank_value"])
+    ranking_frame["p25_rank"] = _rank_descending(ranking_frame["p25_rank_value"])
+    ranking_frame["median_return_rank"] = _rank_descending(ranking_frame["median_rank_value"])
+    ranking_frame["win_rate_rank"] = _rank_descending(ranking_frame["win_rate_rank_value"])
+    ranking_frame["count_rank"] = _rank_descending(ranking_frame["count_rank_value"])
+    ranking_frame["primary_score"] = ranking_frame[list(PRIMARY_RISK_RANK_COLUMNS)].sum(axis=1)
+    ranking_frame["secondary_score"] = ranking_frame[list(SECONDARY_RISK_RANK_COLUMNS)].sum(axis=1)
+    ranking_frame = ranking_frame.sort_values(
+        [
+            "primary_score",
+            "secondary_score",
+            "avg_return_tiebreak",
+            "median_rank_value",
+            "win_rate_rank_value",
+            "count_rank_value",
+            "entry_strategy",
+            "entry_filter_name",
+        ],
+        ascending=[True, True, False, False, False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    ranking_frame["rank"] = range(1, len(ranking_frame) + 1)
+
+    rankings: list[EntrySignalAnalysisPrimaryStrategyRiskRanking] = []
+    for row in ranking_frame.to_dict(orient="records"):
+        stats = row["stats"]
+        rankings.append(
+            EntrySignalAnalysisPrimaryStrategyRiskRanking(
+                rank=int(row["rank"]),
+                group_key=str(row["group_key"]),
+                group_label=str(row["group_label"]),
+                entry_strategy=str(row["entry_strategy"]),
+                entry_filter_name=str(row["entry_filter_name"]),
+                stats=stats,
+                primary_score=int(row["primary_score"]),
+                secondary_score=int(row["secondary_score"]),
+                avg_loss_rank=int(row["avg_loss_rank"]),
+                p10_rank=int(row["p10_rank"]),
+                p25_rank=int(row["p25_rank"]),
+                median_return_rank=int(row["median_return_rank"]),
+                win_rate_rank=int(row["win_rate_rank"]),
+                count_rank=int(row["count_rank"]),
+            )
+        )
+    return rankings
 
 
 def _normalize_benchmark_frame(benchmark_frame: pd.DataFrame | None) -> pd.DataFrame:
@@ -379,6 +490,7 @@ def build_primary_horizon_validation(
     benchmark_frame: pd.DataFrame | None = None,
 ) -> EntrySignalAnalysisPrimaryHorizonValidation:
     selected = _prepare_primary_selected_frame(frame, primary_horizon)
+    by_strategy_risk = build_primary_strategy_risk_ranking(frame, primary_horizon)
     signal_strength_metric, bucket_method, by_signal_strength_bucket = (
         _build_signal_strength_summaries(selected)
     )
@@ -401,7 +513,23 @@ def build_primary_horizon_validation(
         by_market_regime=by_market_regime,
         by_entry_filter=_build_entry_filter_summaries(selected),
         by_signal_strength_bucket=by_signal_strength_bucket,
+        by_strategy_risk=by_strategy_risk,
     )
+
+
+def build_primary_horizon_validations(
+    frame: pd.DataFrame,
+    primary_horizons: list[int],
+    benchmark_frame: pd.DataFrame | None = None,
+) -> list[EntrySignalAnalysisPrimaryHorizonValidation]:
+    return [
+        build_primary_horizon_validation(
+            frame,
+            primary_horizon=int(primary_horizon),
+            benchmark_frame=benchmark_frame,
+        )
+        for primary_horizon in primary_horizons
+    ]
 
 
 def top_daily_windows(daily_summary: pd.DataFrame, primary_horizon: int, limit: int = 10) -> list[dict[str, object]]:
@@ -416,3 +544,30 @@ def top_daily_windows(daily_summary: pd.DataFrame, primary_horizon: int, limit: 
     )
     normalized = ranked.head(limit).where(pd.notna(ranked.head(limit)), None)
     return normalized.to_dict(orient="records")
+
+
+def build_top_daily_windows_by_horizon(
+    daily_summary: pd.DataFrame,
+    primary_horizons: list[int],
+    limit: int = 10,
+) -> list[EntrySignalAnalysisTopDailyWindows]:
+    grouped_windows: list[EntrySignalAnalysisTopDailyWindows] = []
+    seen: set[int] = set()
+    for raw_horizon in primary_horizons:
+        primary_horizon = int(raw_horizon)
+        if primary_horizon <= 0 or primary_horizon in seen:
+            continue
+        seen.add(primary_horizon)
+        grouped_windows.append(
+            EntrySignalAnalysisTopDailyWindows(
+                primary_horizon=primary_horizon,
+                primary_horizon_label=f"{primary_horizon}d",
+                sort_column=f"selected_{primary_horizon}d_avg_return_pct",
+                windows=top_daily_windows(
+                    daily_summary,
+                    primary_horizon=primary_horizon,
+                    limit=limit,
+                ),
+            )
+        )
+    return grouped_windows

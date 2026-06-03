@@ -32,6 +32,7 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
         end="2026-01-31",
         horizons=[1, 3, 5],
         primary_horizon=5,
+        primary_horizons=[3, 5],
         label_mode="next_open",
         ranking_strategy="score_only",
         entry_filter_mode="grid",
@@ -51,6 +52,7 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
     assert "score_only" in args
     assert "--entry-filter-name" in args
     assert "f01" in args
+    assert args[args.index("--primary-horizons") + 1 : args.index("--label-mode")] == ["3", "5", "--primary-horizon", "3"]
     assert "--no-tail-guard-enabled" in args
     assert args[args.index("--tail-guard-max-rank") + 1] == "8"
 
@@ -104,6 +106,7 @@ def test_dataset_summary_reads_manifest_and_summary(tmp_path, monkeypatch) -> No
   "end_date": "2026-01-31",
   "horizons": [1, 3, 5],
   "primary_horizon": 5,
+    "primary_horizons": [5],
   "label_mode": "next_open",
   "ranking_strategy": "momentum",
   "entry_filter_mode": "auto",

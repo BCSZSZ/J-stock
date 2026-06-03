@@ -63,6 +63,9 @@ def test_run_entry_signal_analysis_writes_artifacts(tmp_path, monkeypatch) -> No
     assert report_path.exists()
     assert summary.primary_horizon_validation.primary_horizon == 5
     assert summary.primary_horizon_validation.overall.count == 1
+    assert [item.primary_horizon for item in summary.primary_horizon_validations] == [5]
+    assert [item.primary_horizon for item in summary.top_daily_windows_by_horizon] == [5]
+    assert summary.top_daily_windows_by_horizon[0].windows == summary.top_daily_windows
     assert "FakeEntry" in manifest_path.read_text(encoding="utf-8")
 
 
@@ -93,6 +96,9 @@ def test_run_entry_signal_analysis_handles_empty_candidate_results(tmp_path, mon
     assert summary.overall["1d"]["count"] == 0
     assert summary.primary_horizon_validation.primary_horizon == 5
     assert summary.primary_horizon_validation.overall.count == 0
+    assert [item.primary_horizon for item in summary.primary_horizon_validations] == [5]
+    assert [item.primary_horizon for item in summary.top_daily_windows_by_horizon] == [5]
+    assert summary.top_daily_windows_by_horizon[0].windows == []
     assert Path(summary.artifacts.summary_json).exists()
     assert Path(summary.artifacts.manifest_json).exists()
 
@@ -172,5 +178,158 @@ def test_run_entry_signal_analysis_includes_primary_horizon_validation(tmp_path,
     assert validation.by_market_regime[0].stats.count == 1
     assert validation.by_market_regime[1].stats.count == 1
     assert validation.by_market_regime[2].stats.count == 2
-    assert "Primary Horizon Validation" in report_text
+    assert "Detailed Horizon Validations" in report_text
+    assert "## Top Daily Windows" in report_text
+    assert "selected_3d_avg_return_pct" in report_text
     assert "primary_horizon_validation" in summary_text
+    assert "primary_horizon_validations" in summary_text
+    assert "top_daily_windows_by_horizon" in summary_text
+
+
+def test_run_entry_signal_analysis_includes_multiple_primary_horizon_validations(tmp_path, monkeypatch) -> None:
+    import src.entry_signal_analysis.runner as runner
+
+    candidates = pd.DataFrame(
+        {
+            "entry_strategy": ["FakeEntry"] * 4,
+            "entry_filter_name": ["production"] * 4,
+            "signal_date": ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"],
+            "ticker": ["7203", "6758", "6501", "8306"],
+            "selected": [True, True, True, True],
+            "positive_rank_score": [True, True, True, True],
+            "tail_guard_limit": [12, 12, 12, 12],
+            "forward_return_3d_pct": [1.0, 2.0, -1.0, 4.0],
+            "forward_return_5d_pct": [2.0, 3.0, -2.0, 5.0],
+            "forward_return_7d_pct": [3.0, 4.0, -3.0, 6.0],
+            "forward_diff_3d": [1.0, 2.0, -1.0, 4.0],
+            "forward_diff_5d": [2.0, 3.0, -2.0, 5.0],
+            "forward_diff_7d": [3.0, 4.0, -3.0, 6.0],
+        }
+    )
+
+    monkeypatch.setattr(runner, "scan_entry_signal_candidates", lambda _request: candidates)
+    monkeypatch.setattr(
+        runner,
+        "resolve_effective_entry_filter_for_request",
+        lambda _request: ("off", ["production"]),
+    )
+    monkeypatch.setattr(runner, "_load_topix_benchmark_frame", lambda _data_root: None)
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["FakeEntry"],
+        tickers=["7203", "6758", "6501", "8306"],
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        horizons=[3, 5, 7],
+        primary_horizons=[3, 5, 7],
+        output_dir=str(tmp_path),
+    )
+
+    summary = run_entry_signal_analysis(request)
+    report_text = Path(summary.artifacts.report_md).read_text(encoding="utf-8")
+    summary_text = Path(summary.artifacts.summary_json).read_text(encoding="utf-8")
+    manifest_text = Path(summary.artifacts.manifest_json).read_text(encoding="utf-8")
+
+    assert [item.primary_horizon for item in summary.primary_horizon_validations] == [3, 5, 7]
+    assert summary.primary_horizon_validation.primary_horizon == 3
+    assert [item.primary_horizon for item in summary.top_daily_windows_by_horizon] == [3, 5, 7]
+    assert summary.top_daily_windows_by_horizon[0].windows == summary.top_daily_windows
+    assert "### 3d" in report_text
+    assert "### 5d" in report_text
+    assert "### 7d" in report_text
+    assert "selected_3d_avg_return_pct" in report_text
+    assert "selected_5d_avg_return_pct" in report_text
+    assert "selected_7d_avg_return_pct" in report_text
+    assert "top_daily_windows_by_horizon" in summary_text
+    assert '"primary_horizons": [' in manifest_text
+
+
+def test_run_entry_signal_analysis_includes_primary_strategy_risk_ranking(tmp_path, monkeypatch) -> None:
+    import src.entry_signal_analysis.runner as runner
+
+    candidates = pd.DataFrame(
+        {
+            "entry_strategy": [
+                "BalancedEntry",
+                "BalancedEntry",
+                "BalancedEntry",
+                "BalancedEntry",
+                "AggressiveEntry",
+                "AggressiveEntry",
+                "AggressiveEntry",
+                "AggressiveEntry",
+                "MiddleEntry",
+                "MiddleEntry",
+                "MiddleEntry",
+                "MiddleEntry",
+            ],
+            "entry_filter_name": ["production"] * 12,
+            "signal_date": [
+                "2026-01-05",
+                "2026-01-06",
+                "2026-01-07",
+                "2026-01-08",
+                "2026-01-05",
+                "2026-01-06",
+                "2026-01-07",
+                "2026-01-08",
+                "2026-01-05",
+                "2026-01-06",
+                "2026-01-07",
+                "2026-01-08",
+            ],
+            "ticker": [
+                "7203",
+                "6758",
+                "6501",
+                "8306",
+                "7203",
+                "6758",
+                "6501",
+                "8306",
+                "7203",
+                "6758",
+                "6501",
+                "8306",
+            ],
+            "selected": [True] * 12,
+            "positive_rank_score": [True] * 12,
+            "tail_guard_limit": [12] * 12,
+            "forward_return_5d_pct": [1.2, 0.8, -1.0, -0.6, 4.0, 3.0, -4.0, -3.5, 1.6, 1.2, -2.0, -1.6],
+            "forward_diff_5d": [1.2, 0.8, -1.0, -0.6, 4.0, 3.0, -4.0, -3.5, 1.6, 1.2, -2.0, -1.6],
+        }
+    )
+
+    monkeypatch.setattr(runner, "scan_entry_signal_candidates", lambda _request: candidates)
+    monkeypatch.setattr(
+        runner,
+        "resolve_effective_entry_filter_for_request",
+        lambda _request: ("off", ["production"]),
+    )
+    monkeypatch.setattr(runner, "_load_topix_benchmark_frame", lambda _data_root: None)
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["BalancedEntry", "AggressiveEntry", "MiddleEntry"],
+        tickers=["7203", "6758", "6501", "8306"],
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        horizons=[5],
+        primary_horizon=5,
+        output_dir=str(tmp_path),
+    )
+
+    summary = run_entry_signal_analysis(request)
+
+    rankings = summary.primary_horizon_validation.by_strategy_risk
+    report_text = Path(summary.artifacts.report_md).read_text(encoding="utf-8")
+    summary_text = Path(summary.artifacts.summary_json).read_text(encoding="utf-8")
+
+    assert [item.entry_strategy for item in rankings] == [
+        "BalancedEntry",
+        "MiddleEntry",
+        "AggressiveEntry",
+    ]
+    assert rankings[0].primary_score < rankings[-1].primary_score
+    assert rankings[0].stats.avg_loss_pct == pytest.approx(-0.8)
+    assert "Strategy Risk Ranking" in report_text
+    assert "by_strategy_risk" in summary_text

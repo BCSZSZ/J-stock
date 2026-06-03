@@ -1007,7 +1007,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--primary-horizon",
         type=int,
         default=5,
-        help="报告排序主窗口（默认: 5）",
+        help="兼容字段：默认主比较窗口；未指定 --primary-horizons 时使用（默认: 5）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--primary-horizons",
+        nargs="+",
+        type=int,
+        default=None,
+        help="详细比较窗口列表；指定后会为每个 horizon 生成完整的中位数/分位数/分组比较段落",
     )
     entry_signal_analysis_parser.add_argument(
         "--label-mode",

@@ -9,6 +9,7 @@ import {
   type EntrySignalAnalysisPrimaryHorizonValidation,
   type EntrySignalAnalysisPrimaryValidationSlice,
   type EntrySignalAnalysisRunRequest,
+  type EntrySignalAnalysisTopDailyWindows,
 } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
 import LogOutput from "../components/LogOutput";
@@ -149,7 +150,7 @@ export default function EntrySignalAnalysis() {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [horizons, setHorizons] = useState("1,3,5");
-  const [primaryHorizon, setPrimaryHorizon] = useState("5");
+  const [primaryHorizons, setPrimaryHorizons] = useState("5");
   const [labelMode, setLabelMode] = useState<"signal_close" | "next_open">("next_open");
   const [rankingStrategy, setRankingStrategy] = useState("momentum");
   const [entryFilterMode, setEntryFilterMode] = useState<"auto" | "off" | "atr" | "single" | "grid">("auto");
@@ -186,7 +187,12 @@ export default function EntrySignalAnalysis() {
     setSelectedEntry(defaults.entry_strategies ?? []);
     setUniverseFiles((defaults.universe_files ?? []).join("\n"));
     setHorizons((defaults.horizons ?? [1, 3, 5]).join(","));
-    setPrimaryHorizon(String(defaults.primary_horizon ?? 5));
+    setPrimaryHorizons(
+      (defaults.primary_horizons && defaults.primary_horizons.length > 0
+        ? defaults.primary_horizons
+        : [defaults.primary_horizon ?? 5]
+      ).join(","),
+    );
     setLabelMode((defaults.label_mode as "signal_close" | "next_open") ?? "next_open");
     setRankingStrategy(defaults.ranking_strategy ?? "momentum");
     setEntryFilterMode(
@@ -228,21 +234,47 @@ export default function EntrySignalAnalysis() {
   const oneDay = useMemo(() => metricFromUnknown(metricValue(overall, "1d")), [overall]);
   const threeDay = useMemo(() => metricFromUnknown(metricValue(overall, "3d")), [overall]);
   const fiveDay = useMemo(() => metricFromUnknown(metricValue(overall, "5d")), [overall]);
-  const primaryValidation = useMemo(() => {
-    const value = summary?.primary_horizon_validation;
-    return value ?? null;
-  }, [summary]) as EntrySignalAnalysisPrimaryHorizonValidation | null;
+  const primaryValidations = useMemo(() => {
+    const values = summary?.primary_horizon_validations;
+    if (Array.isArray(values) && values.length > 0) {
+      return values;
+    }
+    const fallback = summary?.primary_horizon_validation;
+    return fallback ? [fallback] : [];
+  }, [summary]) as EntrySignalAnalysisPrimaryHorizonValidation[];
+  const topDailyWindowsByHorizon = useMemo(() => {
+    const values = summary?.top_daily_windows_by_horizon;
+    if (Array.isArray(values) && values.length > 0) {
+      return values;
+    }
+    const fallbackValidation = primaryValidations[0];
+    const fallbackWindows = summary?.top_daily_windows;
+    if (fallbackValidation && Array.isArray(fallbackWindows)) {
+      return [
+        {
+          primary_horizon: fallbackValidation.primary_horizon,
+          primary_horizon_label: fallbackValidation.primary_horizon_label,
+          sort_column: `selected_${fallbackValidation.primary_horizon}d_avg_return_pct`,
+          windows: fallbackWindows,
+        },
+      ];
+    }
+    return [];
+  }, [primaryValidations, summary]) as EntrySignalAnalysisTopDailyWindows[];
 
   function handleRun() {
     const parsedYears = parseIntegerList(years);
+    const parsedHorizons = parseIntegerList(horizons);
+    const parsedPrimaryHorizons = parseIntegerList(primaryHorizons);
     const body: EntrySignalAnalysisRunRequest = {
       entry_strategies: selectedEntry,
       universe_files: parseStringList(universeFiles),
       years: parsedYears.length > 0 ? parsedYears : undefined,
       start: parsedYears.length > 0 ? undefined : start.trim() || undefined,
       end: parsedYears.length > 0 ? undefined : end.trim() || undefined,
-      horizons: parseIntegerList(horizons),
-      primary_horizon: Number.parseInt(primaryHorizon, 10) || 5,
+      horizons: parsedHorizons,
+      primary_horizons: parsedPrimaryHorizons,
+      primary_horizon: parsedPrimaryHorizons[0] ?? parsedHorizons[0] ?? 5,
       label_mode: labelMode,
       ranking_strategy: rankingStrategy.trim() || undefined,
       entry_filter_mode: entryFilterMode,
@@ -319,10 +351,10 @@ export default function EntrySignalAnalysis() {
             </div>
           </div>
           <div className={cardClassName}>
-            <label className={labelClassName}>Horizons / Primary</label>
+            <label className={labelClassName}>Horizons / Detailed Horizons</label>
             <div className="space-y-2">
               <input value={horizons} onChange={(e) => setHorizons(e.target.value)} className={inputClassName} />
-              <input value={primaryHorizon} onChange={(e) => setPrimaryHorizon(e.target.value)} className={inputClassName} />
+              <input value={primaryHorizons} onChange={(e) => setPrimaryHorizons(e.target.value)} className={inputClassName} />
             </div>
           </div>
           <div className={cardClassName}>
@@ -505,64 +537,87 @@ export default function EntrySignalAnalysis() {
                 </div>
               </div>
 
-              {primaryValidation ? (
+              {primaryValidations.length > 0 ? (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className={cardClassName}>
-                      <label className={labelClassName}>Primary Validation</label>
-                      <div className="space-y-1 text-sm text-gray-300">
-                        <div>primary: {primaryValidation.primary_horizon_label}</div>
-                        <div>count: {String(primaryValidation.overall.count ?? "-")}</div>
-                        <div>win_rate: {formatRate(primaryValidation.overall.win_rate)}</div>
-                        <div>mean: {formatPercent(primaryValidation.overall.avg_return_pct)}</div>
-                        <div>median: {formatPercent(primaryValidation.overall.median_return_pct)}</div>
-                        <div>mean &gt; median: {formatBooleanFlag(primaryValidation.overall.mean_gt_median)}</div>
+                  {primaryValidations.map((primaryValidation) => (
+                    <div key={primaryValidation.primary_horizon_label} className="space-y-4">
+                      <div className="text-sm font-semibold text-blue-300">
+                        Detailed Validation {primaryValidation.primary_horizon_label}
                       </div>
-                    </div>
-                    <div className={cardClassName}>
-                      <label className={labelClassName}>Primary Risk / Quantiles</label>
-                      <div className="space-y-1 text-sm text-gray-300">
-                        <div>avg_loss: {formatPercent(primaryValidation.overall.avg_loss_pct)}</div>
-                        <div>P10: {formatPercent(primaryValidation.overall.p10_return_pct)}</div>
-                        <div>P25: {formatPercent(primaryValidation.overall.p25_return_pct)}</div>
-                        <div>P50: {formatPercent(primaryValidation.overall.p50_return_pct)}</div>
-                        <div>P75: {formatPercent(primaryValidation.overall.p75_return_pct)}</div>
-                        <div>P90: {formatPercent(primaryValidation.overall.p90_return_pct)}</div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className={cardClassName}>
+                          <label className={labelClassName}>Validation Summary</label>
+                          <div className="space-y-1 text-sm text-gray-300">
+                            <div>primary: {primaryValidation.primary_horizon_label}</div>
+                            <div>count: {String(primaryValidation.overall.count ?? "-")}</div>
+                            <div>win_rate: {formatRate(primaryValidation.overall.win_rate)}</div>
+                            <div>mean: {formatPercent(primaryValidation.overall.avg_return_pct)}</div>
+                            <div>median: {formatPercent(primaryValidation.overall.median_return_pct)}</div>
+                            <div>mean &gt; median: {formatBooleanFlag(primaryValidation.overall.mean_gt_median)}</div>
+                          </div>
+                        </div>
+                        <div className={cardClassName}>
+                          <label className={labelClassName}>Risk / Quantiles</label>
+                          <div className="space-y-1 text-sm text-gray-300">
+                            <div>avg_loss: {formatPercent(primaryValidation.overall.avg_loss_pct)}</div>
+                            <div>P10: {formatPercent(primaryValidation.overall.p10_return_pct)}</div>
+                            <div>P25: {formatPercent(primaryValidation.overall.p25_return_pct)}</div>
+                            <div>P50: {formatPercent(primaryValidation.overall.p50_return_pct)}</div>
+                            <div>P75: {formatPercent(primaryValidation.overall.p75_return_pct)}</div>
+                            <div>P90: {formatPercent(primaryValidation.overall.p90_return_pct)}</div>
+                          </div>
+                        </div>
+                        <div className={cardClassName}>
+                          <label className={labelClassName}>Regime / Strength Meta</label>
+                          <div className="space-y-1 text-sm text-gray-300">
+                            <div>strength_metric: {primaryValidation.signal_strength_metric ?? "-"}</div>
+                            <div>strength_buckets: {primaryValidation.signal_strength_bucket_method ?? "-"}</div>
+                            <div>regime_source: {primaryValidation.market_regime_source ?? "-"}</div>
+                            <div>regime_status: {primaryValidation.market_regime_status ?? "-"}</div>
+                            <div className="text-xs text-gray-500">{primaryValidation.market_regime_definition ?? "No market regime definition."}</div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className={cardClassName}>
-                      <label className={labelClassName}>Regime / Strength Meta</label>
-                      <div className="space-y-1 text-sm text-gray-300">
-                        <div>strength_metric: {primaryValidation.signal_strength_metric ?? "-"}</div>
-                        <div>strength_buckets: {primaryValidation.signal_strength_bucket_method ?? "-"}</div>
-                        <div>regime_source: {primaryValidation.market_regime_source ?? "-"}</div>
-                        <div>regime_status: {primaryValidation.market_regime_status ?? "-"}</div>
-                        <div className="text-xs text-gray-500">{primaryValidation.market_regime_definition ?? "No market regime definition."}</div>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 gap-4">
-                    <ValidationTable title="By Year" slices={primaryValidation.by_year ?? []} />
-                    <ValidationTable title="By Entry Filter" slices={primaryValidation.by_entry_filter ?? []} />
-                    <ValidationTable title="By Market Regime" slices={primaryValidation.by_market_regime ?? []} />
-                    <ValidationTable title="By Signal Strength Bucket" slices={primaryValidation.by_signal_strength_bucket ?? []} />
-                    <ValidationTable title="By Month" slices={primaryValidation.by_month ?? []} />
-                  </div>
+                      <div className="grid grid-cols-1 gap-4">
+                        <ValidationTable title="By Year" slices={primaryValidation.by_year ?? []} />
+                        <ValidationTable title="By Entry Filter" slices={primaryValidation.by_entry_filter ?? []} />
+                        <ValidationTable title="By Market Regime" slices={primaryValidation.by_market_regime ?? []} />
+                        <ValidationTable title="By Signal Strength Bucket" slices={primaryValidation.by_signal_strength_bucket ?? []} />
+                        <ValidationTable title="By Month" slices={primaryValidation.by_month ?? []} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className={cardClassName}>
-                  <label className={labelClassName}>Primary Validation</label>
-                  <div className="text-sm text-gray-500">This dataset does not include primary-horizon validation yet.</div>
+                  <label className={labelClassName}>Detailed Horizon Validation</label>
+                  <div className="text-sm text-gray-500">This dataset does not include detailed horizon validation yet.</div>
                 </div>
               )}
 
-              <div className={cardClassName}>
-                <label className={labelClassName}>Top Daily Windows</label>
-                <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-gray-300">
-                  {JSON.stringify(summary.top_daily_windows ?? [], null, 2)}
-                </pre>
-              </div>
+              {topDailyWindowsByHorizon.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {topDailyWindowsByHorizon.map((groupedWindows) => (
+                    <div key={groupedWindows.primary_horizon_label} className={cardClassName}>
+                      <label className={labelClassName}>
+                        Top Daily Windows ({groupedWindows.primary_horizon_label})
+                      </label>
+                      <div className="mb-2 text-xs text-gray-500">
+                        sorted by {groupedWindows.sort_column}
+                      </div>
+                      <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-gray-300">
+                        {JSON.stringify(groupedWindows.windows ?? [], null, 2)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={cardClassName}>
+                  <label className={labelClassName}>Top Daily Windows</label>
+                  <div className="text-sm text-gray-500">This dataset does not include top daily window rankings yet.</div>
+                </div>
+              )}
             </>
           )}
         </div>

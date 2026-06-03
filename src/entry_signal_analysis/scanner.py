@@ -8,7 +8,6 @@ import pandas as pd
 from src.analysis.filters import EntrySecondaryFilter
 from src.analysis.signals import MarketData, SignalAction
 from src.backtest.data_cache import BacktestDataCache
-from src.entry_analysis.forward_returns import compute_forward_returns
 from src.entry_signal_analysis.models import EntrySignalAnalysisRequest
 from src.entry_signal_analysis.runtime import (
     resolve_filter_variants_for_request,
@@ -16,6 +15,7 @@ from src.entry_signal_analysis.runtime import (
 )
 from src.entry_signal_analysis.selector import DailyEntryCandidate, select_daily_candidates
 from src.signal_generator import generate_signal_v2
+from src.utils.forward_returns import compute_forward_returns
 from src.utils.strategy_loader import load_entry_strategy
 
 

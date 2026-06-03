@@ -229,62 +229,6 @@ class EvaluationRunRequest(BaseModel):
         return self
 
 
-class EntryAnalysisManualRange(BaseModel):
-    label: str | None = None
-    min: float | None = None
-    max: float | None = None
-
-
-class EntryAnalysisRule(BaseModel):
-    feature: str
-    mode: Literal["manual", "sliding", "fixed", "quantile", "categorical"] = "sliding"
-    label: str | None = None
-    ranges: list[EntryAnalysisManualRange] = Field(default_factory=list)
-    min: float | None = None
-    max: float | None = None
-    window: float | None = None
-    step: float | None = None
-    bin_width: float | None = None
-    quantiles: int | None = None
-    include_null: bool = False
-
-
-class EntryAnalysisRunRequest(BaseModel):
-    entry_strategies: list[str] | None = None
-    universe_files: list[str] | None = None
-    start: str | None = None
-    end: str | None = None
-    years: list[int] | None = None
-    horizons: list[int] = Field(default_factory=lambda: [3, 5, 10])
-    primary_horizon: int = 5
-    indicator_columns: list[str] | None = None
-    rules: list[EntryAnalysisRule] | None = None
-    preset_rules: str = "none"
-    label_mode: Literal["signal_close", "next_open"] = "signal_close"
-    min_samples: int = 30
-    include_joint: bool = True
-    save_candidates: bool = True
-    limit: int | None = None
-    data_root: str = "data"
-    output_dir: str | None = None
-
-
-class EntryAnalysisFeatureCondition(BaseModel):
-    feature: str
-    operator: Literal["between", ">=", ">", "<=", "<", "==", "!=", "is_null", "not_null"] = "between"
-    min: float | None = None
-    max: float | None = None
-    value: str | float | bool | None = None
-
-
-class EntryAnalysisAggregateRequest(BaseModel):
-    conditions: list[EntryAnalysisFeatureCondition] = Field(default_factory=list)
-    logic: Literal["all", "any"] = "all"
-    horizons: list[int] = Field(default_factory=lambda: [3, 5, 10])
-    group_by: str | None = None
-    min_samples: int = 1
-
-
 class EntrySignalAnalysisRunRequest(BaseModel):
     entry_strategies: list[str] | None = None
     universe_files: list[str] | None = None
@@ -293,6 +237,7 @@ class EntrySignalAnalysisRunRequest(BaseModel):
     years: list[int] | None = None
     horizons: list[int] = Field(default_factory=lambda: [1, 3, 5])
     primary_horizon: int = 5
+    primary_horizons: list[int] | None = None
     label_mode: Literal["signal_close", "next_open"] = "next_open"
     ranking_strategy: str | None = None
     entry_filter_mode: Literal["auto", "off", "atr", "single", "grid"] = "auto"
@@ -313,6 +258,15 @@ class EntrySignalAnalysisRunRequest(BaseModel):
         if self.position_sizing_mode != "fixed":
             _validate_atr_sizing_runtime_fields(self)
         _validate_atr_filter_runtime_fields(self)
+        requested_primary_horizons = [
+            int(value) for value in (self.primary_horizons or []) if int(value) > 0
+        ]
+        invalid_primary_horizons = [
+            value for value in requested_primary_horizons if value not in self.horizons
+        ]
+        if invalid_primary_horizons:
+            invalid_values = ", ".join(str(value) for value in invalid_primary_horizons)
+            raise ValueError(f"primary_horizons must be included in horizons: {invalid_values}")
         return self
 
 

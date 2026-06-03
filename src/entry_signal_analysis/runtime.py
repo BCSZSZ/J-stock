@@ -11,12 +11,12 @@ from src.entry_signal_analysis.models import (
     EntrySignalEntryFilterMode,
 )
 from src.entry_signal_analysis.paths import default_output_dir
-from src.entry_analysis.signal_scanner import load_tickers_from_file
 from src.production.config_manager import ConfigManager
 from src.utils.atr_runtime_overrides import (
     _normalize_runtime_atr_bound,
     merge_entry_filter_variant_runtime_bounds,
 )
+from src.utils.universe_loader import load_tickers_from_file
 
 
 def load_runtime_config() -> dict[str, Any]:
@@ -217,6 +217,13 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         or getattr(prod_cfg, "position_sizing_mode", "atr")
         or "atr"
     )
+    horizons = [int(value) for value in (getattr(args, "horizons", None) or [1, 3, 5])]
+    parsed_primary_horizons = [
+        int(value) for value in (getattr(args, "primary_horizons", None) or [])
+    ]
+    fallback_primary_horizon = int(
+        getattr(args, "primary_horizon", None) or (5 if 5 in horizons else horizons[0])
+    )
     risk_per_trade_pct = getattr(args, "risk_per_trade_pct", None)
     if risk_per_trade_pct is None:
         risk_per_trade_pct = getattr(prod_cfg.atr_position_sizing, "risk_per_trade_pct", None)
@@ -235,8 +242,9 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         tickers=tickers,
         start_date=start_date,
         end_date=end_date,
-        horizons=[int(value) for value in (getattr(args, "horizons", None) or [1, 3, 5])],
-        primary_horizon=int(getattr(args, "primary_horizon", None) or 5),
+        horizons=horizons,
+        primary_horizon=fallback_primary_horizon,
+        primary_horizons=parsed_primary_horizons,
         label_mode=str(getattr(args, "label_mode", None) or "next_open"),
         ranking_strategy=ranking_strategy,
         entry_filter_mode=str(getattr(args, "entry_filter_mode", None) or "auto"),
