@@ -12,6 +12,7 @@ from src.entry_signal_analysis.models import (
     EntrySignalAnalysisPrimaryGroupSummary,
     EntrySignalAnalysisPrimaryStats,
     EntrySignalAnalysisPrimaryStrategyRiskRanking,
+    EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking,
     EntrySignalAnalysisRequest,
     EntrySignalAnalysisRunSummary,
     EntrySignalAnalysisTopDailyWindows,
@@ -80,7 +81,16 @@ def _format_primary_stats(stats: EntrySignalAnalysisPrimaryStats) -> str:
         f"P25={_format_percent(stats.p25_return_pct)}, "
         f"P50={_format_percent(stats.p50_return_pct)}, "
         f"P75={_format_percent(stats.p75_return_pct)}, "
-        f"P90={_format_percent(stats.p90_return_pct)}"
+        f"P90={_format_percent(stats.p90_return_pct)}, "
+        f"trimmed_1={_format_percent(stats.trimmed_mean_1pct_return_pct)}, "
+        f"trimmed_5={_format_percent(stats.trimmed_mean_5pct_return_pct)}, "
+        f"winsorized_1={_format_percent(stats.winsorized_mean_1pct_return_pct)}, "
+        f"winsorized_5={_format_percent(stats.winsorized_mean_5pct_return_pct)}, "
+        f"top_1_contrib={_format_ratio(stats.top_1pct_contribution_ratio)}, "
+        f"top_5_contrib={_format_ratio(stats.top_5pct_contribution_ratio)}, "
+        f"net_wo_top_5={_format_percent(stats.net_without_top_5pct_return_pct)}, "
+        f"max={_format_percent(stats.max_return_pct)}, "
+        f"min={_format_percent(stats.min_return_pct)}"
     )
 
 
@@ -142,6 +152,89 @@ def _append_strategy_risk_ranking_section(
         )
 
 
+def _append_strategy_tail_robustness_section(
+    lines: list[str],
+    rankings: list[EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking],
+    title: str = "Primary Horizon Tail Robustness Ranking",
+    heading_level: int = 2,
+) -> None:
+    lines.extend(
+        [
+            "",
+            f"{'#' * heading_level} {title}",
+            "- Strategy groups are defined as entry_strategy + entry_filter_name.",
+            "- Primary score ranks trimmed_mean_5pct, median_return, top_5pct_contribution, P10, and avg_loss.",
+            "- Lower primary_score and secondary_score are better.",
+        ]
+    )
+    if not rankings:
+        lines.append("- none")
+        return
+
+    lines.extend(
+        [
+            "",
+            "| Rank | Strategy | Filter | Primary Score | Secondary Score | Trimmed 5% | Winsorized 5% | Median | Top 5% Contribution | Net w/o Top 5% | P10 | Avg Loss | Max | Min |",
+            "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for item in rankings:
+        stats = item.stats
+        lines.append(
+            "| "
+            f"{item.rank} | {item.entry_strategy} | {item.entry_filter_name} | {item.primary_score} | {item.secondary_score} | "
+            f"{_format_percent(stats.trimmed_mean_5pct_return_pct)} | {_format_percent(stats.winsorized_mean_5pct_return_pct)} | "
+            f"{_format_percent(stats.median_return_pct)} | {_format_ratio(stats.top_5pct_contribution_ratio)} | "
+            f"{_format_percent(stats.net_without_top_5pct_return_pct)} | {_format_percent(stats.p10_return_pct)} | "
+            f"{_format_percent(stats.avg_loss_pct)} | {_format_percent(stats.max_return_pct)} | {_format_percent(stats.min_return_pct)} |"
+        )
+
+
+def _append_tail_metrics_detail_table(
+    lines: list[str],
+    stats: EntrySignalAnalysisPrimaryStats,
+    title: str,
+    heading_level: int = 4,
+) -> None:
+    metric_rows = [
+        ("trimmed_mean_1pct_return_pct", _format_percent(stats.trimmed_mean_1pct_return_pct)),
+        ("trimmed_mean_5pct_return_pct", _format_percent(stats.trimmed_mean_5pct_return_pct)),
+        ("winsorized_mean_1pct_return_pct", _format_percent(stats.winsorized_mean_1pct_return_pct)),
+        ("winsorized_mean_5pct_return_pct", _format_percent(stats.winsorized_mean_5pct_return_pct)),
+        ("p01_return_pct", _format_percent(stats.p01_return_pct)),
+        ("p05_return_pct", _format_percent(stats.p05_return_pct)),
+        ("p95_return_pct", _format_percent(stats.p95_return_pct)),
+        ("p99_return_pct", _format_percent(stats.p99_return_pct)),
+        ("max_return_pct", _format_percent(stats.max_return_pct)),
+        ("min_return_pct", _format_percent(stats.min_return_pct)),
+        ("total_sum_return_pct", _format_percent(stats.total_sum_return_pct)),
+        ("top_1pct_sum_return_pct", _format_percent(stats.top_1pct_sum_return_pct)),
+        ("top_5pct_sum_return_pct", _format_percent(stats.top_5pct_sum_return_pct)),
+        ("bottom_1pct_sum_return_pct", _format_percent(stats.bottom_1pct_sum_return_pct)),
+        ("bottom_5pct_sum_return_pct", _format_percent(stats.bottom_5pct_sum_return_pct)),
+        ("top_1pct_contribution_ratio", _format_ratio(stats.top_1pct_contribution_ratio)),
+        ("top_5pct_contribution_ratio", _format_ratio(stats.top_5pct_contribution_ratio)),
+        ("bottom_1pct_contribution_ratio", _format_ratio(stats.bottom_1pct_contribution_ratio)),
+        ("bottom_5pct_contribution_ratio", _format_ratio(stats.bottom_5pct_contribution_ratio)),
+        ("net_without_top_1pct_return_pct", _format_percent(stats.net_without_top_1pct_return_pct)),
+        ("net_without_top_5pct_return_pct", _format_percent(stats.net_without_top_5pct_return_pct)),
+        ("net_without_bottom_1pct_return_pct", _format_percent(stats.net_without_bottom_1pct_return_pct)),
+        ("net_without_bottom_5pct_return_pct", _format_percent(stats.net_without_bottom_5pct_return_pct)),
+    ]
+
+    lines.extend(
+        [
+            "",
+            f"{'#' * heading_level} {title}",
+            "",
+            "| Metric | Value |",
+            "| --- | ---: |",
+        ]
+    )
+    for metric_name, value_text in metric_rows:
+        lines.append(f"| {metric_name} | {value_text} |")
+
+
 def _append_primary_validation_section(
     lines: list[str],
     validation: EntrySignalAnalysisPrimaryGroupSummary | EntrySignalAnalysisPrimaryStrategyRiskRanking | EntrySignalAnalysisPrimaryStats | object,
@@ -157,10 +250,13 @@ def _append_primary_validation_section(
     assert hasattr(primary_validation, "market_regime_definition")
     assert hasattr(primary_validation, "by_year")
     assert hasattr(primary_validation, "by_month")
+    assert hasattr(primary_validation, "by_strategy")
+    assert hasattr(primary_validation, "by_strategy_bucket")
     assert hasattr(primary_validation, "by_market_regime")
     assert hasattr(primary_validation, "by_entry_filter")
     assert hasattr(primary_validation, "by_signal_strength_bucket")
     assert hasattr(primary_validation, "by_strategy_risk")
+    assert hasattr(primary_validation, "by_strategy_tail_robustness")
 
     lines.extend(
         [
@@ -175,8 +271,16 @@ def _append_primary_validation_section(
             f"- Market Regime Definition: {primary_validation.market_regime_definition or 'n/a'}",
         ]
     )
+    _append_tail_metrics_detail_table(
+        lines,
+        primary_validation.overall,
+        title=f"{primary_validation.primary_horizon_label} Tail Metrics Detail",
+        heading_level=4,
+    )
     _append_group_section(lines, "By Year", primary_validation.by_year, heading_level=4)
     _append_group_section(lines, "By Month", primary_validation.by_month, heading_level=4)
+    _append_group_section(lines, "By Strategy", primary_validation.by_strategy, heading_level=4)
+    _append_group_section(lines, "By Strategy Bucket", primary_validation.by_strategy_bucket, heading_level=4)
     _append_group_section(lines, "By Market Regime", primary_validation.by_market_regime, heading_level=4)
     _append_group_section(lines, "By Entry Filter", primary_validation.by_entry_filter, heading_level=4)
     _append_group_section(lines, "By Signal Strength Bucket", primary_validation.by_signal_strength_bucket, heading_level=4)
@@ -184,6 +288,12 @@ def _append_primary_validation_section(
         lines,
         primary_validation.by_strategy_risk,
         title=f"{primary_validation.primary_horizon_label} Strategy Risk Ranking",
+        heading_level=4,
+    )
+    _append_strategy_tail_robustness_section(
+        lines,
+        primary_validation.by_strategy_tail_robustness,
+        title=f"{primary_validation.primary_horizon_label} Tail Robustness Ranking",
         heading_level=4,
     )
 

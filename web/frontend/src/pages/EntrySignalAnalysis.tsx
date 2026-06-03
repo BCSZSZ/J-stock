@@ -7,6 +7,7 @@ import {
   type EntrySignalAnalysisHorizonStats,
   type EntrySignalAnalysisOptions,
   type EntrySignalAnalysisPrimaryHorizonValidation,
+  type EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking,
   type EntrySignalAnalysisPrimaryValidationSlice,
   type EntrySignalAnalysisRunRequest,
   type EntrySignalAnalysisTopDailyWindows,
@@ -126,6 +127,56 @@ function ValidationTable({
                   <td className="px-3 py-2 text-right">{formatPercent(slice.stats.p10_return_pct)}</td>
                   <td className="px-3 py-2 text-right">{formatPercent(slice.stats.p50_return_pct)}</td>
                   <td className="px-3 py-2 text-right">{formatPercent(slice.stats.p90_return_pct)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TailRobustnessRankingTable({
+  title,
+  rankings,
+}: {
+  title: string;
+  rankings: EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking[];
+}) {
+  return (
+    <div className={cardClassName}>
+      <label className={labelClassName}>{title}</label>
+      {rankings.length === 0 ? (
+        <div className="text-sm text-gray-500">No ranking rows.</div>
+      ) : (
+        <div className="max-h-[360px] overflow-auto rounded border border-gray-800">
+          <table className="min-w-full text-left text-xs text-gray-300">
+            <thead className="sticky top-0 bg-gray-950/95 text-gray-400">
+              <tr>
+                <th className="px-3 py-2 text-right">Rank</th>
+                <th className="px-3 py-2">Strategy</th>
+                <th className="px-3 py-2">Filter</th>
+                <th className="px-3 py-2 text-right">Trim5</th>
+                <th className="px-3 py-2 text-right">Median</th>
+                <th className="px-3 py-2 text-right">Top5</th>
+                <th className="px-3 py-2 text-right">Net w/o Top5</th>
+                <th className="px-3 py-2 text-right">P10</th>
+                <th className="px-3 py-2 text-right">Avg Loss</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rankings.map((ranking) => (
+                <tr key={ranking.group_key} className="border-t border-gray-800 align-top">
+                  <td className="px-3 py-2 text-right">{ranking.rank}</td>
+                  <td className="px-3 py-2 font-medium text-gray-200">{ranking.entry_strategy}</td>
+                  <td className="px-3 py-2">{ranking.entry_filter_name}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(ranking.stats.trimmed_mean_5pct_return_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(ranking.stats.median_return_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatRate(ranking.stats.top_5pct_contribution_ratio)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(ranking.stats.net_without_top_5pct_return_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(ranking.stats.p10_return_pct)}</td>
+                  <td className="px-3 py-2 text-right">{formatPercent(ranking.stats.avg_loss_pct)}</td>
                 </tr>
               ))}
             </tbody>
@@ -544,7 +595,7 @@ export default function EntrySignalAnalysis() {
                       <div className="text-sm font-semibold text-blue-300">
                         Detailed Validation {primaryValidation.primary_horizon_label}
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                         <div className={cardClassName}>
                           <label className={labelClassName}>Validation Summary</label>
                           <div className="space-y-1 text-sm text-gray-300">
@@ -568,6 +619,20 @@ export default function EntrySignalAnalysis() {
                           </div>
                         </div>
                         <div className={cardClassName}>
+                          <label className={labelClassName}>Tail Robustness</label>
+                          <div className="space-y-1 text-sm text-gray-300">
+                            <div>trimmed_1: {formatPercent(primaryValidation.overall.trimmed_mean_1pct_return_pct)}</div>
+                            <div>trimmed_5: {formatPercent(primaryValidation.overall.trimmed_mean_5pct_return_pct)}</div>
+                            <div>winsorized_1: {formatPercent(primaryValidation.overall.winsorized_mean_1pct_return_pct)}</div>
+                            <div>winsorized_5: {formatPercent(primaryValidation.overall.winsorized_mean_5pct_return_pct)}</div>
+                            <div>top_1_contrib: {formatRate(primaryValidation.overall.top_1pct_contribution_ratio)}</div>
+                            <div>top_5_contrib: {formatRate(primaryValidation.overall.top_5pct_contribution_ratio)}</div>
+                            <div>net_wo_top_5: {formatPercent(primaryValidation.overall.net_without_top_5pct_return_pct)}</div>
+                            <div>max: {formatPercent(primaryValidation.overall.max_return_pct)}</div>
+                            <div>min: {formatPercent(primaryValidation.overall.min_return_pct)}</div>
+                          </div>
+                        </div>
+                        <div className={cardClassName}>
                           <label className={labelClassName}>Regime / Strength Meta</label>
                           <div className="space-y-1 text-sm text-gray-300">
                             <div>strength_metric: {primaryValidation.signal_strength_metric ?? "-"}</div>
@@ -581,10 +646,16 @@ export default function EntrySignalAnalysis() {
 
                       <div className="grid grid-cols-1 gap-4">
                         <ValidationTable title="By Year" slices={primaryValidation.by_year ?? []} />
+                        <ValidationTable title="By Strategy" slices={primaryValidation.by_strategy ?? []} />
+                        <ValidationTable title="By Strategy Bucket" slices={primaryValidation.by_strategy_bucket ?? []} />
                         <ValidationTable title="By Entry Filter" slices={primaryValidation.by_entry_filter ?? []} />
                         <ValidationTable title="By Market Regime" slices={primaryValidation.by_market_regime ?? []} />
                         <ValidationTable title="By Signal Strength Bucket" slices={primaryValidation.by_signal_strength_bucket ?? []} />
                         <ValidationTable title="By Month" slices={primaryValidation.by_month ?? []} />
+                        <TailRobustnessRankingTable
+                          title={`${primaryValidation.primary_horizon_label} Tail Robustness Ranking`}
+                          rankings={primaryValidation.by_strategy_tail_robustness ?? []}
+                        />
                       </div>
                     </div>
                   ))}

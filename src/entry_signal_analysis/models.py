@@ -120,11 +120,34 @@ class EntrySignalAnalysisPrimaryStats(BaseModel):
     mean_minus_median_pct: float | None = None
     mean_gt_median: bool | None = None
     avg_loss_pct: float | None = None
+    trimmed_mean_1pct_return_pct: float | None = None
+    trimmed_mean_5pct_return_pct: float | None = None
+    winsorized_mean_1pct_return_pct: float | None = None
+    winsorized_mean_5pct_return_pct: float | None = None
     p10_return_pct: float | None = None
     p25_return_pct: float | None = None
     p50_return_pct: float | None = None
     p75_return_pct: float | None = None
     p90_return_pct: float | None = None
+    p01_return_pct: float | None = None
+    p05_return_pct: float | None = None
+    p95_return_pct: float | None = None
+    p99_return_pct: float | None = None
+    max_return_pct: float | None = None
+    min_return_pct: float | None = None
+    total_sum_return_pct: float | None = None
+    top_1pct_sum_return_pct: float | None = None
+    top_5pct_sum_return_pct: float | None = None
+    bottom_1pct_sum_return_pct: float | None = None
+    bottom_5pct_sum_return_pct: float | None = None
+    top_1pct_contribution_ratio: float | None = None
+    top_5pct_contribution_ratio: float | None = None
+    bottom_1pct_contribution_ratio: float | None = None
+    bottom_5pct_contribution_ratio: float | None = None
+    net_without_top_1pct_return_pct: float | None = None
+    net_without_top_5pct_return_pct: float | None = None
+    net_without_bottom_1pct_return_pct: float | None = None
+    net_without_bottom_5pct_return_pct: float | None = None
 
 
 class EntrySignalAnalysisPrimaryGroupSummary(BaseModel):
@@ -152,6 +175,24 @@ class EntrySignalAnalysisPrimaryStrategyRiskRanking(BaseModel):
     count_rank: int
 
 
+class EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking(BaseModel):
+    rank: int
+    group_key: str
+    group_label: str
+    entry_strategy: str
+    entry_filter_name: str
+    stats: EntrySignalAnalysisPrimaryStats
+    primary_score: int
+    secondary_score: int
+    trimmed_mean_5pct_rank: int
+    median_return_rank: int
+    top_5pct_contribution_rank: int
+    p10_rank: int
+    avg_loss_rank: int
+    count_rank: int
+    avg_return_rank: int
+
+
 class EntrySignalAnalysisPrimaryHorizonValidation(BaseModel):
     primary_horizon: int
     primary_horizon_label: str
@@ -164,10 +205,13 @@ class EntrySignalAnalysisPrimaryHorizonValidation(BaseModel):
     overall: EntrySignalAnalysisPrimaryStats
     by_year: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
     by_month: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
+    by_strategy: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
+    by_strategy_bucket: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
     by_market_regime: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
     by_entry_filter: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
     by_signal_strength_bucket: list[EntrySignalAnalysisPrimaryGroupSummary] = Field(default_factory=list)
     by_strategy_risk: list[EntrySignalAnalysisPrimaryStrategyRiskRanking] = Field(default_factory=list)
+    by_strategy_tail_robustness: list[EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking] = Field(default_factory=list)
 
 
 class EntrySignalAnalysisTopDailyWindows(BaseModel):

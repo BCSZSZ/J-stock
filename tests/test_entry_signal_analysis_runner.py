@@ -168,12 +168,21 @@ def test_run_entry_signal_analysis_includes_primary_horizon_validation(tmp_path,
     assert validation.overall.mean_gt_median is True
     assert validation.overall.avg_loss_pct == pytest.approx(-1.0)
     assert validation.overall.p50_return_pct == pytest.approx(3.0)
+    assert validation.overall.trimmed_mean_5pct_return_pct == pytest.approx(3.0)
+    assert validation.overall.winsorized_mean_5pct_return_pct == pytest.approx(3.0)
     assert [item.group_key for item in validation.by_year] == ["2025", "2026"]
     assert [item.group_key for item in validation.by_month] == ["2025-01", "2025-02", "2026-01"]
+    assert [item.group_key for item in validation.by_strategy] == ["FakeEntry"]
     assert [item.group_key for item in validation.by_entry_filter] == ["atr_high", "atr_low"]
     assert validation.signal_strength_metric == "rank_score"
     assert validation.signal_strength_bucket_method == "quantile_4"
     assert [item.group_key for item in validation.by_signal_strength_bucket] == ["Q1", "Q2", "Q3", "Q4"]
+    assert [item.group_key for item in validation.by_strategy_bucket] == [
+        "FakeEntry::Q1",
+        "FakeEntry::Q2",
+        "FakeEntry::Q3",
+        "FakeEntry::Q4",
+    ]
     assert [item.group_key for item in validation.by_market_regime] == ["bull", "sideways", "bear"]
     assert validation.by_market_regime[0].stats.count == 1
     assert validation.by_market_regime[1].stats.count == 1
@@ -181,9 +190,15 @@ def test_run_entry_signal_analysis_includes_primary_horizon_validation(tmp_path,
     assert "Detailed Horizon Validations" in report_text
     assert "## Top Daily Windows" in report_text
     assert "selected_3d_avg_return_pct" in report_text
+    assert "By Strategy" in report_text
+    assert "By Strategy Bucket" in report_text
+    assert "3d Tail Metrics Detail" in report_text
+    assert "| p01_return_pct |" in report_text
+    assert "| bottom_5pct_contribution_ratio |" in report_text
     assert "primary_horizon_validation" in summary_text
     assert "primary_horizon_validations" in summary_text
     assert "top_daily_windows_by_horizon" in summary_text
+    assert "by_strategy_tail_robustness" in summary_text
 
 
 def test_run_entry_signal_analysis_includes_multiple_primary_horizon_validations(tmp_path, monkeypatch) -> None:
@@ -237,6 +252,9 @@ def test_run_entry_signal_analysis_includes_multiple_primary_horizon_validations
     assert "### 3d" in report_text
     assert "### 5d" in report_text
     assert "### 7d" in report_text
+    assert "#### 3d Tail Metrics Detail" in report_text
+    assert "#### 5d Tail Metrics Detail" in report_text
+    assert "#### 7d Tail Metrics Detail" in report_text
     assert "selected_3d_avg_return_pct" in report_text
     assert "selected_5d_avg_return_pct" in report_text
     assert "selected_7d_avg_return_pct" in report_text
@@ -333,3 +351,77 @@ def test_run_entry_signal_analysis_includes_primary_strategy_risk_ranking(tmp_pa
     assert rankings[0].stats.avg_loss_pct == pytest.approx(-0.8)
     assert "Strategy Risk Ranking" in report_text
     assert "by_strategy_risk" in summary_text
+
+
+def test_run_entry_signal_analysis_includes_tail_robustness_ranking(tmp_path, monkeypatch) -> None:
+    import src.entry_signal_analysis.runner as runner
+
+    candidates = pd.DataFrame(
+        {
+            "entry_strategy": [
+                "StableEntry",
+                "StableEntry",
+                "StableEntry",
+                "StableEntry",
+                "ExplosiveEntry",
+                "ExplosiveEntry",
+                "ExplosiveEntry",
+                "ExplosiveEntry",
+            ],
+            "entry_filter_name": ["production"] * 8,
+            "signal_date": [
+                "2026-01-05",
+                "2026-01-06",
+                "2026-01-07",
+                "2026-01-08",
+                "2026-01-05",
+                "2026-01-06",
+                "2026-01-07",
+                "2026-01-08",
+            ],
+            "ticker": [
+                "7203",
+                "6758",
+                "6501",
+                "8306",
+                "7203",
+                "6758",
+                "6501",
+                "8306",
+            ],
+            "selected": [True] * 8,
+            "positive_rank_score": [True] * 8,
+            "tail_guard_limit": [12] * 8,
+            "forward_return_5d_pct": [1.8, 1.5, 1.2, 0.8, -3.0, -2.0, 1.0, 30.0],
+            "forward_diff_5d": [1.8, 1.5, 1.2, 0.8, -3.0, -2.0, 1.0, 30.0],
+        }
+    )
+
+    monkeypatch.setattr(runner, "scan_entry_signal_candidates", lambda _request: candidates)
+    monkeypatch.setattr(
+        runner,
+        "resolve_effective_entry_filter_for_request",
+        lambda _request: ("off", ["production"]),
+    )
+    monkeypatch.setattr(runner, "_load_topix_benchmark_frame", lambda _data_root: None)
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["StableEntry", "ExplosiveEntry"],
+        tickers=["7203", "6758", "6501", "8306"],
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        horizons=[5],
+        primary_horizon=5,
+        output_dir=str(tmp_path),
+    )
+
+    summary = run_entry_signal_analysis(request)
+    report_text = Path(summary.artifacts.report_md).read_text(encoding="utf-8")
+    summary_text = Path(summary.artifacts.summary_json).read_text(encoding="utf-8")
+    rankings = summary.primary_horizon_validation.by_strategy_tail_robustness
+
+    assert [item.entry_strategy for item in rankings] == ["StableEntry", "ExplosiveEntry"]
+    assert rankings[0].stats.trimmed_mean_5pct_return_pct > rankings[1].stats.trimmed_mean_5pct_return_pct
+    assert rankings[0].stats.top_5pct_contribution_ratio < rankings[1].stats.top_5pct_contribution_ratio
+    assert "Tail Robustness Ranking" in report_text
+    assert "by_strategy_tail_robustness" in summary_text

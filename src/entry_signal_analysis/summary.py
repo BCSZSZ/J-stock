@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from src.entry_signal_analysis.models import (
@@ -7,6 +9,7 @@ from src.entry_signal_analysis.models import (
     EntrySignalAnalysisPrimaryHorizonValidation,
     EntrySignalAnalysisPrimaryStats,
     EntrySignalAnalysisPrimaryStrategyRiskRanking,
+    EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking,
     EntrySignalAnalysisTopDailyWindows,
     SignalStrengthMetric,
 )
@@ -19,6 +22,16 @@ MARKET_REGIME_SOURCE = "TOPIX"
 SIGNAL_STRENGTH_BUCKET_LIMIT = 5
 PRIMARY_RISK_RANK_COLUMNS = ("avg_loss_rank", "p10_rank", "p25_rank")
 SECONDARY_RISK_RANK_COLUMNS = ("median_return_rank", "win_rate_rank", "count_rank")
+TAIL_ROBUST_PRIMARY_RANK_COLUMNS = (
+    "trimmed_mean_5pct_rank",
+    "median_return_rank",
+    "top_5pct_contribution_rank",
+    "p10_rank",
+    "avg_loss_rank",
+)
+TAIL_ROBUST_SECONDARY_RANK_COLUMNS = ("count_rank", "avg_return_rank")
+TAIL_ROBUST_PCTS = (0.01, 0.05)
+CONTRIBUTION_EPSILON = 1e-12
 
 
 def _empty_float_series() -> pd.Series:
@@ -43,8 +56,110 @@ def _boolean_mask(series: pd.Series) -> pd.Series:
     return series.astype(str).str.lower().eq("true")
 
 
+def _tail_sample_count(count: int, tail_pct: float) -> int:
+    if count <= 0:
+        return 0
+    return max(1, int(math.ceil(count * tail_pct)))
+
+
+def _trimmed_mean(values: pd.Series, tail_pct: float) -> float | None:
+    count = int(len(values))
+    if count <= 0:
+        return None
+
+    k = _tail_sample_count(count, tail_pct)
+    if count <= k * 2:
+        return None
+
+    sorted_values = values.sort_values(ignore_index=True)
+    trimmed = sorted_values.iloc[k : count - k]
+    if trimmed.empty:
+        return None
+    return float(trimmed.mean())
+
+
+def _winsorized_mean(values: pd.Series, tail_pct: float) -> float | None:
+    count = int(len(values))
+    if count <= 0:
+        return None
+
+    k = _tail_sample_count(count, tail_pct)
+    if count <= k * 2:
+        return float(values.mean())
+
+    sorted_values = values.sort_values(ignore_index=True)
+    lower_boundary = float(sorted_values.iloc[k])
+    upper_boundary = float(sorted_values.iloc[count - k - 1])
+    winsorized = sorted_values.clip(lower=lower_boundary, upper=upper_boundary)
+    return float(winsorized.mean())
+
+
+def _contribution_ratio(component_sum: float, total_sum: float) -> float | None:
+    if abs(total_sum) <= CONTRIBUTION_EPSILON:
+        return None
+    return float(component_sum / total_sum)
+
+
+def _build_tail_robust_metrics(values: pd.Series) -> dict[str, float | None]:
+    valid = pd.to_numeric(values, errors="coerce").dropna().astype(float)
+    count = int(len(valid))
+    if count <= 0:
+        return {
+            "trimmed_mean_1pct_return_pct": None,
+            "trimmed_mean_5pct_return_pct": None,
+            "winsorized_mean_1pct_return_pct": None,
+            "winsorized_mean_5pct_return_pct": None,
+            "p01_return_pct": None,
+            "p05_return_pct": None,
+            "p95_return_pct": None,
+            "p99_return_pct": None,
+            "max_return_pct": None,
+            "min_return_pct": None,
+            "total_sum_return_pct": None,
+            "top_1pct_sum_return_pct": None,
+            "top_5pct_sum_return_pct": None,
+            "bottom_1pct_sum_return_pct": None,
+            "bottom_5pct_sum_return_pct": None,
+            "top_1pct_contribution_ratio": None,
+            "top_5pct_contribution_ratio": None,
+            "bottom_1pct_contribution_ratio": None,
+            "bottom_5pct_contribution_ratio": None,
+            "net_without_top_1pct_return_pct": None,
+            "net_without_top_5pct_return_pct": None,
+            "net_without_bottom_1pct_return_pct": None,
+            "net_without_bottom_5pct_return_pct": None,
+        }
+
+    total_sum = float(valid.sum())
+    metrics: dict[str, float | None] = {
+        "p01_return_pct": float(valid.quantile(0.01)),
+        "p05_return_pct": float(valid.quantile(0.05)),
+        "p95_return_pct": float(valid.quantile(0.95)),
+        "p99_return_pct": float(valid.quantile(0.99)),
+        "max_return_pct": float(valid.max()),
+        "min_return_pct": float(valid.min()),
+        "total_sum_return_pct": total_sum,
+    }
+
+    for tail_pct in TAIL_ROBUST_PCTS:
+        pct_label = f"{int(tail_pct * 100)}pct"
+        k = _tail_sample_count(count, tail_pct)
+        top_sum = float(valid.nlargest(k).sum())
+        bottom_sum = float(valid.nsmallest(k).sum())
+        metrics[f"trimmed_mean_{pct_label}_return_pct"] = _trimmed_mean(valid, tail_pct)
+        metrics[f"winsorized_mean_{pct_label}_return_pct"] = _winsorized_mean(valid, tail_pct)
+        metrics[f"top_{pct_label}_sum_return_pct"] = top_sum
+        metrics[f"bottom_{pct_label}_sum_return_pct"] = bottom_sum
+        metrics[f"top_{pct_label}_contribution_ratio"] = _contribution_ratio(top_sum, total_sum)
+        metrics[f"bottom_{pct_label}_contribution_ratio"] = _contribution_ratio(bottom_sum, total_sum)
+        metrics[f"net_without_top_{pct_label}_return_pct"] = float(total_sum - top_sum)
+        metrics[f"net_without_bottom_{pct_label}_return_pct"] = float(total_sum - bottom_sum)
+
+    return metrics
+
+
 def _build_primary_stats_from_series(values: pd.Series) -> EntrySignalAnalysisPrimaryStats:
-    valid = pd.to_numeric(values, errors="coerce").dropna()
+    valid = pd.Series(pd.to_numeric(values, errors="coerce"), dtype=float).dropna()
     count = int(len(valid))
     wins = int((valid > 0).sum()) if count else 0
     losses = int((valid < 0).sum()) if count else 0
@@ -58,6 +173,7 @@ def _build_primary_stats_from_series(values: pd.Series) -> EntrySignalAnalysisPr
         else None
     )
     avg_loss_pct = float(valid[valid < 0].mean()) if losses else None
+    tail_robust_metrics = _build_tail_robust_metrics(valid)
 
     return EntrySignalAnalysisPrimaryStats(
         count=count,
@@ -75,6 +191,7 @@ def _build_primary_stats_from_series(values: pd.Series) -> EntrySignalAnalysisPr
         p50_return_pct=float(valid.quantile(0.50)) if count else None,
         p75_return_pct=float(valid.quantile(0.75)) if count else None,
         p90_return_pct=float(valid.quantile(0.90)) if count else None,
+        **tail_robust_metrics,
     )
 
 
@@ -125,6 +242,14 @@ def _rank_descending(values: pd.Series) -> pd.Series:
     return ranked.astype(int)
 
 
+def _rank_ascending(values: pd.Series) -> pd.Series:
+    numeric = pd.to_numeric(values, errors="coerce")
+    ranked = numeric.rank(ascending=True, method="min", na_option="bottom")
+    if ranked.isna().any():
+        ranked = ranked.fillna(len(values))
+    return ranked.astype(int)
+
+
 def _build_strategy_group_label(entry_strategy: str, entry_filter_name: str) -> str:
     return f"{entry_strategy} [{entry_filter_name}]"
 
@@ -167,6 +292,16 @@ def _build_entry_filter_summaries(frame: pd.DataFrame) -> list[EntrySignalAnalys
     groups = [
         (_stringify_group_value(filter_name), group)
         for filter_name, group in frame.groupby("entry_filter_name", sort=True, dropna=False)
+    ]
+    return _build_group_summaries(groups)
+
+
+def _build_strategy_summaries(frame: pd.DataFrame) -> list[EntrySignalAnalysisPrimaryGroupSummary]:
+    if frame.empty or "entry_strategy" not in frame.columns:
+        return []
+    groups = [
+        (_stringify_group_value(entry_strategy), group)
+        for entry_strategy, group in frame.groupby("entry_strategy", sort=True, dropna=False)
     ]
     return _build_group_summaries(groups)
 
@@ -345,18 +480,26 @@ def _resolve_signal_strength_metric(frame: pd.DataFrame) -> SignalStrengthMetric
     return None
 
 
-def _build_signal_strength_summaries(
+def _signal_strength_bucket_label(bucket_key: str, bucket_count: int) -> str:
+    if bucket_key == "Q1":
+        return f"{bucket_key} weakest"
+    if bucket_key == f"Q{bucket_count}":
+        return f"{bucket_key} strongest"
+    return bucket_key
+
+
+def _prepare_signal_strength_frame(
     frame: pd.DataFrame,
-) -> tuple[SignalStrengthMetric | None, str | None, list[EntrySignalAnalysisPrimaryGroupSummary]]:
+) -> tuple[SignalStrengthMetric | None, str | None, pd.DataFrame, int]:
     metric = _resolve_signal_strength_metric(frame)
     if metric is None:
-        return None, None, []
+        return None, None, pd.DataFrame(), 0
 
     working = frame.copy()
     working["signal_strength_value"] = pd.to_numeric(working[metric], errors="coerce")
     working = working[working["signal_strength_value"].notna()].copy()
     if working.empty:
-        return metric, None, []
+        return metric, None, pd.DataFrame(), 0
 
     bucket_count = min(SIGNAL_STRENGTH_BUCKET_LIMIT, int(working["signal_strength_value"].nunique()))
     if bucket_count <= 1:
@@ -378,28 +521,154 @@ def _build_signal_strength_summaries(
             )
             bucket_count = int(working["signal_strength_bucket"].dropna().nunique())
 
+    working["signal_strength_bucket_label"] = working["signal_strength_bucket"].map(
+        lambda value: _signal_strength_bucket_label(str(value), bucket_count) if pd.notna(value) else None
+    )
+    return metric, f"quantile_{bucket_count}", working, bucket_count
+
+
+def _build_signal_strength_summaries(
+    frame: pd.DataFrame,
+) -> tuple[SignalStrengthMetric | None, str | None, list[EntrySignalAnalysisPrimaryGroupSummary]]:
+    metric, bucket_method, working, bucket_count = _prepare_signal_strength_frame(frame)
+    if metric is None or working.empty:
+        return metric, bucket_method, []
+
     summaries: list[EntrySignalAnalysisPrimaryGroupSummary] = []
     for bucket_index in range(bucket_count):
         bucket_key = f"Q{bucket_index + 1}"
         group = working[working["signal_strength_bucket"] == bucket_key]
         if group.empty:
             continue
-        label = bucket_key
-        if bucket_index == 0:
-            label = f"{bucket_key} weakest"
-        elif bucket_index == bucket_count - 1:
-            label = f"{bucket_key} strongest"
         summaries.append(
             EntrySignalAnalysisPrimaryGroupSummary(
                 group_key=bucket_key,
-                group_label=label,
+                group_label=_signal_strength_bucket_label(bucket_key, bucket_count),
                 stats=_build_primary_stats_from_series(group["primary_return_pct"]),
                 strength_min=float(group["signal_strength_value"].min()),
                 strength_max=float(group["signal_strength_value"].max()),
             )
         )
 
-    return metric, f"quantile_{bucket_count}", summaries
+    return metric, bucket_method, summaries
+
+
+def _build_strategy_bucket_summaries(
+    frame: pd.DataFrame,
+) -> tuple[SignalStrengthMetric | None, str | None, list[EntrySignalAnalysisPrimaryGroupSummary]]:
+    metric, bucket_method, working, bucket_count = _prepare_signal_strength_frame(frame)
+    if metric is None or working.empty or "entry_strategy" not in working.columns:
+        return metric, bucket_method, []
+
+    summaries: list[EntrySignalAnalysisPrimaryGroupSummary] = []
+    for keys, group in working.groupby(["entry_strategy", "signal_strength_bucket"], sort=True, dropna=False):
+        entry_strategy, bucket_key = keys
+        if pd.isna(bucket_key):
+            continue
+        normalized_strategy = _stringify_group_value(entry_strategy)
+        normalized_bucket = str(bucket_key)
+        bucket_label = _signal_strength_bucket_label(normalized_bucket, bucket_count)
+        summaries.append(
+            EntrySignalAnalysisPrimaryGroupSummary(
+                group_key=f"{normalized_strategy}::{normalized_bucket}",
+                group_label=f"{normalized_strategy} [{bucket_label}]",
+                stats=_build_primary_stats_from_series(group["primary_return_pct"]),
+                strength_min=float(group["signal_strength_value"].min()),
+                strength_max=float(group["signal_strength_value"].max()),
+            )
+        )
+    return metric, bucket_method, summaries
+
+
+def build_primary_strategy_tail_robustness_ranking(
+    frame: pd.DataFrame,
+    primary_horizon: int,
+) -> list[EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking]:
+    selected = _prepare_primary_selected_frame(frame, primary_horizon)
+    if selected.empty or "entry_strategy" not in selected.columns:
+        return []
+
+    if "entry_filter_name" not in selected.columns:
+        selected = selected.copy()
+        selected["entry_filter_name"] = "unknown"
+
+    rows: list[dict[str, object]] = []
+    for keys, group in selected.groupby(["entry_strategy", "entry_filter_name"], dropna=False):
+        entry_strategy, entry_filter_name = keys
+        normalized_strategy = _stringify_group_value(entry_strategy)
+        normalized_filter = _stringify_group_value(entry_filter_name)
+        stats = _build_primary_stats_from_series(group["primary_return_pct"])
+        rows.append(
+            {
+                "group_key": f"{normalized_strategy}::{normalized_filter}",
+                "group_label": _build_strategy_group_label(normalized_strategy, normalized_filter),
+                "entry_strategy": normalized_strategy,
+                "entry_filter_name": normalized_filter,
+                "stats": stats,
+                "trimmed_mean_5pct_rank_value": stats.trimmed_mean_5pct_return_pct,
+                "median_rank_value": stats.median_return_pct,
+                "top_5pct_contribution_rank_value": stats.top_5pct_contribution_ratio,
+                "p10_rank_value": stats.p10_return_pct,
+                "avg_loss_rank_value": _avg_loss_value_for_ranking(stats),
+                "count_rank_value": stats.count,
+                "avg_return_rank_value": stats.avg_return_pct,
+            }
+        )
+
+    if not rows:
+        return []
+
+    ranking_frame = pd.DataFrame(rows)
+    ranking_frame["trimmed_mean_5pct_rank"] = _rank_descending(ranking_frame["trimmed_mean_5pct_rank_value"])
+    ranking_frame["median_return_rank"] = _rank_descending(ranking_frame["median_rank_value"])
+    ranking_frame["top_5pct_contribution_rank"] = _rank_ascending(ranking_frame["top_5pct_contribution_rank_value"])
+    ranking_frame["p10_rank"] = _rank_descending(ranking_frame["p10_rank_value"])
+    ranking_frame["avg_loss_rank"] = _rank_descending(ranking_frame["avg_loss_rank_value"])
+    ranking_frame["count_rank"] = _rank_descending(ranking_frame["count_rank_value"])
+    ranking_frame["avg_return_rank"] = _rank_descending(ranking_frame["avg_return_rank_value"])
+    ranking_frame["primary_score"] = ranking_frame[list(TAIL_ROBUST_PRIMARY_RANK_COLUMNS)].sum(axis=1)
+    ranking_frame["secondary_score"] = ranking_frame[list(TAIL_ROBUST_SECONDARY_RANK_COLUMNS)].sum(axis=1)
+    ranking_frame = ranking_frame.sort_values(
+        [
+            "primary_score",
+            "secondary_score",
+            "trimmed_mean_5pct_rank_value",
+            "median_rank_value",
+            "top_5pct_contribution_rank_value",
+            "p10_rank_value",
+            "avg_loss_rank_value",
+            "count_rank_value",
+            "avg_return_rank_value",
+            "entry_strategy",
+            "entry_filter_name",
+        ],
+        ascending=[True, True, False, False, True, False, False, False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    ranking_frame["rank"] = range(1, len(ranking_frame) + 1)
+
+    rankings: list[EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking] = []
+    for row in ranking_frame.to_dict(orient="records"):
+        rankings.append(
+            EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking(
+                rank=int(row["rank"]),
+                group_key=str(row["group_key"]),
+                group_label=str(row["group_label"]),
+                entry_strategy=str(row["entry_strategy"]),
+                entry_filter_name=str(row["entry_filter_name"]),
+                stats=row["stats"],
+                primary_score=int(row["primary_score"]),
+                secondary_score=int(row["secondary_score"]),
+                trimmed_mean_5pct_rank=int(row["trimmed_mean_5pct_rank"]),
+                median_return_rank=int(row["median_return_rank"]),
+                top_5pct_contribution_rank=int(row["top_5pct_contribution_rank"]),
+                p10_rank=int(row["p10_rank"]),
+                avg_loss_rank=int(row["avg_loss_rank"]),
+                count_rank=int(row["count_rank"]),
+                avg_return_rank=int(row["avg_return_rank"]),
+            )
+        )
+    return rankings
 
 
 def _build_horizon_stats(frame: pd.DataFrame, horizons: list[int]) -> dict[str, dict[str, object]]:
@@ -409,20 +678,14 @@ def _build_horizon_stats(frame: pd.DataFrame, horizons: list[int]) -> dict[str, 
         diff_column = f"forward_diff_{horizon}d"
         valid = _numeric_series(frame, column)
         diff_values = _numeric_series(frame, diff_column)
-        wins = int((valid > 0).sum())
-        losses = int((valid < 0).sum())
-        flats = int((valid == 0).sum())
-        count = int(len(valid))
-        stats[f"{horizon}d"] = {
-            "count": count,
-            "wins": wins,
-            "losses": losses,
-            "flats": flats,
-            "win_rate": float(wins / count) if count else 0.0,
-            "avg_return_pct": float(valid.mean()) if count else 0.0,
-            "median_return_pct": float(valid.median()) if count else 0.0,
-            "avg_price_diff": float(diff_values.mean()) if len(diff_values) else 0.0,
-        }
+        primary_stats = _build_primary_stats_from_series(valid)
+        horizon_stats = primary_stats.model_dump(mode="json")
+        if primary_stats.count <= 0:
+            horizon_stats["win_rate"] = 0.0
+            horizon_stats["avg_return_pct"] = 0.0
+            horizon_stats["median_return_pct"] = 0.0
+        horizon_stats["avg_price_diff"] = float(diff_values.mean()) if len(diff_values) else 0.0
+        stats[f"{horizon}d"] = horizon_stats
     return stats
 
 
@@ -491,9 +754,11 @@ def build_primary_horizon_validation(
 ) -> EntrySignalAnalysisPrimaryHorizonValidation:
     selected = _prepare_primary_selected_frame(frame, primary_horizon)
     by_strategy_risk = build_primary_strategy_risk_ranking(frame, primary_horizon)
+    by_strategy_tail_robustness = build_primary_strategy_tail_robustness_ranking(frame, primary_horizon)
     signal_strength_metric, bucket_method, by_signal_strength_bucket = (
         _build_signal_strength_summaries(selected)
     )
+    _, _, by_strategy_bucket = _build_strategy_bucket_summaries(selected)
     by_market_regime, market_regime_status, market_regime_definition = (
         _build_market_regime_summaries(selected, benchmark_frame)
     )
@@ -510,10 +775,13 @@ def build_primary_horizon_validation(
         overall=_build_primary_stats_from_series(selected["primary_return_pct"]),
         by_year=_build_year_summaries(selected),
         by_month=_build_month_summaries(selected),
+        by_strategy=_build_strategy_summaries(selected),
+        by_strategy_bucket=by_strategy_bucket,
         by_market_regime=by_market_regime,
         by_entry_filter=_build_entry_filter_summaries(selected),
         by_signal_strength_bucket=by_signal_strength_bucket,
         by_strategy_risk=by_strategy_risk,
+        by_strategy_tail_robustness=by_strategy_tail_robustness,
     )
 
 

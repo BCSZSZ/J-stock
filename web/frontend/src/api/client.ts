@@ -127,6 +127,29 @@ export type EntrySignalAnalysisHorizonStats = {
   p50_return_pct?: number | null;
   p75_return_pct?: number | null;
   p90_return_pct?: number | null;
+  trimmed_mean_1pct_return_pct?: number | null;
+  trimmed_mean_5pct_return_pct?: number | null;
+  winsorized_mean_1pct_return_pct?: number | null;
+  winsorized_mean_5pct_return_pct?: number | null;
+  p01_return_pct?: number | null;
+  p05_return_pct?: number | null;
+  p95_return_pct?: number | null;
+  p99_return_pct?: number | null;
+  max_return_pct?: number | null;
+  min_return_pct?: number | null;
+  total_sum_return_pct?: number | null;
+  top_1pct_sum_return_pct?: number | null;
+  top_5pct_sum_return_pct?: number | null;
+  bottom_1pct_sum_return_pct?: number | null;
+  bottom_5pct_sum_return_pct?: number | null;
+  top_1pct_contribution_ratio?: number | null;
+  top_5pct_contribution_ratio?: number | null;
+  bottom_1pct_contribution_ratio?: number | null;
+  bottom_5pct_contribution_ratio?: number | null;
+  net_without_top_1pct_return_pct?: number | null;
+  net_without_top_5pct_return_pct?: number | null;
+  net_without_bottom_1pct_return_pct?: number | null;
+  net_without_bottom_5pct_return_pct?: number | null;
   avg_price_diff?: number | null;
   [key: string]: unknown;
 };
@@ -137,6 +160,24 @@ export type EntrySignalAnalysisPrimaryValidationSlice = {
   stats: EntrySignalAnalysisHorizonStats;
   strength_min?: number | null;
   strength_max?: number | null;
+};
+
+export type EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking = {
+  rank: number;
+  group_key: string;
+  group_label: string;
+  entry_strategy: string;
+  entry_filter_name: string;
+  stats: EntrySignalAnalysisHorizonStats;
+  primary_score: number;
+  secondary_score: number;
+  trimmed_mean_5pct_rank: number;
+  median_return_rank: number;
+  top_5pct_contribution_rank: number;
+  p10_rank: number;
+  avg_loss_rank: number;
+  count_rank: number;
+  avg_return_rank: number;
 };
 
 export type EntrySignalAnalysisPrimaryHorizonValidation = {
@@ -151,10 +192,13 @@ export type EntrySignalAnalysisPrimaryHorizonValidation = {
   overall: EntrySignalAnalysisHorizonStats;
   by_year: EntrySignalAnalysisPrimaryValidationSlice[];
   by_month: EntrySignalAnalysisPrimaryValidationSlice[];
+  by_strategy?: EntrySignalAnalysisPrimaryValidationSlice[];
+  by_strategy_bucket?: EntrySignalAnalysisPrimaryValidationSlice[];
   by_market_regime: EntrySignalAnalysisPrimaryValidationSlice[];
   by_entry_filter: EntrySignalAnalysisPrimaryValidationSlice[];
   by_signal_strength_bucket: EntrySignalAnalysisPrimaryValidationSlice[];
   by_strategy_risk?: Array<Record<string, unknown>>;
+  by_strategy_tail_robustness?: EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking[];
 };
 
 export type EntrySignalAnalysisTopDailyWindows = {
