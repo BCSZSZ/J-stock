@@ -29,6 +29,7 @@ After approval, hand execution to `evaluation-batch-executor`.
 - The generator owns worker planning. Split jobs by worker here, not in the runner or executor.
 - Emit worker-ready jobs. Each manifest `jobs[]` entry must already be one executable worker unit.
 - Do not rely on executor or runner to reinterpret `num_workers`, repartition `exit_strategies`, or rebalance jobs.
+- When presenting a manifest for approval, always report both worker-job counts and underlying evaluation-point counts. If one worker bundles multiple `exit_strategies`, state that explicitly instead of conflating job count with point count.
 - Overlay defaults to OFF. Never add `--enable-overlay` unless the user explicitly asks for overlay. If the user wants overlay comparison, show both off/on commands and get approval.
 - Keep manifests minimal but WebUI-equivalent: include required flags, user-requested overrides, and WebUI defaults that would change behavior if omitted. Omit a default only when the CLI/config would infer the same value, and mention important omitted defaults in the explanation.
 - If command semantics are ambiguous, ask concise clarifying questions before building commands. Do not invent strategy names, report files, years, or output paths.
@@ -147,6 +148,7 @@ Before running, respond with:
 
 **Explanation**
 - <why these jobs were split this way>
+- <worker-job counts and evaluation-point counts by relevant grid/job_group; if workers bundle multiple exit_strategies, say so explicitly>
 - <which WebUI defaults were pinned>
 - <which defaults were intentionally omitted>
 - <generated file: tmp/evaluationtmp.json>
@@ -157,26 +159,3 @@ Please approve before I run this manifest.
 Do not call terminal tools for the backtest commands until the user approves.
 
 Generating or overwriting `tmp/evaluationtmp.json` is allowed during this skill. Executing that manifest is not.
-
-```
-
-## Approval Response Format
-
-Before running, respond with:
-
-````markdown
-**Commands**
-```powershell
-<command 1>
-<command 2>
-```
-
-**Explanation**
-- <why these flags are included>
-- <what defaults are intentionally omitted>
-- <where outputs are expected>
-
-Please approve before I run these.
-````
-
-Do not call terminal tools for the backtest commands until the user approves.

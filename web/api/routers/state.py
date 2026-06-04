@@ -377,36 +377,82 @@ def _load_topix_close_series() -> CloseSeries | None:
     return _load_close_series_from_path(_benchmark_path(TOPIX_BENCHMARK_FILENAME))
 
 
-def _load_latest_close(ticker: str) -> float | None:
+def _load_latest_close_point(ticker: str) -> tuple[str | None, float] | None:
     close_series = _load_close_series(ticker)
-    if close_series is None or not close_series.closes:
-        path = _features_path(ticker)
-        if not path.exists():
-            return None
-        try:
-            df = pd.read_parquet(path, columns=["Close"])
-        except Exception:
-            return None
-        if df.empty or "Close" not in df.columns:
-            return None
-        latest_close = df["Close"].iloc[-1]
-        if pd.isna(latest_close):
-            return None
-        return float(latest_close)
-    return close_series.closes[-1]
+    if close_series is not None and close_series.dates and close_series.closes:
+        return close_series.dates[-1], close_series.closes[-1]
+
+    path = _features_path(ticker)
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_parquet(path, columns=["Close"])
+    except Exception:
+        return None
+    if df.empty or "Close" not in df.columns:
+        return None
+    latest_close = df["Close"].iloc[-1]
+    if pd.isna(latest_close):
+        return None
+    latest_date: str | None = None
+    if not isinstance(df.index, pd.RangeIndex):
+        parsed_date = pd.to_datetime(df.index[-1], errors="coerce")
+        if not pd.isna(parsed_date):
+            latest_date = parsed_date.strftime("%Y-%m-%d")
+    return latest_date, float(latest_close)
 
 
-def _lookup_close_on_or_before(
+def _lookup_close_point_on_or_before(
     close_series: CloseSeries | None,
     target_date: str,
-) -> float | None:
+) -> tuple[str, float] | None:
     if close_series is None or not close_series.dates:
         return None
 
     target_index = bisect_right(close_series.dates, target_date) - 1
     if target_index < 0:
         return None
-    return close_series.closes[target_index]
+    return close_series.dates[target_index], close_series.closes[target_index]
+
+
+def _lookup_close_on_or_before(
+    close_series: CloseSeries | None,
+    target_date: str,
+) -> float | None:
+    close_point = _lookup_close_point_on_or_before(close_series, target_date)
+    if close_point is None:
+        return None
+
+    _, close = close_point
+    return close
+
+
+def _lookup_position_close_on_or_before(
+    close_series: CloseSeries | None,
+    target_date: str,
+    entry_date: str,
+) -> float | None:
+    close_point = _lookup_close_point_on_or_before(close_series, target_date)
+    if close_point is None:
+        return None
+
+    resolved_date, resolved_close = close_point
+    if resolved_date < entry_date:
+        return None
+    return resolved_close
+
+
+def _latest_close_for_position(
+    close_point: tuple[str | None, float] | None,
+    entry_date: str,
+) -> float | None:
+    if close_point is None:
+        return None
+
+    resolved_date, resolved_close = close_point
+    if resolved_date is not None and resolved_date < entry_date:
+        return None
+    return resolved_close
 
 
 def _build_base_state(
@@ -495,9 +541,10 @@ def _build_current_prices_for_snapshot(
         for position in group.positions:
             if position.ticker in current_prices:
                 continue
-            resolved_price = _lookup_close_on_or_before(
+            resolved_price = _lookup_position_close_on_or_before(
                 price_series_by_ticker.get(position.ticker),
                 target_date,
+                str(position.entry_date),
             )
             if resolved_price is not None:
                 current_prices[position.ticker] = resolved_price
@@ -864,18 +911,12 @@ def _enrich_portfolio_history_points(
         for point in points
     ]
 
-    latest_close = df["Close"].iloc[-1]
-    if pd.isna(latest_close):
-        return None
-    return float(latest_close)
-
-
 @router.get("/portfolio", response_model=PortfolioResponse)
 def get_portfolio() -> PortfolioResponse:
     cfg = get_production_config()
     state_data = _load_state_data(cfg.state_file)
     cash_history = CashHistoryManager(cfg.cash_history_file)
-    latest_close_cache: dict[str, float | None] = {}
+    latest_close_cache: dict[str, tuple[str | None, float] | None] = {}
 
     groups: list[StrategyGroupOut] = []
     group_items = _normalize_group_items(state_data.get("strategy_groups", []))
@@ -886,13 +927,15 @@ def get_portfolio() -> PortfolioResponse:
             if not isinstance(p, dict):
                 continue
             ticker = str(p["ticker"])
-            latest_close = latest_close_cache.get(ticker)
-            if ticker not in latest_close_cache:
-                latest_close = _load_latest_close(ticker)
-                latest_close_cache[ticker] = latest_close
-
             quantity = int(p["quantity"])
             entry_price = float(p["entry_price"])
+            entry_date = str(p["entry_date"])
+            latest_close_point = latest_close_cache.get(ticker)
+            if ticker not in latest_close_cache:
+                latest_close_point = _load_latest_close_point(ticker)
+                latest_close_cache[ticker] = latest_close_point
+
+            latest_close = _latest_close_for_position(latest_close_point, entry_date)
             effective_price = latest_close if latest_close is not None else entry_price
             position_current_value = float(quantity * effective_price)
             holdings_value += position_current_value
@@ -901,7 +944,7 @@ def get_portfolio() -> PortfolioResponse:
                     ticker=ticker,
                     quantity=quantity,
                     entry_price=entry_price,
-                    entry_date=str(p["entry_date"]),
+                    entry_date=entry_date,
                     entry_score=float(p.get("entry_score", 0.0)),
                     peak_price=float(p.get("peak_price", p["entry_price"])),
                     lot_id=str(p.get("lot_id", "")),

@@ -91,6 +91,73 @@ def test_get_portfolio_includes_cash_flow_and_market_value(
     assert group.total_pnl_pct == pytest.approx(-72.665)
 
 
+def test_get_portfolio_falls_back_to_entry_price_when_latest_close_predates_entry_date(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_file = tmp_path / "state.json"
+    cash_history_file = tmp_path / "cash_history.json"
+    features_dir = tmp_path / "data" / "features"
+    features_dir.mkdir(parents=True)
+
+    state_file.write_text(
+        json.dumps(
+            {
+                "last_updated": "2026-05-11T12:00:00",
+                "strategy_groups": [
+                    {
+                        "id": "group_main",
+                        "name": "Main",
+                        "initial_capital": 10_000.0,
+                        "cash": 9_000.0,
+                        "positions": [
+                            {
+                                "ticker": "6674",
+                                "quantity": 10,
+                                "entry_price": 100.0,
+                                "entry_date": "2026-05-11",
+                                "entry_score": 0.0,
+                                "peak_price": 100.0,
+                                "lot_id": "lot_1",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cash_history_file.write_text(json.dumps({"events": []}), encoding="utf-8")
+
+    pd.DataFrame(
+        {
+            "Date": ["2026-05-09"],
+            "Close": [90.0],
+        }
+    ).set_index("Date").to_parquet(features_dir / "6674_features.parquet")
+
+    monkeypatch.setattr(
+        state_router,
+        "get_production_config",
+        lambda: SimpleNamespace(
+            state_file=str(state_file),
+            cash_history_file=str(cash_history_file),
+        ),
+    )
+    monkeypatch.setattr(state_router, "get_project_root", lambda: tmp_path)
+
+    response = state_router.get_portfolio()
+    group = response.groups[0]
+    position = group.positions[0]
+
+    assert position.current_price is None
+    assert position.current_value == 1_000.0
+    assert group.holdings_value == 1_000.0
+    assert group.current_value == 10_000.0
+    assert group.total_pnl == 0.0
+    assert group.total_pnl_pct == pytest.approx(0.0)
+
+
 def test_get_portfolio_history_builds_total_asset_series(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -239,6 +306,111 @@ def test_get_portfolio_history_builds_total_asset_series(
     assert response.points[2].normalized_portfolio == pytest.approx(101.3333333333)
     assert response.points[2].normalized_topix == pytest.approx(110.0)
     assert response.points[2].normalized_nikkei225 == pytest.approx(115.0)
+
+
+def test_get_portfolio_history_falls_back_to_entry_price_when_latest_close_predates_entry_date(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_file = tmp_path / "state.json"
+    history_file = tmp_path / "history.json"
+    cash_history_file = tmp_path / "cash_history.json"
+    features_dir = tmp_path / "data" / "features"
+    features_dir.mkdir(parents=True)
+
+    state_file.write_text(
+        json.dumps(
+            {
+                "last_updated": "2026-05-11T12:00:00",
+                "strategy_groups": [
+                    {
+                        "id": "group_main",
+                        "name": "Main",
+                        "initial_capital": 10_000.0,
+                        "cash": 9_000.0,
+                        "positions": [
+                            {
+                                "ticker": "6674",
+                                "quantity": 10,
+                                "entry_price": 100.0,
+                                "entry_date": "2026-05-11",
+                                "entry_score": 0.0,
+                                "peak_price": 100.0,
+                                "lot_id": "lot_1",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    history_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "events": [
+                    {
+                        "date": "2026-05-11",
+                        "group_id": "group_main",
+                        "ticker": "6674",
+                        "action": "BUY",
+                        "quantity": 10,
+                        "price": 100.0,
+                        "total_jpy": 1_000.0,
+                        "entry_score": 0.0,
+                        "exit_reason": None,
+                        "exit_score": None,
+                        "event_id": "evt_1",
+                        "status": "ACTIVE",
+                        "position_effects": [
+                            {
+                                "effect_type": "OPEN",
+                                "ticker": "6674",
+                                "quantity": 10,
+                                "entry_price": 100.0,
+                                "entry_date": "2026-05-11",
+                                "entry_score": 0.0,
+                                "lot_id": "lot_1",
+                            }
+                        ],
+                        "cash_effect": None,
+                        "source": None,
+                        "replaces_event_id": None,
+                        "replaced_by_event_id": None,
+                        "created_at": "2026-05-11T09:00:00",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cash_history_file.write_text(json.dumps({"events": []}), encoding="utf-8")
+
+    pd.DataFrame(
+        {
+            "Date": ["2026-05-09"],
+            "Close": [90.0],
+        }
+    ).set_index("Date").to_parquet(features_dir / "6674_features.parquet")
+
+    monkeypatch.setattr(
+        state_router,
+        "get_production_config",
+        lambda: SimpleNamespace(
+            state_file=str(state_file),
+            history_file=str(history_file),
+            cash_history_file=str(cash_history_file),
+        ),
+    )
+    monkeypatch.setattr(state_router, "get_project_root", lambda: tmp_path)
+
+    response = state_router.get_portfolio_history()
+
+    assert [point.date for point in response.points] == ["2026-05-11"]
+    assert response.points[0].current_value == 10_000.0
+    assert response.points[0].total_pnl == pytest.approx(0.0)
+    assert response.points[0].total_pnl_pct == pytest.approx(0.0)
 
 
 def test_build_normalized_value_by_date_ignores_midstream_cash_flows() -> None:
