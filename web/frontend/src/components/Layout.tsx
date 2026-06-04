@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: "/evaluation", label: "Evaluation", icon: "📈" },
   { to: "/evaluation-insight", label: "Evaluation Insight", icon: "🧾" },
   { to: "/entry-signal-analysis", label: "Entry Signal Analysis", icon: "🧭" },
+  { to: "/entry-exit-validation", label: "Entry x Exit", icon: "🔁" },
   { to: "/portfolio", label: "Portfolio", icon: "💼" },
   { to: "/trade-history", label: "Trade History", icon: "📋" },
   { to: "/signals", label: "Signals", icon: "📡" },

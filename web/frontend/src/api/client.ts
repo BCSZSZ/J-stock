@@ -231,6 +231,100 @@ export type EntrySignalAnalysisDatasetDetail = {
   summary: EntrySignalAnalysisRunSummary;
 };
 
+export type EntryExitValidationOptions = {
+  entry_strategies: string[];
+  exit_strategies: string[];
+  execution_modes: string[];
+  signal_scopes: string[];
+  entry_filter_modes: string[];
+  defaults: {
+    entry_strategies: string[];
+    exit_strategies: string[];
+    universe_files: string[];
+    horizons: number[];
+    primary_horizon: number;
+    execution_mode: string;
+    signal_scope: string;
+    ranking_strategy: string;
+    entry_filter_mode: string;
+    entry_filter_names: string[];
+    atr_ratio_min: number | null;
+    atr_ratio_max: number | null;
+    tail_guard_enabled: boolean;
+    tail_guard_max_rank: number;
+    max_holding_trading_days: number;
+    partial_exit_policy: string;
+    min_samples: number;
+    data_root: string;
+    output_dir: string;
+  };
+};
+
+export type EntryExitValidationRunRequest = {
+  entry_strategies?: string[];
+  exit_strategies?: string[];
+  universe_files?: string[];
+  start?: string;
+  end?: string;
+  years?: number[];
+  horizons: number[];
+  primary_horizon: number;
+  execution_mode: "next_open" | "signal_close";
+  signal_scope: "all" | "selected";
+  ranking_strategy?: string | null;
+  entry_filter_mode: "auto" | "off" | "atr" | "single" | "grid";
+  entry_filter_names?: string[];
+  atr_ratio_min?: number | null;
+  atr_ratio_max?: number | null;
+  tail_guard_enabled?: boolean | null;
+  tail_guard_max_rank?: number | null;
+  max_holding_trading_days: number;
+  partial_exit_policy: "first_sell_full_exit";
+  min_samples: number;
+  limit?: number | null;
+  data_root: string;
+  output_dir?: string;
+};
+
+export type EntryExitValidationDatasetSummary = {
+  id: string;
+  dataset_id: string;
+  generated_at: string;
+  candidate_count: number;
+  simulated_trade_count: number;
+  entry_strategies: string[];
+  exit_strategies: string[];
+  start_date: string;
+  end_date: string;
+  horizons: number[];
+  execution_mode: string;
+  signal_scope: string;
+  ranking_strategy: string;
+  output_dir: string;
+};
+
+export type EntryExitValidationRunSummary = {
+  generated_at?: string;
+  candidate_count?: number;
+  simulated_trade_count?: number;
+  entry_strategy_count?: number;
+  exit_strategy_count?: number;
+  combination_count?: number;
+  market_regime_status?: string;
+  market_regime_definition?: string | null;
+  artifacts?: Record<string, string>;
+  top_robust_combinations?: Array<Record<string, unknown>>;
+  top_risk_combinations?: Array<Record<string, unknown>>;
+  warnings?: string[];
+  [key: string]: unknown;
+};
+
+export type EntryExitValidationDatasetDetail = {
+  id: string;
+  manifest: Record<string, unknown>;
+  summary: EntryExitValidationRunSummary;
+};
+
 export type StockPoolOption = {
   id: string;
   label: string;
@@ -547,6 +641,20 @@ export const api = {
     request<EntrySignalAnalysisDatasetDetail>(
       withOutputDir(
         `/entry-signal-analysis/datasets/${encodeDatasetId(datasetId)}/summary`,
+        outputDir,
+      ),
+    ),
+
+  entryExitValidationOptions: () =>
+    request<EntryExitValidationOptions>("/entry-exit-validation/options"),
+  entryExitValidationDatasets: (outputDir?: string) =>
+    request<EntryExitValidationDatasetSummary[]>(
+      withOutputDir("/entry-exit-validation/datasets", outputDir),
+    ),
+  entryExitValidationDatasetSummary: (datasetId: string, outputDir?: string) =>
+    request<EntryExitValidationDatasetDetail>(
+      withOutputDir(
+        `/entry-exit-validation/datasets/${encodeDatasetId(datasetId)}/summary`,
         outputDir,
       ),
     ),

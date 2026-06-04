@@ -13,7 +13,7 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from web.api.routers import system, state, data, production, evaluation, strategies, entry_signal_analysis  # noqa: E402
+from web.api.routers import system, state, data, production, evaluation, strategies, entry_signal_analysis, entry_exit_validation  # noqa: E402
 
 
 @asynccontextmanager
@@ -42,3 +42,4 @@ app.include_router(production.router)
 app.include_router(evaluation.router)
 app.include_router(strategies.router)
 app.include_router(entry_signal_analysis.router)
+app.include_router(entry_exit_validation.router)

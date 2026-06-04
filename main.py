@@ -71,6 +71,12 @@ def _cmd_entry_signal_analysis(args):
     return cmd_entry_signal_analysis(args)
 
 
+def _cmd_entry_exit_validation(args):
+    from src.cli.entry_exit_validation import cmd_entry_exit_validation
+
+    return cmd_entry_exit_validation(args)
+
+
 def _add_fill_buffer_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--fill-buffer-enabled",
@@ -1075,6 +1081,131 @@ def build_parser() -> argparse.ArgumentParser:
         help="输出目录（默认: entry_signal_analysis 或 config.entry_signal_analysis.output_dir）",
     )
     entry_signal_analysis_parser.set_defaults(func=_cmd_entry_signal_analysis)
+
+    entry_exit_validation_parser = subparsers.add_parser(
+        "entry-exit-validation",
+        help="Signal-level Entry x Exit validation without portfolio/capital constraints",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--entry-strategies",
+        nargs="+",
+        help="入场策略列表（默认读取 production strategy_groups entry）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--exit-strategies",
+        nargs="+",
+        help="退场策略列表（默认读取 production strategy_groups exit）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--universe-file",
+        nargs="+",
+        default=None,
+        help="股票池文件路径（支持 json/csv/txt，可多个；默认读取 production monitor list）",
+    )
+    entry_exit_validation_parser.add_argument("--start", help="开始日期 YYYY-MM-DD")
+    entry_exit_validation_parser.add_argument("--end", help="结束日期 YYYY-MM-DD")
+    entry_exit_validation_parser.add_argument(
+        "--years",
+        nargs="+",
+        type=int,
+        help="年份列表；指定后覆盖 --start/--end，例如 2024 2025",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--horizons",
+        nargs="+",
+        type=int,
+        default=[3, 5, 7, 9, 11],
+        help="固定持有期对照窗口（默认: 3 5 7 9 11）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--primary-horizon",
+        type=int,
+        default=5,
+        help="报告主对照窗口（默认: 5）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--execution-mode",
+        choices=["next_open", "signal_close"],
+        default="next_open",
+        help="信号执行口径：next_open=次交易日开盘成交, signal_close=信号日收盘成交",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--signal-scope",
+        choices=["all", "selected"],
+        default="all",
+        help="模拟范围：all=所有BUY信号, selected=仅日内排名选中信号",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--ranking-strategy",
+        default=None,
+        help="信号排序策略（默认读取 production.signal_ranking_strategy，缺省 momentum）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--entry-filter-mode",
+        choices=["auto", "off", "atr", "single", "grid"],
+        default="auto",
+        help="入场过滤器模式；auto 优先使用 production.entry_filter",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--entry-filter-name",
+        nargs="+",
+        default=None,
+        help="指定 evaluation.filters.variants 中的过滤器名称",
+    )
+    _add_atr_runtime_override_arguments(entry_exit_validation_parser)
+    entry_exit_validation_parser.add_argument(
+        "--tail-guard-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="是否启用 daily tail guard（默认读取 production.tail_guard）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--tail-guard-max-rank",
+        type=int,
+        default=None,
+        help="覆盖 tail guard max_rank（默认读取 production.tail_guard.max_rank）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--tail-guard-rank-limit-mode",
+        choices=["max", "min"],
+        default=None,
+        help="tail guard 合成方式：max=max(max_rank, 正分数数量)，min=min(max_rank, 正分数数量)",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--max-holding-trading-days",
+        type=int,
+        default=60,
+        help="未触发退出时的最大持有交易日上限（默认: 60）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--partial-exit-policy",
+        choices=["first_sell_full_exit"],
+        default="first_sell_full_exit",
+        help="部分卖出处理策略；MVP默认首个SELL视为完整退出",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--min-samples",
+        type=int,
+        default=30,
+        help="报告警告使用的组合最小样本数（默认: 30）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="仅扫描前 N 个 ticker（调试/冒烟用）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--data-root",
+        default="data",
+        help="数据根目录（默认: data）",
+    )
+    entry_exit_validation_parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="输出目录（默认: entry_exit_validation 或 config.entry_exit_validation.output_dir）",
+    )
+    entry_exit_validation_parser.set_defaults(func=_cmd_entry_exit_validation)
 
     pos_evaluate_parser = subparsers.add_parser(
         "pos-evaluation", help="仓位参数批量评价（读取evaluation-position.json）"

@@ -270,6 +270,37 @@ class EntrySignalAnalysisRunRequest(BaseModel):
         return self
 
 
+class EntryExitValidationRunRequest(BaseModel):
+    entry_strategies: list[str] | None = None
+    exit_strategies: list[str] | None = None
+    universe_files: list[str] | None = None
+    start: str | None = None
+    end: str | None = None
+    years: list[int] | None = None
+    horizons: list[int] = Field(default_factory=lambda: [3, 5, 7, 9, 11])
+    primary_horizon: int = 5
+    execution_mode: Literal["next_open", "signal_close"] = "next_open"
+    signal_scope: Literal["all", "selected"] = "all"
+    ranking_strategy: str | None = None
+    entry_filter_mode: Literal["auto", "off", "atr", "single", "grid"] = "auto"
+    entry_filter_names: list[str] | None = None
+    atr_ratio_min: float | None = None
+    atr_ratio_max: float | None = None
+    tail_guard_enabled: bool | None = None
+    tail_guard_max_rank: int | None = None
+    max_holding_trading_days: int = Field(default=60, ge=1)
+    partial_exit_policy: Literal["first_sell_full_exit"] = "first_sell_full_exit"
+    min_samples: int = Field(default=30, ge=1)
+    limit: int | None = None
+    data_root: str = "data"
+    output_dir: str | None = None
+
+    @model_validator(mode="after")
+    def validate_runtime_fields(self) -> "EntryExitValidationRunRequest":
+        _validate_atr_filter_runtime_fields(self)
+        return self
+
+
 class ProductionDailyRequest(BaseModel):
     no_fetch: bool = False
     pool_id: str | None = None
