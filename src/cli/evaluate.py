@@ -181,6 +181,85 @@ def _resolve_output_dir(run_kind: str, args, user_output_dir, eval_cfg):
     return str(run_dir)
 
 
+def _json_safe_value(value: Any):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item) for item in value]
+    return str(value)
+
+
+def _build_run_metadata(
+    *,
+    run_kind: str,
+    args,
+    periods,
+    prefix: str,
+    output_dir: str,
+    monitor_list_file: Optional[str],
+    portfolio_overrides: Optional[Dict[str, Any]],
+    enable_overlay: bool,
+    ranking_mode: str,
+    entry_filter_variants,
+    entry_strategies,
+    exit_strategies,
+    context_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    context_metadata = context_metadata or {}
+    years = getattr(args, "years", None) or []
+    period_rows = [
+        {
+            "period": str(period_label),
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+        }
+        for period_label, start_date, end_date in periods
+    ]
+    filter_rows = [
+        {"name": str(name), "config": _json_safe_value(cfg or {})}
+        for name, cfg in (entry_filter_variants or [])
+    ]
+
+    return {
+        "schema_version": 1,
+        "run_kind": run_kind,
+        "mode": getattr(args, "mode", None),
+        "years": [int(year) if str(year).isdigit() else str(year) for year in years],
+        "periods": period_rows,
+        "prefix": prefix,
+        "output_dir": output_dir,
+        "entry_strategies": [str(item) for item in (entry_strategies or [])],
+        "exit_strategies": [str(item) for item in (exit_strategies or [])],
+        "entry_filter_mode": getattr(args, "entry_filter_mode", None),
+        "entry_filter_variants": filter_rows,
+        "ranking_mode": ranking_mode,
+        "ranking_strategies": [
+            str(item) for item in (getattr(args, "ranking_strategies", None) or [])
+        ],
+        "buy_fill_mode": getattr(args, "buy_fill_mode", "next_open"),
+        "entry_reference_mode": normalize_entry_reference_mode(
+            getattr(args, "entry_reference_mode", "raw_fill")
+        ),
+        "fill_buffer_enabled": bool(getattr(args, "fill_buffer_enabled", False)),
+        "fill_buffer_pct": normalize_fill_buffer_pct(
+            getattr(args, "fill_buffer_pct", 0.02)
+        ),
+        "overlay_enabled": bool(enable_overlay),
+        "capacity_regime_mode_override": getattr(args, "capacity_regime_mode", None),
+        "universe_name": str(context_metadata.get("universe_name") or ""),
+        "universe_file": str(
+            context_metadata.get("universe_file") or monitor_list_file or ""
+        ),
+        "monitor_list_file": str(monitor_list_file or ""),
+        "portfolio_overrides": _json_safe_value(portfolio_overrides or {}),
+        "context_metadata": _json_safe_value(context_metadata),
+    }
+
+
 def _load_entry_filter_variants(cfg):
     eval_cfg = cfg.get("evaluation", {})
     variants_cfg = eval_cfg.get("filters", {}).get("variants", {})
@@ -682,6 +761,7 @@ def _build_evaluator(
     exit_confirm_days,
     entry_filter_variants,
     replay_seed: Optional[ReplaySeed] = None,
+    run_metadata: Optional[Dict[str, Any]] = None,
 ):
     """Create a StrategyEvaluator with the shared runtime settings."""
     _, overlay_config = _resolve_overlay_config(
@@ -711,12 +791,15 @@ def _build_evaluator(
         entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
         ranking_strategies=ranking_strategies,
+        run_metadata=run_metadata,
     )
 
 
 def _print_saved_files(files: Dict[str, str], indent: str = "  ") -> None:
     print(f"{indent}📄 原始结果: {files['raw']}")
     print(f"{indent}📊 市场环境分析: {files['regime']}")
+    if files.get("parameters"):
+        print(f"{indent}🧭 参数快照: {files['parameters']}")
     if files.get("trades"):
         print(f"{indent}🧾 原始交易明细: {files['trades']}")
     if files.get("trades_indicators"):
@@ -1590,8 +1673,10 @@ def _write_localized_final_review_report(
         f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"分段模式：{segmented_label}",
         f"输出目录：{output_dir}",
+        f"分段参数快照：{Path(bundle.segmented.get('parameters', '')).name if bundle.segmented.get('parameters') else '-'}",
         f"分段原始结果：{Path(bundle.segmented.get('raw', '')).name if bundle.segmented.get('raw') else '-'}",
         f"分段交易明细：{Path(bundle.segmented.get('trades', '')).name if bundle.segmented.get('trades') else '-'}",
+        f"连续参数快照：{Path(bundle.continuous.get('parameters', '')).name if bundle.continuous and bundle.continuous.get('parameters') else '-'}",
         f"连续原始结果：{Path(bundle.continuous.get('raw', '')).name if bundle.continuous and bundle.continuous.get('raw') else '-'}",
         f"连续交易明细：{Path(bundle.continuous.get('trades', '')).name if bundle.continuous and bundle.continuous.get('trades') else '-'}",
         "",
@@ -2991,6 +3076,7 @@ def _run_contexts(
             enable_overlay=context.enable_overlay,
             ranking_mode=ranking_mode,
             replay_seed=None,
+            context_metadata=context.metadata,
         )
         if bundle:
             results.append((context, bundle))
@@ -3009,6 +3095,7 @@ def _run_context_bundle(
     enable_overlay: bool = None,
     ranking_mode: str = "target20",
     replay_seed: Optional[ReplaySeed] = None,
+    context_metadata: Optional[Dict[str, Any]] = None,
 ):
     segmented_files = _run_once(
         args=args,
@@ -3022,6 +3109,7 @@ def _run_context_bundle(
         enable_overlay=enable_overlay,
         ranking_mode=ranking_mode,
         replay_seed=replay_seed,
+        context_metadata=context_metadata,
     )
     if not segmented_files:
         return None
@@ -3067,6 +3155,7 @@ def _run_context_bundle(
         enable_overlay=enable_overlay,
         ranking_mode=ranking_mode,
         replay_seed=replay_seed,
+        context_metadata=context_metadata,
     )
     if continuous_files:
         bundle.continuous = continuous_files
@@ -3177,6 +3266,7 @@ def _run_once(
     enable_overlay: bool = None,
     ranking_mode: str = "target20",
     replay_seed: Optional[ReplaySeed] = None,
+    context_metadata: Optional[Dict[str, Any]] = None,
 ):
     _log_step("_run_once: 开始解析本轮参数")
     run_started = time.perf_counter()
@@ -3203,6 +3293,23 @@ def _run_once(
         )
     _log_step(f"_run_once: overlay={'on' if use_overlay else 'off'}")
 
+    entry_strategies, exit_strategies = _resolve_entry_exit_strategies(args, eval_cfg)
+    run_metadata = _build_run_metadata(
+        run_kind="evaluate",
+        args=args,
+        periods=periods,
+        prefix=prefix,
+        output_dir=output_dir,
+        monitor_list_file=monitor_list_file,
+        portfolio_overrides=portfolio_overrides,
+        enable_overlay=use_overlay,
+        ranking_mode=ranking_mode,
+        entry_filter_variants=entry_filter_variants,
+        entry_strategies=entry_strategies,
+        exit_strategies=exit_strategies,
+        context_metadata=context_metadata,
+    )
+
     evaluator = _build_evaluator(
         args=args,
         config=config,
@@ -3213,6 +3320,7 @@ def _run_once(
         exit_confirm_days=exit_confirm_days,
         entry_filter_variants=entry_filter_variants,
         replay_seed=replay_seed,
+        run_metadata=run_metadata,
     )
     _log_step("_run_once: StrategyEvaluator 初始化完成")
 
@@ -3226,8 +3334,6 @@ def _run_once(
         f"{'开启' if getattr(args, 'fill_buffer_enabled', False) else '关闭'} "
         f"({normalize_fill_buffer_pct(getattr(args, 'fill_buffer_pct', 0.02)):.2%})"
     )
-
-    entry_strategies, exit_strategies = _resolve_entry_exit_strategies(args, eval_cfg)
 
     _log_step(
         "_run_once: 执行评估 "
@@ -3315,7 +3421,10 @@ def cmd_evaluate(args):
                 monitor_list_file=universe_file,
                 portfolio_overrides=runtime_portfolio_overrides,
                 enable_overlay=effective_overlay_on,
-                metadata={"universe_file": universe_file},
+                metadata={
+                    "universe_name": universe_name,
+                    "universe_file": universe_file,
+                },
             )
         )
 

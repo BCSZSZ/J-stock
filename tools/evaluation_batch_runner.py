@@ -143,6 +143,45 @@ def parse_output_dir(text: str) -> str | None:
     return None
 
 
+def write_worker_output_sidecar(
+    job: WorkerJobSpec,
+    run_dir: Path,
+    log_file: Path,
+    output_dir: str | None,
+    exit_code: int,
+) -> None:
+    if not output_dir:
+        return
+
+    output_path = Path(output_dir)
+    if not output_path.exists():
+        return
+
+    payload = {
+        "schema_version": 1,
+        "recorded_at": _timestamp_now(),
+        "worker_id": job.worker_id,
+        "job_name": job.job_name,
+        "job_group": job.job_group,
+        "command": job.command,
+        "base_args": list(job.base_args),
+        "exit_strategies": list(job.exit_strategies),
+        "expected_output_root": job.expected_output_root,
+        "notes": job.notes,
+        "full_command": " ".join(build_worker_command(job)),
+        "exit_code": int(exit_code),
+        "runner_run_dir": str(run_dir),
+        "runner_summary_json": str(run_dir / "summary.json"),
+        "log_file": str(log_file),
+        "output_dir": str(output_path),
+    }
+    sidecar_path = output_path / f"evaluation_batch_job_{_slugify(job.worker_id)}.json"
+    sidecar_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def _initial_summary(
     manifest: BatchManifest,
     spec_path: Path,
@@ -272,7 +311,15 @@ def run_worker_job(job: WorkerJobSpec, run_dir: Path, tracker: SummaryTracker) -
             tracker.record_output(job.worker_id, line)
         exit_code = process.wait()
 
-    tracker.mark_finished(job.worker_id, exit_code, parse_output_dir("".join(combined_output)))
+    output_dir = parse_output_dir("".join(combined_output))
+    tracker.mark_finished(job.worker_id, exit_code, output_dir)
+    write_worker_output_sidecar(
+        job=job,
+        run_dir=run_dir,
+        log_file=log_file,
+        output_dir=output_dir,
+        exit_code=exit_code,
+    )
     return exit_code
 
 

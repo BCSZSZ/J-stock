@@ -91,6 +91,15 @@ class AnnualStrategyResult:
     entry_reference_mode: str = "raw_fill"
     fill_buffer_enabled: bool = False
     fill_buffer_pct: float = 0.0
+    universe_name: str = ""
+    universe_file: str = ""
+    overlay_enabled: bool = False
+    position_sizing_mode: str = "fixed"
+    atr_risk_per_trade_pct: Optional[float] = None
+    atr_stop_multiple: Optional[float] = None
+    max_positions: Optional[int] = None
+    max_position_pct: Optional[float] = None
+    starting_capital_jpy: Optional[int] = None
 
 
 TRADE_EXPORT_COLUMNS = [
@@ -108,6 +117,15 @@ TRADE_EXPORT_COLUMNS = [
     "entry_reference_mode",
     "fill_buffer_enabled",
     "fill_buffer_pct",
+    "universe_name",
+    "universe_file",
+    "overlay_enabled",
+    "position_sizing_mode",
+    "atr_risk_per_trade_pct",
+    "atr_stop_multiple",
+    "max_positions",
+    "max_position_pct",
+    "starting_capital_jpy",
     "ticker",
     "entry_date",
     "entry_price",
@@ -603,6 +621,7 @@ class StrategyEvaluator:
         fill_buffer_enabled: bool = False,
         fill_buffer_pct: float = 0.02,
         capacity_regime_mode_override: Optional[str] = None,
+        run_metadata: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize strategy evaluator.
@@ -649,6 +668,7 @@ class StrategyEvaluator:
             if capacity_regime_mode_override is not None
             else None
         )
+        self.run_metadata = self._json_safe_data(run_metadata or {})
 
         self.overlay_manager = OverlayManager.from_config(
             self.overlay_config,
@@ -1366,6 +1386,8 @@ class StrategyEvaluator:
         if topix_return is not None:
             alpha = result.total_return_pct - topix_return
 
+        parameter_context = self._get_effective_run_parameter_context()
+
         # 提取结果并构造数据对象
         return AnnualStrategyResult(
             period=period_label,
@@ -1405,6 +1427,15 @@ class StrategyEvaluator:
             entry_reference_mode=self.entry_reference_mode,
             fill_buffer_enabled=self.fill_buffer_enabled,
             fill_buffer_pct=self.fill_buffer_pct,
+            universe_name=parameter_context["universe_name"],
+            universe_file=parameter_context["universe_file"],
+            overlay_enabled=parameter_context["overlay_enabled"],
+            position_sizing_mode=parameter_context["position_sizing_mode"],
+            atr_risk_per_trade_pct=parameter_context["atr_risk_per_trade_pct"],
+            atr_stop_multiple=parameter_context["atr_stop_multiple"],
+            max_positions=parameter_context["max_positions"],
+            max_position_pct=parameter_context["max_position_pct"],
+            starting_capital_jpy=parameter_context["starting_capital_jpy"],
         )
 
     def _build_evaluation_run_snapshot(
@@ -2170,6 +2201,7 @@ class StrategyEvaluator:
     ) -> None:
         market_regime = MarketRegime.classify(topix_return)
         self._trade_results_df_cache = None
+        parameter_context = self._get_effective_run_parameter_context()
 
         for trade in getattr(result, "trades", []) or []:
             entry_metadata = getattr(trade, "entry_metadata", {}) or {}
@@ -2210,6 +2242,15 @@ class StrategyEvaluator:
                     "entry_reference_mode": self.entry_reference_mode,
                     "fill_buffer_enabled": self.fill_buffer_enabled,
                     "fill_buffer_pct": self.fill_buffer_pct,
+                    "universe_name": parameter_context["universe_name"],
+                    "universe_file": parameter_context["universe_file"],
+                    "overlay_enabled": parameter_context["overlay_enabled"],
+                    "position_sizing_mode": parameter_context["position_sizing_mode"],
+                    "atr_risk_per_trade_pct": parameter_context["atr_risk_per_trade_pct"],
+                    "atr_stop_multiple": parameter_context["atr_stop_multiple"],
+                    "max_positions": parameter_context["max_positions"],
+                    "max_position_pct": parameter_context["max_position_pct"],
+                    "starting_capital_jpy": parameter_context["starting_capital_jpy"],
                     "ticker": getattr(trade, "ticker", None),
                     "entry_date": getattr(trade, "entry_date", None),
                     "entry_price": getattr(trade, "entry_price", None),
@@ -2266,6 +2307,215 @@ class StrategyEvaluator:
             return "gdrive"
         return "local"
 
+    @staticmethod
+    def _json_safe_data(value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {
+                str(key): StrategyEvaluator._json_safe_data(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple, set)):
+            return [StrategyEvaluator._json_safe_data(item) for item in value]
+        return str(value)
+
+    def _get_effective_run_parameter_context(self) -> Dict[str, Any]:
+        run_metadata = self.run_metadata if isinstance(self.run_metadata, dict) else {}
+        sizing = self._get_portfolio_sizing_config()
+        overlay_enabled = run_metadata.get("overlay_enabled")
+        if overlay_enabled is None:
+            overlay_enabled = bool(self.overlay_config.get("enabled", False))
+
+        return {
+            "universe_name": str(run_metadata.get("universe_name") or ""),
+            "universe_file": str(
+                run_metadata.get("universe_file")
+                or self.monitor_list_file
+                or ""
+            ),
+            "overlay_enabled": bool(overlay_enabled),
+            "position_sizing_mode": str(sizing.mode),
+            "atr_risk_per_trade_pct": (
+                float(sizing.atr.risk_per_trade_pct) if sizing.mode == "atr" else None
+            ),
+            "atr_stop_multiple": (
+                float(sizing.atr.atr_stop_multiple) if sizing.mode == "atr" else None
+            ),
+            "max_positions": int(sizing.max_positions),
+            "max_position_pct": float(sizing.max_position_pct),
+            "starting_capital_jpy": int(self._get_starting_capital()),
+        }
+
+    def _build_parameter_metadata_payload(
+        self,
+        prefix: str,
+        timestamp: str,
+        ranking_mode: str,
+        files: Dict[str, str],
+        df: pd.DataFrame,
+    ) -> Dict[str, Any]:
+        config_path = get_config_file_path()
+        parameter_context = self._get_effective_run_parameter_context()
+        period_rows = []
+        if not df.empty:
+            period_frame = (
+                df[["period", "start_date", "end_date"]]
+                .drop_duplicates()
+                .sort_values(["start_date", "period"])
+            )
+            for _, row in period_frame.iterrows():
+                period_rows.append(
+                    {
+                        "period": str(row["period"]),
+                        "start_date": str(row["start_date"]),
+                        "end_date": str(row["end_date"]),
+                    }
+                )
+
+        return {
+            "schema_version": 1,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "prefix": prefix,
+            "timestamp": timestamp,
+            "output_dir": str(self.output_dir),
+            "config": {
+                "path": str(config_path),
+                "source": self._resolve_config_source_label(config_path),
+            },
+            "requested": self._json_safe_data(self.run_metadata),
+            "resolved_runtime": {
+                "buy_fill_mode": self.buy_fill_mode,
+                "entry_reference_mode": self.entry_reference_mode,
+                "fill_buffer_enabled": self.fill_buffer_enabled,
+                "fill_buffer_pct": float(self.fill_buffer_pct),
+                "exit_confirmation_days": int(self.exit_confirmation_days),
+                "ranking_strategies": self._json_safe_data(self.ranking_strategies),
+                "capacity_regime_mode": self._get_capacity_regime_mode(),
+                **parameter_context,
+            },
+            "evaluation_scope": {
+                "ranking_mode": ranking_mode,
+                "period_count": len(period_rows),
+                "periods": period_rows,
+                "entry_strategy_count": int(df["entry_strategy"].nunique()) if not df.empty else 0,
+                "exit_strategy_count": int(df["exit_strategy"].nunique()) if not df.empty else 0,
+                "entry_filter_count": int(df["entry_filter"].nunique()) if not df.empty else 0,
+                "result_row_count": int(len(df)),
+            },
+            "artifacts": self._json_safe_data(files),
+        }
+
+    def _write_run_parameter_snapshot(
+        self,
+        handle,
+        parameter_payload: Optional[Dict[str, Any]],
+    ) -> None:
+        if not parameter_payload:
+            return
+
+        requested = parameter_payload.get("requested", {}) or {}
+        resolved_runtime = parameter_payload.get("resolved_runtime", {}) or {}
+        evaluation_scope = parameter_payload.get("evaluation_scope", {}) or {}
+        config = parameter_payload.get("config", {}) or {}
+        artifacts = parameter_payload.get("artifacts", {}) or {}
+
+        periods = evaluation_scope.get("periods", []) or []
+        entry_strategies = requested.get("entry_strategies", []) or []
+        exit_strategies = requested.get("exit_strategies", []) or []
+        entry_filter_variants = requested.get("entry_filter_variants", []) or []
+        ranking_strategies = requested.get("ranking_strategies", []) or []
+
+        handle.write("## 1. Run Parameters\n\n")
+        handle.write(f"- Run Kind: {requested.get('run_kind') or 'evaluate'}\n")
+        handle.write(f"- Mode: {requested.get('mode') or 'N/A'}\n")
+        if requested.get("years"):
+            handle.write(
+                f"- Years: {', '.join(str(year) for year in requested['years'])}\n"
+            )
+        if periods:
+            handle.write(
+                "- Periods: "
+                + "; ".join(
+                    f"{item['period']} ({item['start_date']} ~ {item['end_date']})"
+                    for item in periods
+                )
+                + "\n"
+            )
+        handle.write(f"- Universe: {resolved_runtime.get('universe_name') or 'N/A'}\n")
+        handle.write(
+            f"- Universe File: {resolved_runtime.get('universe_file') or 'N/A'}\n"
+        )
+        if entry_strategies:
+            handle.write(f"- Entry Strategies: {', '.join(entry_strategies)}\n")
+        if exit_strategies:
+            handle.write(f"- Exit Strategies: {', '.join(exit_strategies)}\n")
+        handle.write(
+            f"- Entry Filter Mode: {requested.get('entry_filter_mode') or 'N/A'}\n"
+        )
+        if entry_filter_variants:
+            variant_names = [
+                str(item.get("name", ""))
+                for item in entry_filter_variants
+                if isinstance(item, dict) and item.get("name")
+            ]
+            if variant_names:
+                handle.write(
+                    f"- Entry Filter Variants: {', '.join(variant_names)}\n"
+                )
+        handle.write(
+            f"- Ranking Mode: {evaluation_scope.get('ranking_mode') or 'N/A'}\n"
+        )
+        if ranking_strategies:
+            handle.write(
+                f"- Ranking Strategies: {', '.join(str(item) for item in ranking_strategies)}\n"
+            )
+        handle.write(
+            f"- Buy Fill Mode: {resolved_runtime.get('buy_fill_mode') or 'N/A'}\n"
+        )
+        handle.write(
+            f"- Entry Reference Mode: {resolved_runtime.get('entry_reference_mode') or 'N/A'}\n"
+        )
+        handle.write(
+            "- Fill Buffer: "
+            f"{'on' if resolved_runtime.get('fill_buffer_enabled') else 'off'} "
+            f"({float(resolved_runtime.get('fill_buffer_pct') or 0.0):.2%})\n"
+        )
+        handle.write(
+            f"- Overlay Enabled: {bool(resolved_runtime.get('overlay_enabled'))}\n"
+        )
+        handle.write(
+            f"- Exit Confirmation Days: {resolved_runtime.get('exit_confirmation_days') or 'N/A'}\n"
+        )
+        handle.write(
+            f"- Position Sizing Mode: {resolved_runtime.get('position_sizing_mode') or 'N/A'}\n"
+        )
+        if resolved_runtime.get("atr_risk_per_trade_pct") is not None:
+            handle.write(
+                f"- ATR Risk Per Trade: {float(resolved_runtime['atr_risk_per_trade_pct']):.4f}\n"
+            )
+        if resolved_runtime.get("atr_stop_multiple") is not None:
+            handle.write(
+                f"- ATR Stop Multiple: {float(resolved_runtime['atr_stop_multiple']):.2f}\n"
+            )
+        handle.write(f"- Max Positions: {resolved_runtime.get('max_positions') or 'N/A'}\n")
+        handle.write(
+            f"- Max Position Pct: {float(resolved_runtime.get('max_position_pct') or 0.0):.2%}\n"
+        )
+        handle.write(
+            f"- Starting Capital: ¥{int(resolved_runtime.get('starting_capital_jpy') or 0):,}\n"
+        )
+        handle.write(
+            f"- Capacity Mode: {resolved_runtime.get('capacity_regime_mode') or 'N/A'}\n"
+        )
+        handle.write(f"- Config Path: {config.get('path') or 'N/A'}\n")
+        handle.write(f"- Config Source: {config.get('source') or 'N/A'}\n")
+        if artifacts.get("parameters"):
+            handle.write(f"- Parameter Snapshot: {artifacts['parameters']}\n")
+        handle.write("\n")
+
     def _write_capacity_snapshot(self, handle, df: pd.DataFrame) -> None:
         config_path = get_config_file_path()
         config_source = self._resolve_config_source_label(config_path)
@@ -2298,7 +2548,7 @@ class StrategyEvaluator:
                 }
             )
 
-        handle.write("## 1. Capacity Snapshot\n\n")
+        handle.write("## 2. Capacity Snapshot\n\n")
         handle.write(f"- Config Path: {config_path}\n")
         handle.write(f"- Config Source: {config_source}\n")
         handle.write(f"- Capacity Mode: {capacity_mode}\n")
@@ -3249,9 +3499,29 @@ class StrategyEvaluator:
             print(f"✅ PRS-Train排名已保存: {prs_train_rank_file}")
             files["prs_train_rank"] = str(prs_train_rank_file)
 
+        parameter_payload = self._build_parameter_metadata_payload(
+            prefix=prefix,
+            timestamp=timestamp,
+            ranking_mode=ranking_mode,
+            files=files,
+            df=df,
+        )
+        parameters_file = self.output_dir / f"{prefix}_parameters_{timestamp}.json"
+        parameter_payload.setdefault("artifacts", {})["parameters"] = str(parameters_file)
+        parameters_file.write_text(
+            json.dumps(parameter_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        print(f"✅ 参数快照已保存: {parameters_file}")
+        files["parameters"] = str(parameters_file)
+
         # 4. Markdown报告
         report_file = self.output_dir / f"{prefix}_report_{timestamp}.md"
-        self._generate_markdown_report(report_file, ranking_mode=ranking_mode)
+        self._generate_markdown_report(
+            report_file,
+            ranking_mode=ranking_mode,
+            parameter_payload=parameter_payload,
+        )
         print(f"✅ 报告已保存: {report_file}")
         files["report"] = str(report_file)
 
@@ -3300,7 +3570,12 @@ class StrategyEvaluator:
             files["replay_sidecar"] = str(replay_sidecar_file)
         return files
 
-    def _generate_markdown_report(self, output_file: Path, ranking_mode: str = "target20"):
+    def _generate_markdown_report(
+        self,
+        output_file: Path,
+        ranking_mode: str = "target20",
+        parameter_payload: Optional[Dict[str, Any]] = None,
+    ):
         """生成Markdown格式的评价报告"""
         df = self._create_results_dataframe()
 
@@ -3311,10 +3586,11 @@ class StrategyEvaluator:
             f.write("# 策略综合评价报告\n\n")
             f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
+            self._write_run_parameter_snapshot(f, parameter_payload)
             self._write_capacity_snapshot(f, df)
 
             # 1. 总体概览
-            f.write("## 2. 总体概览\n\n")
+            f.write("## 3. 总体概览\n\n")
             f.write(f"- 评估时段数: {df['period'].nunique()}\n")
             f.write(
                 f"- 策略组合数: {len(df.groupby(['entry_strategy', 'exit_strategy', 'entry_filter']))}\n"
@@ -3325,7 +3601,7 @@ class StrategyEvaluator:
             f.write(f"- 入场过滤器: {', '.join(df['entry_filter'].unique())}\n\n")
 
             # 2. 时段TOPIX表现
-            f.write("## 3. 时段TOPIX表现\n\n")
+            f.write("## 4. 时段TOPIX表现\n\n")
             period_summary = (
                 df.groupby("period")
                 .agg(
@@ -3356,7 +3632,7 @@ class StrategyEvaluator:
             f.write("\n")
 
             # 3. 按市场环境分类的最优策略
-            f.write("## 4. 按市场环境分类的最优策略\n\n")
+            f.write("## 5. 按市场环境分类的最优策略\n\n")
             df["market_regime"] = df["topix_return_pct"].apply(MarketRegime.classify)
 
             for regime in sorted(df["market_regime"].unique()):

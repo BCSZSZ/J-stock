@@ -27,6 +27,7 @@ The workflow is always:
 - Do not modify source code, configs, or git state while using this skill unless the user separately asks for code changes.
 - Prefer explicit completed output directories, a local runner `summary.json`, or a local runner `run_dir` over broad filesystem discovery.
 - If the current session already established the exact completed run, you may reuse that run's `summary.json` or output directories without re-discovering them.
+- Prefer explicit per-output parameter sidecars when present: `*_parameters_*.json` from `evaluate` and `evaluation_batch_job_*.json` from the batch runner.
 - Read `*_raw_*.csv` and `*_prs_train_rank_*.csv` as the primary tabular sources.
 - Read `*_exit_urgency_contribution_*.csv` only when the user asks for exit-mix diagnostics or when reporting the champion exit mix materially helps the conclusion.
 - Treat this skill as read-mostly with one allowed artifact write: the generated markdown summary file under `G:/My Drive/AI-Stock-Sync/summary`.
@@ -142,10 +143,21 @@ Section update markers:
 
 From each completed output directory:
 
+- preferred: `*_parameters_*.json`
+- optional: `evaluation_batch_job_*.json`
 - required: `*_raw_*.csv`
 - required: `*_prs_train_rank_*.csv`
 - optional: `*_exit_urgency_contribution_*.csv`
 - optional: `*_annual_final_review_*.md`
+
+Parameter-source priority:
+
+1. explicit run parameter sidecar `*_parameters_*.json`
+2. batch-runner job sidecar `evaluation_batch_job_*.json`
+3. runner `summary.json` / worker `full_command`
+4. explicit columns in `*_raw_*.csv` / `*_prs_train_rank_*.csv`
+5. output directory slug decoding
+6. `*_trades_*.csv` embedded JSON only as a last-resort fallback
 
 Primary join rule:
 
@@ -165,6 +177,7 @@ For `merge-surface`, the primary markdown table should usually be the full merge
 Recommended columns:
 
 - parameter axis or axes
+- high-value run parameters when they materially affect interpretation: universe, fill mode, entry reference mode, buffer setting, position sizing mode, ATR risk per trade, ATR stop multiple
 - ranking score
 - return
 - max drawdown
@@ -179,6 +192,7 @@ Recommended columns:
 
 - job label
 - inferred or declared strategy bundle
+- key resolved run parameters from sidecars when present
 - best combination
 - best ranking score
 - best return
@@ -199,9 +213,12 @@ In chat, respond with:
 
 The markdown file itself should contain the full tables and supporting detail.
 
+When parameter sidecars exist, include a dedicated parameter section in the markdown body before the main performance tables. That section should prefer explicit sidecar values over values reverse-engineered from trade rows or strategy-name tokens.
+
 ## J-stock Notes
 
 - Default output root for evaluation results is usually `G:/My Drive/AI-Stock-Sync/strategy_evaluation`.
 - When a local runner `summary.json` exists, use it to identify the exact completed output directories rather than inferring them from timestamps alone.
+- Newer runs may contain `*_parameters_*.json` and `evaluation_batch_job_*.json`; treat them as the canonical source for authored and resolved parameter context.
 - Keep the markdown summary artifact separate from the human-authored daily notes under `G:/My Drive/AI-Stock-Sync/reports`.
 - Prefer a new summary markdown per analysis pass unless the user explicitly asks to enrich an existing summary file.
