@@ -1,5 +1,11 @@
 # Instruction
 
+## Project Memory: GitHub Publish Target
+
+- When the user asks to upload or push code changes to GitHub, push the approved changes directly to the repository `main` branch by default.
+- Do not create a new `codex/...` branch, feature branch, or draft PR unless the user explicitly asks for a branch or PR workflow.
+- If a temporary branch was already created for the upload, merge or fast-forward the approved changes into local `main`, push `main`, and clean up the temporary branch when it is safe to do so.
+
 ## Project Memory: External Sync Root
 
 - Primary config, state, signal, report, universe, and operational files should be treated as living under `G:\My Drive\AI-Stock-Sync`, not under the local repository, unless a task explicitly asks for local fixture/example config.
