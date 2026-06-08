@@ -6,6 +6,7 @@ import {
   type EntryExitValidationDatasetSummary,
   type EntryExitValidationOptions,
   type EntryExitValidationRunRequest,
+  type MomentumExhaustionMode,
 } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
 import LogOutput from "../components/LogOutput";
@@ -119,6 +120,10 @@ export default function EntryExitValidation() {
   const [atrRatioMax, setAtrRatioMax] = useState("");
   const [tailGuardEnabled, setTailGuardEnabled] = useState(true);
   const [tailGuardMaxRank, setTailGuardMaxRank] = useState("12");
+  const [momentumExhaustionMode, setMomentumExhaustionMode] =
+    useState<MomentumExhaustionMode>("enforce");
+  const [momentumExhaustionMaxScore, setMomentumExhaustionMaxScore] =
+    useState("4.0");
   const [maxHoldingTradingDays, setMaxHoldingTradingDays] = useState("60");
   const [minSamples, setMinSamples] = useState("30");
   const [limit, setLimit] = useState("");
@@ -157,6 +162,10 @@ export default function EntryExitValidation() {
     setAtrRatioMax(defaults.atr_ratio_max == null ? "" : String(defaults.atr_ratio_max));
     setTailGuardEnabled(Boolean(defaults.tail_guard_enabled));
     setTailGuardMaxRank(String(defaults.tail_guard_max_rank ?? 12));
+    setMomentumExhaustionMode(defaults.momentum_exhaustion_mode ?? "enforce");
+    setMomentumExhaustionMaxScore(
+      String(defaults.momentum_exhaustion_max_score ?? 4.0),
+    );
     setMaxHoldingTradingDays(String(defaults.max_holding_trading_days ?? 60));
     setMinSamples(String(defaults.min_samples ?? 30));
     setDataRoot(defaults.data_root ?? "data");
@@ -199,6 +208,9 @@ export default function EntryExitValidation() {
       atr_ratio_max: parseOptionalNumber(atrRatioMax),
       tail_guard_enabled: tailGuardEnabled,
       tail_guard_max_rank: parseOptionalNumber(tailGuardMaxRank),
+      momentum_exhaustion_mode: momentumExhaustionMode,
+      momentum_exhaustion_max_score: parseOptionalNumber(momentumExhaustionMaxScore),
+      momentum_exhaustion_threshold_method: "absolute",
       max_holding_trading_days: Number.parseInt(maxHoldingTradingDays, 10) || 60,
       partial_exit_policy: "first_sell_full_exit",
       min_samples: Number.parseInt(minSamples, 10) || 30,
@@ -305,6 +317,18 @@ export default function EntryExitValidation() {
               <div>
                 <label className={labelClassName}>Tail Guard Max Rank</label>
                 <input className={inputClassName} value={tailGuardMaxRank} onChange={(event) => setTailGuardMaxRank(event.target.value)} />
+              </div>
+              <div>
+                <label className={labelClassName}>Momentum Exhaustion</label>
+                <select className={inputClassName} value={momentumExhaustionMode} onChange={(event) => setMomentumExhaustionMode(event.target.value as MomentumExhaustionMode)}>
+                  <option value="enforce">enforce</option>
+                  <option value="shadow">shadow</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClassName}>Momentum Max Score</label>
+                <input className={inputClassName} value={momentumExhaustionMaxScore} onChange={(event) => setMomentumExhaustionMaxScore(event.target.value)} />
               </div>
               <label className="flex items-center gap-2 text-sm text-gray-300">
                 <input type="checkbox" checked={tailGuardEnabled} onChange={(event) => setTailGuardEnabled(event.target.checked)} />

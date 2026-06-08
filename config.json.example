@@ -177,6 +177,12 @@
     },
     "capacity_regime_mode": "off",
     "buy_threshold": 65,
+    "momentum_exhaustion_filter": {
+      "enabled": true,
+      "mode": "shadow",
+      "threshold_method": "absolute",
+      "max_score": 4.0
+    },
     "strategy_groups": [
       {
         "id": "group_main",

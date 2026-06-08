@@ -47,6 +47,7 @@ from src.utils.atr_position_sizing import (
     calculate_atr_position_size,
     parse_portfolio_sizing_config,
 )
+from src.utils.momentum_exhaustion import MomentumExhaustionConfig
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
 
@@ -621,6 +622,7 @@ class StrategyEvaluator:
         fill_buffer_enabled: bool = False,
         fill_buffer_pct: float = 0.02,
         capacity_regime_mode_override: Optional[str] = None,
+        momentum_exhaustion_config: Optional[MomentumExhaustionConfig] = None,
         run_metadata: Optional[Dict[str, Any]] = None,
     ):
         """
@@ -669,6 +671,7 @@ class StrategyEvaluator:
             else None
         )
         self.run_metadata = self._json_safe_data(run_metadata or {})
+        self.momentum_exhaustion_config = momentum_exhaustion_config
 
         self.overlay_manager = OverlayManager.from_config(
             self.overlay_config,
@@ -1314,6 +1317,7 @@ class StrategyEvaluator:
             initial_pending_buy_signals=initial_pending_buy_signals,
             initial_pending_sell_signals=initial_pending_sell_signals,
             tail_guard_config=self._get_production_tail_guard_config(),
+            momentum_exhaustion_config=self.momentum_exhaustion_config,
         )
         self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 

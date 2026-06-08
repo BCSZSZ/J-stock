@@ -38,13 +38,16 @@ def _validate_daily_only_runtime_overrides(args) -> None:
         "atr_stop_multiple",
         "atr_ratio_min",
         "atr_ratio_max",
+        "momentum_exhaustion_mode",
+        "momentum_exhaustion_max_score",
+        "momentum_exhaustion_threshold_method",
     )
     if not any(getattr(args, name, None) is not None for name in runtime_flags):
         return
     if args.input or args.status or args.sync_positions or args.set_cash or args.add_cash:
-        raise ValueError("ATR runtime override flags are only supported for production daily runs")
+        raise ValueError("Runtime override flags are only supported for production daily runs")
     if args.set_position or getattr(args, "check_price", None):
-        raise ValueError("ATR runtime override flags are only supported for production daily runs")
+        raise ValueError("Runtime override flags are only supported for production daily runs")
 
 
 def cmd_production(args):

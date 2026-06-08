@@ -11,6 +11,7 @@ from src.backtest.data_cache import BacktestDataCache
 from src.entry_signal_analysis.models import EntrySignalAnalysisRequest
 from src.entry_signal_analysis.runtime import (
     resolve_filter_variants_for_request,
+    resolve_momentum_exhaustion_for_request,
     resolve_tail_guard_for_request,
 )
 from src.entry_signal_analysis.selector import DailyEntryCandidate, select_daily_candidates
@@ -108,6 +109,7 @@ def scan_entry_signal_candidates(request: EntrySignalAnalysisRequest) -> pd.Data
     trading_dates = _collect_trading_dates(cache, request.tickers, start, end)
     filter_variants = resolve_filter_variants_for_request(request)
     tail_guard_config = resolve_tail_guard_for_request(request)
+    momentum_exhaustion_config = resolve_momentum_exhaustion_for_request(request)
 
     records: list[dict[str, Any]] = []
     total_days = len(trading_dates)
@@ -202,6 +204,7 @@ def scan_entry_signal_candidates(request: EntrySignalAnalysisRequest) -> pd.Data
                             daily_candidates,
                             ranking_strategy_name=request.ranking_strategy,
                             tail_guard_config=tail_guard_config,
+                            momentum_exhaustion_config=momentum_exhaustion_config,
                         )
                     )
 

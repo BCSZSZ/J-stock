@@ -135,6 +135,8 @@ def test_build_cli_args_includes_atr_runtime_flags(monkeypatch) -> None:
         atr_stop_multiple=2.0,
         atr_ratio_min=0.015,
         atr_ratio_max=0.03,
+        momentum_exhaustion_mode="enforce",
+        momentum_exhaustion_max_score=4.0,
     )
 
     args = evaluation_router._build_cli_args(req)
@@ -144,6 +146,9 @@ def test_build_cli_args_includes_atr_runtime_flags(monkeypatch) -> None:
     assert args[args.index("--atr-stop-multiple") + 1] == "2.0"
     assert args[args.index("--atr-ratio-min") + 1] == "0.015"
     assert args[args.index("--atr-ratio-max") + 1] == "0.03"
+    assert args[args.index("--momentum-exhaustion-mode") + 1] == "enforce"
+    assert args[args.index("--momentum-exhaustion-max-score") + 1] == "4.0"
+    assert args[args.index("--momentum-exhaustion-threshold-method") + 1] == "absolute"
 
 
 def test_evaluation_request_allows_ignored_atr_sizing_fields_when_fixed() -> None:

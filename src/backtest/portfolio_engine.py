@@ -37,6 +37,11 @@ from ..utils.tail_guard import (
     count_positive_priority_scores,
     resolve_tail_guard_rank_limit,
 )
+from ..utils.momentum_exhaustion import (
+    MomentumExhaustionConfig,
+    evaluate_momentum_exhaustion,
+    normalize_momentum_exhaustion_config,
+)
 from .fill_buffer import (
     apply_buy_fill_buffer,
     apply_sell_fill_buffer,
@@ -91,6 +96,9 @@ class PortfolioBacktestEngine:
         entry_reference_mode: str = "raw_fill",
         position_sizing_config: Optional[PortfolioSizingConfig] = None,
         tail_guard_config: Optional[Dict[str, object]] = None,
+        momentum_exhaustion_config: Optional[
+            Union[MomentumExhaustionConfig, Dict[str, object]]
+        ] = None,
     ):
         """
         Args:
@@ -156,6 +164,7 @@ class PortfolioBacktestEngine:
             entry_reference_mode
         )
         self.tail_guard_config = dict(tail_guard_config or {})
+        self.momentum_exhaustion_config = momentum_exhaustion_config
 
         # 创建信号排序器: 优先使用实例，否则按旧字符串方式
         if signal_ranker is not None:
@@ -493,9 +502,14 @@ class PortfolioBacktestEngine:
                         overlay_decision.max_new_positions if overlay_decision else None
                     )
                     new_positions_opened = 0
+                    momentum_exhaustion_filtered_count = 0
+                    momentum_exhaustion_shadowed_count = 0
 
                     # 对买入信号排序
-                    if self._uses_preloaded_pending_signals(pending_buy_signals):
+                    using_preloaded_pending_signals = self._uses_preloaded_pending_signals(
+                        pending_buy_signals
+                    )
+                    if using_preloaded_pending_signals:
                         ranked_signals = self._order_preloaded_pending_buy_signals(
                             pending_buy_signals
                         )
@@ -511,29 +525,40 @@ class PortfolioBacktestEngine:
                         else:
                             market_data_dict = {}
 
-                        if self.position_sizing_config.unlimited_positions:
-                            rank_top_k = None
-                        else:
-                            rank_top_k = max(
-                                1,
-                                (
-                                    day_capacity_snapshot.max_positions
-                                    if day_capacity_snapshot is not None
-                                    else self.max_positions
-                                )
-                                + self.buy_rank_buffer,
-                            )
+                        rank_top_k = self._rank_buy_signal_top_k(
+                            day_capacity_snapshot
+                        )
                         ranked_signals = self.signal_ranker.rank_buy_signals(
                             pending_buy_signals,
                             market_data_dict,
                             top_k=rank_top_k,
                         )
+                    (
+                        ranked_signals,
+                        momentum_exhaustion_filtered_count,
+                        momentum_exhaustion_shadowed_count,
+                    ) = self._apply_momentum_exhaustion_to_ranked_signals(
+                        ranked_signals
+                    )
+                    if not using_preloaded_pending_signals:
                         (
                             ranked_signals,
                             tail_guard_rank_limit,
                             positive_rank_score_count,
                         ) = self._apply_tail_guard_to_ranked_signals(ranked_signals)
 
+                    if (
+                        show_signal_ranking
+                        and (
+                            momentum_exhaustion_filtered_count
+                            or momentum_exhaustion_shadowed_count
+                        )
+                    ):
+                        print(
+                            "  Momentum exhaustion: "
+                            f"filtered={momentum_exhaustion_filtered_count}, "
+                            f"shadowed={momentum_exhaustion_shadowed_count}"
+                        )
                     if show_signal_ranking and tail_guard_rank_limit is not None:
                         print(
                             f"  Tail guard: rank <= {tail_guard_rank_limit} "
@@ -1099,6 +1124,60 @@ class PortfolioBacktestEngine:
             tail_guard_rank_limit,
             positive_rank_score_count,
         )
+
+    def _rank_buy_signal_top_k(self, day_capacity_snapshot: object | None) -> int | None:
+        if (
+            self.position_sizing_config.unlimited_positions
+            or self._momentum_exhaustion_filters_allocations()
+        ):
+            return None
+        return max(
+            1,
+            (
+                day_capacity_snapshot.max_positions
+                if day_capacity_snapshot is not None
+                else self.max_positions
+            )
+            + self.buy_rank_buffer,
+        )
+
+    def _momentum_exhaustion_filters_allocations(self) -> bool:
+        if self.momentum_exhaustion_config is None:
+            return False
+        if isinstance(self.momentum_exhaustion_config, MomentumExhaustionConfig):
+            return self.momentum_exhaustion_config.mode == "enforce"
+        normalized = normalize_momentum_exhaustion_config(
+            self.momentum_exhaustion_config,
+            default_mode="off",
+        )
+        return normalized.mode == "enforce"
+
+    def _apply_momentum_exhaustion_to_ranked_signals(
+        self,
+        ranked_signals: List[tuple[str, TradingSignal, float]],
+    ) -> tuple[List[tuple[str, TradingSignal, float]], int, int]:
+        if not ranked_signals:
+            return ranked_signals, 0, 0
+
+        kept: List[tuple[str, TradingSignal, float]] = []
+        filtered_count = 0
+        shadowed_count = 0
+        for ticker, signal, priority in ranked_signals:
+            decision = evaluate_momentum_exhaustion(
+                priority,
+                self.momentum_exhaustion_config,
+            )
+            metadata = dict(signal.metadata or {})
+            metadata.update(decision.to_metadata())
+            signal.metadata = metadata
+            if decision.filtered:
+                filtered_count += 1
+                continue
+            if decision.shadowed:
+                shadowed_count += 1
+            kept.append((ticker, signal, priority))
+
+        return kept, filtered_count, shadowed_count
 
     def _load_stock_data(
         self,

@@ -1,5 +1,10 @@
 # Instruction
 
+## Project Memory: External Sync Root
+
+- Primary config, state, signal, report, universe, and operational files should be treated as living under `G:\My Drive\AI-Stock-Sync`, not under the local repository, unless a task explicitly asks for local fixture/example config.
+- Treat `G:\My Drive\AI-Stock-Sync` as the default external read/write sync root for project operations. If the current sandbox requires approval for that path, request access to that path instead of assuming local config files are authoritative.
+
 ## 大前提（所有任务通用）
 
 - 先启动并激活项目虚拟环境（venv）后，再执行以下命令。

@@ -11,6 +11,7 @@ import {
   type EntrySignalAnalysisPrimaryValidationSlice,
   type EntrySignalAnalysisRunRequest,
   type EntrySignalAnalysisTopDailyWindows,
+  type MomentumExhaustionMode,
 } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
 import LogOutput from "../components/LogOutput";
@@ -213,6 +214,10 @@ export default function EntrySignalAnalysis() {
   const [atrRatioMax, setAtrRatioMax] = useState("");
   const [tailGuardEnabled, setTailGuardEnabled] = useState(true);
   const [tailGuardMaxRank, setTailGuardMaxRank] = useState("12");
+  const [momentumExhaustionMode, setMomentumExhaustionMode] =
+    useState<MomentumExhaustionMode>("enforce");
+  const [momentumExhaustionMaxScore, setMomentumExhaustionMaxScore] =
+    useState("4.0");
   const [limit, setLimit] = useState("");
   const [dataRoot, setDataRoot] = useState("data");
   const [outputDir, setOutputDir] = useState("");
@@ -258,6 +263,10 @@ export default function EntrySignalAnalysis() {
     setAtrRatioMax(defaults.atr_ratio_max == null ? "" : String(defaults.atr_ratio_max));
     setTailGuardEnabled(Boolean(defaults.tail_guard_enabled));
     setTailGuardMaxRank(String(defaults.tail_guard_max_rank ?? 12));
+    setMomentumExhaustionMode(defaults.momentum_exhaustion_mode ?? "enforce");
+    setMomentumExhaustionMaxScore(
+      String(defaults.momentum_exhaustion_max_score ?? 4.0),
+    );
     setDataRoot(defaults.data_root ?? "data");
     setOutputDir(defaults.output_dir ?? "entry_signal_analysis");
     setInitialized(true);
@@ -337,6 +346,9 @@ export default function EntrySignalAnalysis() {
       atr_ratio_max: parseOptionalNumber(atrRatioMax),
       tail_guard_enabled: tailGuardEnabled,
       tail_guard_max_rank: parseOptionalNumber(tailGuardMaxRank),
+      momentum_exhaustion_mode: momentumExhaustionMode,
+      momentum_exhaustion_max_score: parseOptionalNumber(momentumExhaustionMaxScore),
+      momentum_exhaustion_threshold_method: "absolute",
       limit: parseOptionalNumber(limit),
       data_root: dataRoot.trim() || "data",
       output_dir: outputDir.trim() || undefined,
@@ -482,6 +494,28 @@ export default function EntrySignalAnalysis() {
                 Enabled
               </label>
               <input value={tailGuardMaxRank} onChange={(e) => setTailGuardMaxRank(e.target.value)} placeholder="max rank" className={inputClassName} />
+            </div>
+          </div>
+          <div className={cardClassName}>
+            <label className={labelClassName}>Momentum Exhaustion</label>
+            <div className="space-y-2">
+              <select
+                value={momentumExhaustionMode}
+                onChange={(e) =>
+                  setMomentumExhaustionMode(e.target.value as MomentumExhaustionMode)
+                }
+                className={inputClassName}
+              >
+                <option value="enforce">enforce</option>
+                <option value="shadow">shadow</option>
+                <option value="off">off</option>
+              </select>
+              <input
+                value={momentumExhaustionMaxScore}
+                onChange={(e) => setMomentumExhaustionMaxScore(e.target.value)}
+                placeholder="max rank_score"
+                className={inputClassName}
+              />
             </div>
           </div>
         </div>

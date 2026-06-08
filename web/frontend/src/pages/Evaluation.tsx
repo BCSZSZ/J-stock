@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type StockPoolOption } from "../api/client";
+import { api, type MomentumExhaustionMode, type StockPoolOption } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
 import ExitStrategyFamilyBuilder from "../components/ExitStrategyFamilyBuilder";
 import MultiDatePicker from "../components/MultiDatePicker";
@@ -53,6 +53,9 @@ interface EvaluationDefaults {
   atr_stop_multiple: number;
   atr_ratio_min: number | null;
   atr_ratio_max: number | null;
+  momentum_exhaustion_mode: MomentumExhaustionMode;
+  momentum_exhaustion_max_score: number;
+  momentum_exhaustion_threshold_method: "absolute";
 }
 
 interface EvaluationOptionsResponse {
@@ -278,6 +281,10 @@ function isPositionSizingMode(value: string): value is PositionSizingMode {
   return value === "fixed" || value === "atr";
 }
 
+function isMomentumExhaustionMode(value: string): value is MomentumExhaustionMode {
+  return value === "off" || value === "shadow" || value === "enforce";
+}
+
 function formatEntryFilterModeLabel(mode: string): string {
   if (mode === "atr") return "atr (ATR only)";
   if (mode === "single") return "single (configured)";
@@ -334,6 +341,10 @@ export default function Evaluation() {
   const [atrStopMultiple, setAtrStopMultiple] = useState("1.0");
   const [atrRatioMin, setAtrRatioMin] = useState("");
   const [atrRatioMax, setAtrRatioMax] = useState("");
+  const [momentumExhaustionMode, setMomentumExhaustionMode] =
+    useState<MomentumExhaustionMode>("enforce");
+  const [momentumExhaustionMaxScore, setMomentumExhaustionMaxScore] =
+    useState("4.0");
   const [overrideProfileSizing, setOverrideProfileSizing] = useState(false);
   const [rankingMode, setRankingMode] = useState("prs_train");
   const [minTrainYears, setMinTrainYears] = useState("2");
@@ -407,6 +418,9 @@ export default function Evaluation() {
   const parsedAtrStopMultiple = parseOptionalFloat(atrStopMultiple);
   const parsedAtrRatioMin = parseOptionalFloat(atrRatioMin);
   const parsedAtrRatioMax = parseOptionalFloat(atrRatioMax);
+  const parsedMomentumExhaustionMaxScore = parseOptionalFloat(
+    momentumExhaustionMaxScore,
+  );
   const includeSizingRuntimeOverrides = !isPosEvaluation || overrideProfileSizing;
   const atrSizingRuntimeEnabled =
     includeSizingRuntimeOverrides && positionSizingMode === "atr";
@@ -566,6 +580,14 @@ export default function Evaluation() {
         ? String(defaults.atr_ratio_max)
         : "",
     );
+    setMomentumExhaustionMode(
+      isMomentumExhaustionMode(defaults.momentum_exhaustion_mode)
+        ? defaults.momentum_exhaustion_mode
+        : "enforce",
+    );
+    setMomentumExhaustionMaxScore(
+      String(defaults.momentum_exhaustion_max_score ?? 4.0),
+    );
     setRankingMode(defaults.ranking_mode ?? "prs_train");
     setMinTrainYears(String(defaults.min_train_years ?? 2));
     setPositionFile(defaults.position_file ?? "");
@@ -668,6 +690,9 @@ export default function Evaluation() {
         selectedUniversePoolIds.length > 0 ? selectedUniversePoolIds : undefined,
       atr_ratio_min: normalizedAtrRatioMin,
       atr_ratio_max: normalizedAtrRatioMax,
+      momentum_exhaustion_mode: momentumExhaustionMode,
+      momentum_exhaustion_max_score: parsedMomentumExhaustionMaxScore,
+      momentum_exhaustion_threshold_method: "absolute",
     };
 
     if (supportsContinuousCompanion) {
@@ -719,6 +744,7 @@ export default function Evaluation() {
         `Fill Buffer: ${fillBufferEnabled ? `ON (${(normalizedFillBufferPct * 100).toFixed(2)}%)` : `OFF (${(normalizedFillBufferPct * 100).toFixed(2)}% configured)`}`,
         `Position Sizing: ${includeSizingRuntimeOverrides ? (positionSizingMode === "atr" ? `${positionSizingMode} | risk ${normalizedRiskPerTradePct} | stop ${normalizedAtrStopMultiple} ATR` : "fixed | ATR sizing params ignored") : "profile defaults"}`,
         `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`,
+        `Momentum Exhaustion: ${momentumExhaustionMode} | max score ${parsedMomentumExhaustionMaxScore ?? "config default"}`,
         `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
         `Continuous Companion: ${supportsContinuousCompanion ? (includeContinuous ? "on" : "off") : "n/a"}`,
@@ -1180,6 +1206,30 @@ export default function Evaluation() {
               {atrRatioRangeInvalid && (
                 <p className="mt-2 text-[11px] text-red-400">Min must be no greater than max.</p>
               )}
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Momentum Exhaustion</label>
+              <select
+                value={momentumExhaustionMode}
+                onChange={(e) =>
+                  setMomentumExhaustionMode(e.target.value as MomentumExhaustionMode)
+                }
+                className={compactInputClassName}
+              >
+                <option value="enforce">enforce</option>
+                <option value="shadow">shadow</option>
+                <option value="off">off</option>
+              </select>
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Momentum Max Score</label>
+              <input
+                value={momentumExhaustionMaxScore}
+                onChange={(e) => setMomentumExhaustionMaxScore(e.target.value)}
+                className={compactInputClassName}
+              />
             </div>
 
             <div className={`${fieldCardClassName} justify-center`}>

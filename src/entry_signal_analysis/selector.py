@@ -10,6 +10,10 @@ from src.utils.tail_guard import (
     count_positive_priority_scores,
     resolve_tail_guard_rank_limit,
 )
+from src.utils.momentum_exhaustion import (
+    MomentumExhaustionConfig,
+    evaluate_momentum_exhaustion,
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +47,7 @@ def select_daily_candidates(
     candidates: Sequence[DailyEntryCandidate],
     ranking_strategy_name: str,
     tail_guard_config: Mapping[str, object] | None,
+    momentum_exhaustion_config: MomentumExhaustionConfig | Mapping[str, object] | None = None,
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
@@ -55,7 +60,7 @@ def select_daily_candidates(
         tail_guard_config,
         positive_rank_score_count=positive_rank_score_count,
     )
-    rank_map = {
+    rank_map: dict[str, tuple[int, float]] = {
         ticker: (index + 1, float(priority))
         for index, (ticker, _signal, priority) in enumerate(ranked)
     }
@@ -64,9 +69,13 @@ def select_daily_candidates(
     ranking_name = str(ranking_strategy_name or "default")
     for candidate in candidates:
         rank, rank_score = rank_map.get(candidate.ticker, (None, None))
+        exhaustion_decision = evaluate_momentum_exhaustion(
+            rank_score,
+            momentum_exhaustion_config,
+        )
         selected = rank is not None and (
             tail_guard_limit is None or rank <= tail_guard_limit
-        )
+        ) and not exhaustion_decision.filtered
         record = dict(candidate.payload)
         record.update({
             "ticker": candidate.ticker,
@@ -82,6 +91,7 @@ def select_daily_candidates(
             "selected": selected,
             "ranking_strategy": ranking_name,
         })
+        record.update(exhaustion_decision.to_metadata())
         annotated.append(record)
 
     return annotated

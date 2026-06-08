@@ -11,6 +11,8 @@ EntryExitSignalScope = Literal["all", "selected"]
 EntryExitEntryFilterMode = Literal["auto", "off", "atr", "single", "grid"]
 EntryExitTailGuardRankLimitMode = Literal["max", "min"]
 EntryExitPartialExitPolicy = Literal["first_sell_full_exit"]
+EntryExitMomentumExhaustionMode = Literal["off", "shadow", "enforce"]
+EntryExitMomentumExhaustionThresholdMethod = Literal["absolute"]
 
 
 class EntryExitValidationRequest(BaseModel):
@@ -31,6 +33,9 @@ class EntryExitValidationRequest(BaseModel):
     tail_guard_enabled: bool | None = None
     tail_guard_max_rank: int | None = None
     tail_guard_rank_limit_mode: EntryExitTailGuardRankLimitMode | None = None
+    momentum_exhaustion_mode: EntryExitMomentumExhaustionMode | None = None
+    momentum_exhaustion_max_score: float | None = None
+    momentum_exhaustion_threshold_method: EntryExitMomentumExhaustionThresholdMethod = "absolute"
     max_holding_trading_days: int = 60
     partial_exit_policy: EntryExitPartialExitPolicy = "first_sell_full_exit"
     min_samples: int = 30

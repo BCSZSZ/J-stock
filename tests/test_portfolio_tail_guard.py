@@ -9,7 +9,11 @@ from src.evaluation.strategy_evaluator import StrategyEvaluator
 from src.utils.atr_position_sizing import PortfolioSizingConfig
 
 
-def _build_engine(*, mode: str = "atr") -> PortfolioBacktestEngine:
+def _build_engine(
+    *,
+    mode: str = "atr",
+    momentum_exhaustion_config: dict[str, object] | None = None,
+) -> PortfolioBacktestEngine:
     return PortfolioBacktestEngine(
         starting_capital=1_000_000,
         position_sizing_config=PortfolioSizingConfig(
@@ -18,6 +22,7 @@ def _build_engine(*, mode: str = "atr") -> PortfolioBacktestEngine:
             max_position_pct=0.30,
         ),
         tail_guard_config={"enabled": True, "max_rank": 12},
+        momentum_exhaustion_config=momentum_exhaustion_config,
     )
 
 
@@ -79,6 +84,59 @@ def test_tail_guard_does_not_trim_fixed_position_mode() -> None:
     assert len(trimmed_signals) == len(ranked_signals)
 
 
+def test_momentum_exhaustion_enforce_uses_full_rank_pool_before_filtering() -> None:
+    engine = _build_engine(
+        mode="atr",
+        momentum_exhaustion_config={"mode": "enforce", "max_score": 4.0},
+    )
+
+    assert engine._rank_buy_signal_top_k(SimpleNamespace(max_positions=2)) is None
+
+
+def test_momentum_exhaustion_shadow_keeps_rank_pool_limit() -> None:
+    engine = _build_engine(
+        mode="fixed",
+        momentum_exhaustion_config={"mode": "shadow", "max_score": 4.0},
+    )
+
+    assert engine._rank_buy_signal_top_k(SimpleNamespace(max_positions=2)) == 4
+
+
+def test_momentum_exhaustion_filters_high_ranked_signals_before_allocation() -> None:
+    engine = _build_engine(
+        mode="atr",
+        momentum_exhaustion_config={"mode": "enforce", "max_score": 4.0},
+    )
+    ranked_signals = _build_ranked_signals([5.0, 4.0, 3.0])
+
+    kept, filtered_count, shadowed_count = (
+        engine._apply_momentum_exhaustion_to_ranked_signals(ranked_signals)
+    )
+
+    assert [ticker for ticker, _signal, _priority in kept] == ["0002", "0003"]
+    assert filtered_count == 1
+    assert shadowed_count == 0
+    assert ranked_signals[0][1].metadata["momentum_exhaustion_filtered"] is True
+    assert ranked_signals[1][1].metadata["momentum_exhaustion_blocked"] is False
+
+
+def test_momentum_exhaustion_shadow_keeps_ranked_signals_for_allocation() -> None:
+    engine = _build_engine(
+        mode="atr",
+        momentum_exhaustion_config={"mode": "shadow", "max_score": 4.0},
+    )
+    ranked_signals = _build_ranked_signals([5.0, 4.0])
+
+    kept, filtered_count, shadowed_count = (
+        engine._apply_momentum_exhaustion_to_ranked_signals(ranked_signals)
+    )
+
+    assert [ticker for ticker, _signal, _priority in kept] == ["0001", "0002"]
+    assert filtered_count == 0
+    assert shadowed_count == 1
+    assert ranked_signals[0][1].metadata["momentum_exhaustion_filtered"] is False
+
+
 def test_strategy_evaluator_passes_tail_guard_config_to_backtest_engine(
     monkeypatch,
     tmp_path,
@@ -88,6 +146,9 @@ def test_strategy_evaluator_passes_tail_guard_config_to_backtest_engine(
     class FakePortfolioBacktestEngine:
         def __init__(self, *args, **kwargs) -> None:
             captured["tail_guard_config"] = kwargs.get("tail_guard_config")
+            captured["momentum_exhaustion_config"] = kwargs.get(
+                "momentum_exhaustion_config"
+            )
             self.daily_snapshots = []
             self.last_pending_buy_signals = {}
             self.last_pending_sell_signals = {}
@@ -146,7 +207,12 @@ def test_strategy_evaluator_passes_tail_guard_config_to_backtest_engine(
         lambda: {"production": {"tail_guard": {"enabled": True, "max_rank": 12}}},
     )
 
-    evaluator = StrategyEvaluator(data_root="data", output_dir=str(tmp_path))
+    momentum_config = {"mode": "enforce", "max_score": 4.0}
+    evaluator = StrategyEvaluator(
+        data_root="data",
+        output_dir=str(tmp_path),
+        momentum_exhaustion_config=momentum_config,
+    )
     monkeypatch.setattr(evaluator, "_load_monitor_list", lambda: ["7203"])
     monkeypatch.setattr(evaluator, "_get_capacity_regime_mode", lambda: "off")
     monkeypatch.setattr(evaluator, "_get_capacity_regime", lambda: None)
@@ -175,4 +241,5 @@ def test_strategy_evaluator_passes_tail_guard_config_to_backtest_engine(
     )
 
     assert captured["tail_guard_config"] == {"enabled": True, "max_rank": 12}
+    assert captured["momentum_exhaustion_config"] == momentum_config
     assert result.ranking_strategy == "momentum"

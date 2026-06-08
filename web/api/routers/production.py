@@ -25,6 +25,10 @@ from src.production.input_trade_import_preview import (
     format_sbi_history_mtime,
     parse_sbi_trade_history_csv,
 )
+from src.utils.momentum_exhaustion import (
+    DEFAULT_PRODUCTION_MOMENTUM_EXHAUSTION_MODE,
+    resolve_momentum_exhaustion_config,
+)
 from web.api.dependencies import get_config_manager, get_production_config, get_project_root
 from web.api.schemas import (
     InputTradeRequest,
@@ -58,6 +62,20 @@ def _append_atr_runtime_flags(args: list[str], req: ProductionDailyRequest) -> N
         args.extend(["--atr-ratio-max", "none"])
 
 
+def _append_momentum_exhaustion_flags(args: list[str], req: ProductionDailyRequest) -> None:
+    if req.momentum_exhaustion_mode:
+        args.extend(["--momentum-exhaustion-mode", req.momentum_exhaustion_mode])
+    if req.momentum_exhaustion_max_score is not None:
+        args.extend(["--momentum-exhaustion-max-score", str(req.momentum_exhaustion_max_score)])
+    if req.momentum_exhaustion_threshold_method:
+        args.extend(
+            [
+                "--momentum-exhaustion-threshold-method",
+                req.momentum_exhaustion_threshold_method,
+            ]
+        )
+
+
 def _resolve_production_atr_defaults(cfg) -> dict[str, object]:
     raw_config = getattr(cfg, "raw_config", {}) or {}
     entry_filter = raw_config.get("production", {}).get("entry_filter")
@@ -69,6 +87,19 @@ def _resolve_production_atr_defaults(cfg) -> dict[str, object]:
         "atr_stop_multiple": float(getattr(cfg.atr_position_sizing, "atr_stop_multiple", 1.0)),
         "atr_ratio_min": entry_filter.get("atr_price_min"),
         "atr_ratio_max": entry_filter.get("atr_price_max"),
+    }
+
+
+def _resolve_production_momentum_exhaustion_defaults(cfg) -> dict[str, object]:
+    raw_config = getattr(cfg, "raw_config", {}) or {}
+    cfg_filter = resolve_momentum_exhaustion_config(
+        raw_config,
+        default_mode=DEFAULT_PRODUCTION_MOMENTUM_EXHAUSTION_MODE,
+    )
+    return {
+        "momentum_exhaustion_mode": cfg_filter.mode,
+        "momentum_exhaustion_max_score": cfg_filter.max_score,
+        "momentum_exhaustion_threshold_method": cfg_filter.threshold_method,
     }
 
 
@@ -370,6 +401,7 @@ def production_options() -> dict[str, object]:
         "defaults": {
             "pool_id": "",
             **_resolve_production_atr_defaults(cfg),
+            **_resolve_production_momentum_exhaustion_defaults(cfg),
         },
         "stock_pools": stock_pools,
     }
@@ -385,6 +417,7 @@ async def run_daily(req: ProductionDailyRequest) -> StreamingResponse:
     if req.pool_id:
         args.extend(["--pool-id", req.pool_id])
     _append_atr_runtime_flags(args, req)
+    _append_momentum_exhaustion_flags(args, req)
     return await _run_cli_streaming(args)
 
 

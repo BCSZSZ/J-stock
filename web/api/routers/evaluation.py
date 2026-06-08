@@ -22,6 +22,10 @@ from src.backtest.entry_reference import (
 )
 from src.config.runtime import is_local_path
 from src.utils.atr_position_sizing import parse_portfolio_sizing_config
+from src.utils.momentum_exhaustion import (
+    DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
+    resolve_momentum_exhaustion_config,
+)
 from web.api.dependencies import get_production_config, get_project_root, get_config_manager
 from web.api.schemas import EvaluationRunRequest
 
@@ -301,6 +305,20 @@ def _append_atr_runtime_flags(args: list[str], req: EvaluationRunRequest) -> Non
         args.extend(["--atr-ratio-max", "none"])
 
 
+def _append_momentum_exhaustion_flags(args: list[str], req: EvaluationRunRequest) -> None:
+    if req.momentum_exhaustion_mode:
+        args.extend(["--momentum-exhaustion-mode", req.momentum_exhaustion_mode])
+    if req.momentum_exhaustion_max_score is not None:
+        args.extend(["--momentum-exhaustion-max-score", str(req.momentum_exhaustion_max_score)])
+    if req.momentum_exhaustion_threshold_method:
+        args.extend(
+            [
+                "--momentum-exhaustion-threshold-method",
+                req.momentum_exhaustion_threshold_method,
+            ]
+        )
+
+
 def _resolve_atr_runtime_defaults(prod_cfg) -> dict[str, object]:
     raw_config = getattr(prod_cfg, "raw_config", {}) or {}
     default_filter = raw_config.get("production", {}).get("entry_filter")
@@ -312,6 +330,22 @@ def _resolve_atr_runtime_defaults(prod_cfg) -> dict[str, object]:
         "atr_stop_multiple": float(getattr(prod_cfg.atr_position_sizing, "atr_stop_multiple", 1.0)),
         "atr_ratio_min": default_filter.get("atr_price_min"),
         "atr_ratio_max": default_filter.get("atr_price_max"),
+    }
+
+
+def _resolve_momentum_exhaustion_defaults(
+    raw_config: dict[str, object],
+    default_mode: str = DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
+) -> dict[str, object]:
+    cfg = resolve_momentum_exhaustion_config(
+        raw_config,
+        default_mode=default_mode,
+        use_configured_mode=False,
+    )
+    return {
+        "momentum_exhaustion_mode": cfg.mode,
+        "momentum_exhaustion_max_score": cfg.max_score,
+        "momentum_exhaustion_threshold_method": cfg.threshold_method,
     }
 
 
@@ -560,6 +594,7 @@ def _build_cli_args(
         args.extend(["--ranking-mode", req.ranking_mode])
 
     _append_atr_runtime_flags(args, req)
+    _append_momentum_exhaustion_flags(args, req)
 
     _append_multi_flag(
         args,
@@ -678,6 +713,7 @@ def get_options() -> dict[str, object]:
             ),
             "universe_pool_ids": [],
             **atr_runtime_defaults,
+            **_resolve_momentum_exhaustion_defaults(raw_config),
             "position_file": default_position_file,
             "profile_names": default_profile_names,
             "report_file": "",

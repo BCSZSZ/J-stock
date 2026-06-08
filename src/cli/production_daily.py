@@ -32,6 +32,12 @@ from src.utils.tail_guard import (
     count_positive_rank_scores as _shared_count_positive_rank_scores,
     resolve_tail_guard_rank_limit as _shared_resolve_tail_guard_rank_limit,
 )
+from src.utils.momentum_exhaustion import (
+    DEFAULT_PRODUCTION_MOMENTUM_EXHAUSTION_MODE,
+    MomentumExhaustionDecision,
+    evaluate_momentum_exhaustion,
+    resolve_momentum_exhaustion_config,
+)
 
 
 @dataclass(frozen=True)
@@ -270,6 +276,61 @@ def _resolve_tail_guard_rank_limit(
     )
 
 
+def _resolve_momentum_exhaustion_for_daily(
+    raw_config: Dict[str, object],
+    args,
+):
+    return resolve_momentum_exhaustion_config(
+        raw_config,
+        default_mode=DEFAULT_PRODUCTION_MOMENTUM_EXHAUSTION_MODE,
+        mode_override=getattr(args, "momentum_exhaustion_mode", None),
+        max_score_override=getattr(args, "momentum_exhaustion_max_score", None),
+        threshold_method_override=getattr(
+            args,
+            "momentum_exhaustion_threshold_method",
+            None,
+        ),
+    )
+
+
+def _append_reason(reason: Optional[str], suffix: str) -> str:
+    base = str(reason or "").strip()
+    if not base:
+        return suffix
+    if suffix in base:
+        return base
+    return f"{base}; {suffix}"
+
+
+def _apply_momentum_exhaustion_to_signal(
+    signal,
+    decision: MomentumExhaustionDecision,
+) -> None:
+    payload = decision.to_metadata()
+    signal.momentum_exhaustion_mode = str(payload["momentum_exhaustion_mode"])
+    signal.momentum_exhaustion_threshold_method = str(
+        payload["momentum_exhaustion_threshold_method"]
+    )
+    signal.momentum_exhaustion_max_score = payload["momentum_exhaustion_max_score"]
+    signal.momentum_exhaustion_score = payload["momentum_exhaustion_score"]
+    signal.momentum_exhaustion_threshold = payload["momentum_exhaustion_threshold"]
+    signal.momentum_exhaustion_blocked = bool(
+        payload["momentum_exhaustion_blocked"]
+    )
+    signal.momentum_exhaustion_filtered = bool(
+        payload["momentum_exhaustion_filtered"]
+    )
+    signal.momentum_exhaustion_reason = (
+        str(payload["momentum_exhaustion_reason"])
+        if payload["momentum_exhaustion_reason"] is not None
+        else None
+    )
+    signal.signal_metadata = dict(getattr(signal, "signal_metadata", {}) or {})
+    signal.signal_metadata.update(payload)
+    if decision.reason:
+        signal.reason = _append_reason(signal.reason, decision.reason)
+
+
 def _coerce_positive_float(value: object) -> Optional[float]:
     try:
         if value is None or pd.isna(value):
@@ -446,6 +507,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     raw_config = getattr(prod_cfg, "raw_config", None)
     if raw_config is None:
         raw_config = load_config()
+    momentum_exhaustion_config = _resolve_momentum_exhaustion_for_daily(
+        raw_config,
+        args,
+    )
     _apply_atr_runtime_overrides(args, prod_cfg)
     lot_sizes = raw_config.get("lot_sizes", {})
     default_lot_size = int(lot_sizes.get("default", 100) or 100)
@@ -1581,10 +1646,29 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 for s in all_signals:
                     if s.signal_type == "BUY" and s.ticker in rank_map:
                         s.rank, s.rank_score = rank_map[s.ticker]
+                momentum_filtered = 0
+                momentum_shadowed = 0
+                for s in buy_signals:
+                    decision = evaluate_momentum_exhaustion(
+                        s.rank_score,
+                        momentum_exhaustion_config,
+                    )
+                    _apply_momentum_exhaustion_to_signal(s, decision)
+                    if decision.filtered:
+                        momentum_filtered += 1
+                    elif decision.shadowed:
+                        momentum_shadowed += 1
                 print(
                     f"\n[Ranking] Applied '{ranking_strategy_name}' to "
                     f"{len(buy_signals)} BUY signals"
                 )
+                if momentum_filtered or momentum_shadowed:
+                    print(
+                        "[Momentum Exhaustion] "
+                        f"mode={momentum_exhaustion_config.mode}, "
+                        f"max_score={momentum_exhaustion_config.max_score}, "
+                        f"filtered={momentum_filtered}, shadowed={momentum_shadowed}"
+                    )
         except Exception as e:
             print(f"\n[Ranking] Warning: ranking failed ({e}), skipping")
 
@@ -1612,7 +1696,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         new_positions_opened = 0
 
         group_buys = [s for s in buy_signals_all if s.group_id == group_id]
-        positive_momentum_count = _count_positive_rank_scores(group_buys)
+        group_buys_for_tail_guard = [
+            s for s in group_buys if not bool(getattr(s, "momentum_exhaustion_filtered", False))
+        ]
+        positive_momentum_count = _count_positive_rank_scores(group_buys_for_tail_guard)
         tail_guard_rank_limit = _resolve_tail_guard_rank_limit(
             raw_config=raw_config,
             positive_rank_score_count=positive_momentum_count,
@@ -1626,6 +1713,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         for sig in group_buys:
             if capacity_snapshot is not None:
                 _apply_capacity_fields(sig, capacity_snapshot, None)
+
+            if bool(getattr(sig, "momentum_exhaustion_filtered", False)):
+                continue
 
             if (
                 tail_guard_rank_limit is not None

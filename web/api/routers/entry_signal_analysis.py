@@ -16,6 +16,10 @@ from fastapi.responses import StreamingResponse
 from src.entry_signal_analysis.models import EntrySignalAnalysisDatasetManifest
 from src.entry_signal_analysis.paths import default_output_dir
 from src.entry_signal_analysis.runtime import resolve_production_ranking_strategy
+from src.utils.momentum_exhaustion import (
+    DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
+    resolve_momentum_exhaustion_config,
+)
 from web.api.dependencies import get_config_manager, get_production_config, get_project_root
 from web.api.schemas import EntrySignalAnalysisRunRequest
 
@@ -42,6 +46,36 @@ def _append_multi_flag(args: list[str], flag: str, values: list[object] | None) 
         return
     args.append(flag)
     args.extend(str(value) for value in values)
+
+
+def _append_momentum_exhaustion_flags(
+    args: list[str],
+    req: EntrySignalAnalysisRunRequest,
+) -> None:
+    if req.momentum_exhaustion_mode:
+        args.extend(["--momentum-exhaustion-mode", req.momentum_exhaustion_mode])
+    if req.momentum_exhaustion_max_score is not None:
+        args.extend(["--momentum-exhaustion-max-score", str(req.momentum_exhaustion_max_score)])
+    if req.momentum_exhaustion_threshold_method:
+        args.extend(
+            [
+                "--momentum-exhaustion-threshold-method",
+                req.momentum_exhaustion_threshold_method,
+            ]
+        )
+
+
+def _resolve_momentum_exhaustion_defaults(raw_config: dict[str, object]) -> dict[str, object]:
+    cfg = resolve_momentum_exhaustion_config(
+        raw_config,
+        default_mode=DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
+        use_configured_mode=False,
+    )
+    return {
+        "momentum_exhaustion_mode": cfg.mode,
+        "momentum_exhaustion_max_score": cfg.max_score,
+        "momentum_exhaustion_threshold_method": cfg.threshold_method,
+    }
 
 
 def _build_cli_args(req: EntrySignalAnalysisRunRequest) -> list[str]:
@@ -104,6 +138,7 @@ def _build_cli_args(req: EntrySignalAnalysisRunRequest) -> list[str]:
         args.append("--no-tail-guard-enabled")
     if req.tail_guard_max_rank is not None:
         args.extend(["--tail-guard-max-rank", str(req.tail_guard_max_rank)])
+    _append_momentum_exhaustion_flags(args, req)
     if req.limit is not None:
         args.extend(["--limit", str(req.limit)])
     args.extend(["--data-root", req.data_root])
@@ -258,6 +293,7 @@ def get_options() -> dict[str, object]:
             "atr_ratio_max": production_filter.get("atr_price_max"),
             "tail_guard_enabled": bool(tail_guard.get("enabled", True)),
             "tail_guard_max_rank": int(tail_guard.get("max_rank", 12) or 12),
+            **_resolve_momentum_exhaustion_defaults(raw_config),
             "data_root": "data",
             "output_dir": _default_output_dir(),
         },

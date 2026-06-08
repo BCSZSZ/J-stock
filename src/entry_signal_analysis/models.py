@@ -11,6 +11,8 @@ EntrySignalEntryFilterMode = Literal["auto", "off", "atr", "single", "grid"]
 PositionSizingMode = Literal["fixed", "atr"]
 TailGuardRankLimitMode = Literal["max", "min"]
 SignalStrengthMetric = Literal["rank_score", "score", "confidence"]
+MomentumExhaustionMode = Literal["off", "shadow", "enforce"]
+MomentumExhaustionThresholdMethod = Literal["absolute"]
 
 
 class EntrySignalAnalysisRequest(BaseModel):
@@ -33,6 +35,9 @@ class EntrySignalAnalysisRequest(BaseModel):
     tail_guard_enabled: bool | None = None
     tail_guard_max_rank: int | None = None
     tail_guard_rank_limit_mode: TailGuardRankLimitMode | None = None
+    momentum_exhaustion_mode: MomentumExhaustionMode | None = None
+    momentum_exhaustion_max_score: float | None = None
+    momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
     data_root: str = "data"
     output_dir: str = "entry_signal_analysis"
 

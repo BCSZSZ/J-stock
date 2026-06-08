@@ -6,6 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+MomentumExhaustionMode = Literal["off", "shadow", "enforce"]
+MomentumExhaustionThresholdMethod = Literal["absolute"]
+
 
 def _validate_atr_sizing_runtime_fields(model: BaseModel) -> BaseModel:
     risk_per_trade_pct = getattr(model, "risk_per_trade_pct", None)
@@ -218,6 +221,9 @@ class EvaluationRunRequest(BaseModel):
     atr_stop_multiple: float | None = None
     atr_ratio_min: float | None = None
     atr_ratio_max: float | None = None
+    momentum_exhaustion_mode: MomentumExhaustionMode | None = None
+    momentum_exhaustion_max_score: float | None = None
+    momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
     output_dir: str | None = None
     verbose: bool = False
 
@@ -249,6 +255,9 @@ class EntrySignalAnalysisRunRequest(BaseModel):
     atr_ratio_max: float | None = None
     tail_guard_enabled: bool | None = None
     tail_guard_max_rank: int | None = None
+    momentum_exhaustion_mode: MomentumExhaustionMode | None = None
+    momentum_exhaustion_max_score: float | None = None
+    momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
     limit: int | None = None
     data_root: str = "data"
     output_dir: str | None = None
@@ -288,6 +297,9 @@ class EntryExitValidationRunRequest(BaseModel):
     atr_ratio_max: float | None = None
     tail_guard_enabled: bool | None = None
     tail_guard_max_rank: int | None = None
+    momentum_exhaustion_mode: MomentumExhaustionMode | None = None
+    momentum_exhaustion_max_score: float | None = None
+    momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
     max_holding_trading_days: int = Field(default=60, ge=1)
     partial_exit_policy: Literal["first_sell_full_exit"] = "first_sell_full_exit"
     min_samples: int = Field(default=30, ge=1)
@@ -309,6 +321,9 @@ class ProductionDailyRequest(BaseModel):
     atr_stop_multiple: float | None = None
     atr_ratio_min: float | None = None
     atr_ratio_max: float | None = None
+    momentum_exhaustion_mode: MomentumExhaustionMode | None = None
+    momentum_exhaustion_max_score: float | None = None
+    momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
     confirm: bool = False
 
     @model_validator(mode="after")

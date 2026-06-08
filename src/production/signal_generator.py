@@ -87,6 +87,14 @@ class Signal:
     # Explicit UI/API semantics
     momentum_rank: Optional[int] = None
     momentum_value: Optional[float] = None
+    momentum_exhaustion_mode: Optional[str] = None
+    momentum_exhaustion_threshold_method: Optional[str] = None
+    momentum_exhaustion_max_score: Optional[float] = None
+    momentum_exhaustion_score: Optional[float] = None
+    momentum_exhaustion_threshold: Optional[float] = None
+    momentum_exhaustion_blocked: bool = False
+    momentum_exhaustion_filtered: bool = False
+    momentum_exhaustion_reason: Optional[str] = None
     is_executable: bool = False
     is_executable_buy: bool = False
     is_executable_sell: bool = False

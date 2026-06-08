@@ -2,6 +2,8 @@ import type { SignalRecord } from "../signalSemantics";
 
 const BASE = "/api";
 
+export type MomentumExhaustionMode = "off" | "shadow" | "enforce";
+
 export type TradeHistoryEvent = {
   date: string;
   group_id: string;
@@ -66,6 +68,9 @@ export type EntrySignalAnalysisOptions = {
     atr_ratio_max: number | null;
     tail_guard_enabled: boolean;
     tail_guard_max_rank: number;
+    momentum_exhaustion_mode: MomentumExhaustionMode;
+    momentum_exhaustion_max_score: number;
+    momentum_exhaustion_threshold_method: "absolute";
     data_root: string;
     output_dir: string;
   };
@@ -91,6 +96,9 @@ export type EntrySignalAnalysisRunRequest = {
   atr_ratio_max?: number | null;
   tail_guard_enabled?: boolean | null;
   tail_guard_max_rank?: number | null;
+  momentum_exhaustion_mode?: MomentumExhaustionMode | null;
+  momentum_exhaustion_max_score?: number | null;
+  momentum_exhaustion_threshold_method?: "absolute";
   limit?: number | null;
   data_root: string;
   output_dir?: string;
@@ -252,6 +260,9 @@ export type EntryExitValidationOptions = {
     atr_ratio_max: number | null;
     tail_guard_enabled: boolean;
     tail_guard_max_rank: number;
+    momentum_exhaustion_mode: MomentumExhaustionMode;
+    momentum_exhaustion_max_score: number;
+    momentum_exhaustion_threshold_method: "absolute";
     max_holding_trading_days: number;
     partial_exit_policy: string;
     min_samples: number;
@@ -278,6 +289,9 @@ export type EntryExitValidationRunRequest = {
   atr_ratio_max?: number | null;
   tail_guard_enabled?: boolean | null;
   tail_guard_max_rank?: number | null;
+  momentum_exhaustion_mode?: MomentumExhaustionMode | null;
+  momentum_exhaustion_max_score?: number | null;
+  momentum_exhaustion_threshold_method?: "absolute";
   max_holding_trading_days: number;
   partial_exit_policy: "first_sell_full_exit";
   min_samples: number;
@@ -546,6 +560,9 @@ export const api = {
         atr_stop_multiple: number;
         atr_ratio_min: number | null;
         atr_ratio_max: number | null;
+        momentum_exhaustion_mode: MomentumExhaustionMode;
+        momentum_exhaustion_max_score: number;
+        momentum_exhaustion_threshold_method: "absolute";
       };
       stock_pools: StockPoolOption[];
     }>("/production/options"),
@@ -612,6 +629,9 @@ export const api = {
         atr_stop_multiple: number;
         atr_ratio_min: number | null;
         atr_ratio_max: number | null;
+        momentum_exhaustion_mode: MomentumExhaustionMode;
+        momentum_exhaustion_max_score: number;
+        momentum_exhaustion_threshold_method: "absolute";
       };
     }>("/evaluation/options"),
   evalReportContext: (reportFile: string) =>

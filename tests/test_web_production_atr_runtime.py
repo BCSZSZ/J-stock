@@ -1,6 +1,9 @@
 import pytest
 
-from web.api.routers.production import _append_atr_runtime_flags
+from web.api.routers.production import (
+    _append_atr_runtime_flags,
+    _append_momentum_exhaustion_flags,
+)
 from web.api.schemas import ProductionDailyRequest
 
 
@@ -90,4 +93,23 @@ def test_production_daily_cli_args_send_none_for_explicit_blank_atr_bounds() -> 
         "none",
         "--atr-ratio-max",
         "none",
+    ]
+
+
+def test_production_daily_cli_args_include_momentum_exhaustion_flags() -> None:
+    req = ProductionDailyRequest(
+        momentum_exhaustion_mode="enforce",
+        momentum_exhaustion_max_score=4.0,
+    )
+    args: list[str] = []
+
+    _append_momentum_exhaustion_flags(args, req)
+
+    assert args == [
+        "--momentum-exhaustion-mode",
+        "enforce",
+        "--momentum-exhaustion-max-score",
+        "4.0",
+        "--momentum-exhaustion-threshold-method",
+        "absolute",
     ]

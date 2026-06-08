@@ -117,6 +117,27 @@ def _add_ranking_strategy_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_momentum_exhaustion_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--momentum-exhaustion-mode",
+        choices=["off", "shadow", "enforce"],
+        default=None,
+        help="Extreme momentum filter mode: off, shadow, or enforce.",
+    )
+    parser.add_argument(
+        "--momentum-exhaustion-max-score",
+        type=float,
+        default=None,
+        help="Filter BUY signals when momentum rank_score is greater than this value.",
+    )
+    parser.add_argument(
+        "--momentum-exhaustion-threshold-method",
+        choices=["absolute"],
+        default=None,
+        help="Momentum exhaustion threshold method. Only absolute is currently supported.",
+    )
+
+
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
@@ -229,6 +250,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     _add_ranking_strategy_arguments(parser)
+    _add_momentum_exhaustion_arguments(parser)
 
 
 def _add_atr_runtime_override_arguments(parser: argparse.ArgumentParser) -> None:
@@ -359,6 +381,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         ),
     )
     _add_ranking_strategy_arguments(parser)
+    _add_momentum_exhaustion_arguments(parser)
 
 
 def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -592,6 +615,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="可选：仅对本次 daily 运行生效的股票池 ID（来自 stock_pools catalog）",
     )
     _add_atr_runtime_override_arguments(production_parser)
+    _add_momentum_exhaustion_arguments(production_parser)
     production_overlay_mode = production_parser.add_mutually_exclusive_group()
     production_overlay_mode.add_argument(
         "--enable-overlay",
@@ -886,6 +910,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="从某个历史 report 状态继续回放到最新可用数据日",
     )
     _add_replay_evaluation_arguments(replay_evaluate_parser)
+    _add_momentum_exhaustion_arguments(replay_evaluate_parser)
     replay_evaluate_parser.set_defaults(func=_cmd_replay_evaluation)
 
     entry_analysis_parser = subparsers.add_parser(
@@ -1046,6 +1071,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="指定 evaluation.filters.variants 中的过滤器名称",
     )
     _add_atr_runtime_override_arguments(entry_signal_analysis_parser)
+    _add_momentum_exhaustion_arguments(entry_signal_analysis_parser)
     entry_signal_analysis_parser.add_argument(
         "--tail-guard-enabled",
         action=argparse.BooleanOptionalAction,
@@ -1153,6 +1179,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="指定 evaluation.filters.variants 中的过滤器名称",
     )
     _add_atr_runtime_override_arguments(entry_exit_validation_parser)
+    _add_momentum_exhaustion_arguments(entry_exit_validation_parser)
     entry_exit_validation_parser.add_argument(
         "--tail-guard-enabled",
         action=argparse.BooleanOptionalAction,

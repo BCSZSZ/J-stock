@@ -16,6 +16,11 @@ from src.utils.atr_runtime_overrides import (
     _normalize_runtime_atr_bound,
     merge_entry_filter_variant_runtime_bounds,
 )
+from src.utils.momentum_exhaustion import (
+    DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
+    MomentumExhaustionConfig,
+    resolve_momentum_exhaustion_config,
+)
 from src.utils.universe_loader import load_tickers_from_file
 
 
@@ -257,6 +262,11 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         tail_guard_enabled=getattr(args, "tail_guard_enabled", None),
         tail_guard_max_rank=getattr(args, "tail_guard_max_rank", None),
         tail_guard_rank_limit_mode=getattr(args, "tail_guard_rank_limit_mode", None),
+        momentum_exhaustion_mode=getattr(args, "momentum_exhaustion_mode", None),
+        momentum_exhaustion_max_score=getattr(args, "momentum_exhaustion_max_score", None),
+        momentum_exhaustion_threshold_method=(
+            getattr(args, "momentum_exhaustion_threshold_method", None) or "absolute"
+        ),
         data_root=str(getattr(args, "data_root", None) or "data"),
         output_dir=resolve_output_dir(args, raw_config),
     )
@@ -299,4 +309,18 @@ def resolve_tail_guard_for_request(
         enabled_override=request.tail_guard_enabled,
         max_rank_override=request.tail_guard_max_rank,
         rank_limit_mode_override=request.tail_guard_rank_limit_mode,
+    )
+
+
+def resolve_momentum_exhaustion_for_request(
+    request: EntrySignalAnalysisRequest,
+) -> MomentumExhaustionConfig:
+    raw_config = load_runtime_config()
+    return resolve_momentum_exhaustion_config(
+        raw_config,
+        default_mode=DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
+        mode_override=request.momentum_exhaustion_mode,
+        max_score_override=request.momentum_exhaustion_max_score,
+        threshold_method_override=request.momentum_exhaustion_threshold_method,
+        use_configured_mode=False,
     )

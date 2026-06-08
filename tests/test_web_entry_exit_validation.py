@@ -45,6 +45,8 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
         atr_ratio_max=0.08,
         tail_guard_enabled=False,
         tail_guard_max_rank=8,
+        momentum_exhaustion_mode="enforce",
+        momentum_exhaustion_max_score=4.0,
         max_holding_trading_days=40,
         output_dir="output/entry_exit_validation_test",
     )
@@ -59,6 +61,9 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
     assert "--entry-filter-name" in args
     assert "f01" in args
     assert "--no-tail-guard-enabled" in args
+    assert args[args.index("--momentum-exhaustion-mode") + 1] == "enforce"
+    assert args[args.index("--momentum-exhaustion-max-score") + 1] == "4.0"
+    assert args[args.index("--momentum-exhaustion-threshold-method") + 1] == "absolute"
     assert args[args.index("--max-holding-trading-days") + 1] == "40"
 
 

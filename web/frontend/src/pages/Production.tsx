@@ -6,6 +6,7 @@ import { useStreamExec } from "../hooks/useStreamExec";
 import {
   api,
   type InputTradeImportPreviewResponse,
+  type MomentumExhaustionMode,
   type StockPoolOption,
 } from "../api/client";
 import { useTickerNames } from "../hooks/useTickerNames";
@@ -33,6 +34,9 @@ interface ProductionOptionsResponse {
     atr_stop_multiple: number;
     atr_ratio_min: number | null;
     atr_ratio_max: number | null;
+    momentum_exhaustion_mode: MomentumExhaustionMode;
+    momentum_exhaustion_max_score: number;
+    momentum_exhaustion_threshold_method: "absolute";
   };
   stock_pools: StockPoolOption[];
 }
@@ -128,6 +132,10 @@ export default function Production() {
   const [atrStopMultiple, setAtrStopMultiple] = useState("1.0");
   const [atrRatioMin, setAtrRatioMin] = useState("");
   const [atrRatioMax, setAtrRatioMax] = useState("");
+  const [momentumExhaustionMode, setMomentumExhaustionMode] =
+    useState<MomentumExhaustionMode>("shadow");
+  const [momentumExhaustionMaxScore, setMomentumExhaustionMaxScore] =
+    useState("4.0");
   const [importingTrades, setImportingTrades] = useState(false);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
@@ -147,6 +155,9 @@ export default function Production() {
   const parsedAtrStopMultiple = parseOptionalFloat(atrStopMultiple);
   const parsedAtrRatioMin = parseOptionalFloat(atrRatioMin);
   const parsedAtrRatioMax = parseOptionalFloat(atrRatioMax);
+  const parsedMomentumExhaustionMaxScore = parseOptionalFloat(
+    momentumExhaustionMaxScore,
+  );
   const atrSizingRuntimeEnabled = positionSizingMode === "atr";
   const riskPerTradeInvalid =
     atrSizingRuntimeEnabled &&
@@ -197,6 +208,12 @@ export default function Production() {
         options.data.defaults.atr_ratio_max !== undefined
         ? String(options.data.defaults.atr_ratio_max)
         : "",
+    );
+    setMomentumExhaustionMode(
+      options.data.defaults.momentum_exhaustion_mode ?? "shadow",
+    );
+    setMomentumExhaustionMaxScore(
+      String(options.data.defaults.momentum_exhaustion_max_score ?? 4.0),
     );
   }, [options.data]);
 
@@ -255,6 +272,7 @@ export default function Production() {
           ? `Position Sizing: ${positionSizingMode} | risk ${parsedRiskPerTradePct} | stop ${parsedAtrStopMultiple} ATR`
           : `Position Sizing: ${positionSizingMode} (ATR runtime parameters ignored)`,
         `ATR% Filter Bounds: ${normalizedAtrRatioMin ?? "-"} - ${normalizedAtrRatioMax ?? "-"}`,
+        `Momentum Exhaustion: ${momentumExhaustionMode} | max score ${parsedMomentumExhaustionMaxScore ?? "config default"}`,
       ].join("\n"),
     );
     if (!ok) return;
@@ -267,6 +285,9 @@ export default function Production() {
       atr_stop_multiple: atrSizingRuntimeEnabled ? parsedAtrStopMultiple : undefined,
       atr_ratio_min: normalizedAtrRatioMin,
       atr_ratio_max: normalizedAtrRatioMax,
+      momentum_exhaustion_mode: momentumExhaustionMode,
+      momentum_exhaustion_max_score: parsedMomentumExhaustionMaxScore,
+      momentum_exhaustion_threshold_method: "absolute",
     });
   }
 
@@ -411,6 +432,35 @@ export default function Production() {
                 Risk and stop multiple must be positive, ATR% values must be valid, and ATR% min must be no greater than max.
               </p>
             )}
+          </div>
+          <div className="rounded border border-gray-800 bg-gray-950/40 p-3 space-y-3">
+            <div className="text-[11px] uppercase tracking-wide text-gray-500">
+              Momentum Exhaustion
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>Mode</span>
+                <select
+                  value={momentumExhaustionMode}
+                  onChange={(e) =>
+                    setMomentumExhaustionMode(e.target.value as MomentumExhaustionMode)
+                  }
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                >
+                  <option value="shadow">shadow</option>
+                  <option value="enforce">enforce</option>
+                  <option value="off">off</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>Max Score</span>
+                <input
+                  value={momentumExhaustionMaxScore}
+                  onChange={(e) => setMomentumExhaustionMaxScore(e.target.value)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                />
+              </label>
+            </div>
           </div>
           <div className="flex gap-2">
             <button

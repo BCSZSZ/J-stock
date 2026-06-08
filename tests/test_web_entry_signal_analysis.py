@@ -41,6 +41,8 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
         atr_stop_multiple=1.0,
         tail_guard_enabled=False,
         tail_guard_max_rank=8,
+        momentum_exhaustion_mode="enforce",
+        momentum_exhaustion_max_score=4.0,
         output_dir="output/entry_signal_analysis_test",
     )
 
@@ -55,6 +57,9 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
     assert args[args.index("--primary-horizons") + 1 : args.index("--label-mode")] == ["3", "5", "--primary-horizon", "3"]
     assert "--no-tail-guard-enabled" in args
     assert args[args.index("--tail-guard-max-rank") + 1] == "8"
+    assert args[args.index("--momentum-exhaustion-mode") + 1] == "enforce"
+    assert args[args.index("--momentum-exhaustion-max-score") + 1] == "4.0"
+    assert args[args.index("--momentum-exhaustion-threshold-method") + 1] == "absolute"
 
 
 def test_build_cli_args_falls_back_to_production_defaults(monkeypatch) -> None:

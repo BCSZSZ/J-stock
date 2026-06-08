@@ -29,6 +29,14 @@ export interface SignalRecord {
   guidance_notes?: string | null;
   momentum_rank?: number | null;
   momentum_value?: number | null;
+  momentum_exhaustion_mode?: string | null;
+  momentum_exhaustion_threshold_method?: string | null;
+  momentum_exhaustion_max_score?: number | null;
+  momentum_exhaustion_score?: number | null;
+  momentum_exhaustion_threshold?: number | null;
+  momentum_exhaustion_blocked?: boolean | null;
+  momentum_exhaustion_filtered?: boolean | null;
+  momentum_exhaustion_reason?: string | null;
   is_executable?: boolean | null;
   is_executable_buy?: boolean | null;
   is_executable_sell?: boolean | null;

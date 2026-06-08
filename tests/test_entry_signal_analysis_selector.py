@@ -123,3 +123,43 @@ def test_select_daily_candidates_supports_min_tail_guard_rank_limit() -> None:
         "2222": True,
         "3333": False,
     }
+
+
+def test_select_daily_candidates_enforces_momentum_exhaustion_filter() -> None:
+    candidates = [
+        _candidate("1111", 5.0, [10, 11, 12, 13, 14]),
+        _candidate("2222", 4.0, [10, 10.5, 11, 11.5, 12]),
+    ]
+
+    result = select_daily_candidates(
+        candidates,
+        ranking_strategy_name="score_only",
+        tail_guard_config={"enabled": False},
+        momentum_exhaustion_config={"mode": "enforce", "max_score": 4.0},
+    )
+
+    rows = {row["ticker"]: row for row in result}
+    assert rows["1111"]["selected"] is False
+    assert rows["1111"]["momentum_exhaustion_blocked"] is True
+    assert rows["1111"]["momentum_exhaustion_filtered"] is True
+    assert rows["2222"]["selected"] is True
+    assert rows["2222"]["momentum_exhaustion_blocked"] is False
+
+
+def test_select_daily_candidates_shadows_momentum_exhaustion_filter() -> None:
+    candidates = [
+        _candidate("1111", 5.0, [10, 11, 12, 13, 14]),
+        _candidate("2222", 4.0, [10, 10.5, 11, 11.5, 12]),
+    ]
+
+    result = select_daily_candidates(
+        candidates,
+        ranking_strategy_name="score_only",
+        tail_guard_config={"enabled": False},
+        momentum_exhaustion_config={"mode": "shadow", "max_score": 4.0},
+    )
+
+    rows = {row["ticker"]: row for row in result}
+    assert rows["1111"]["selected"] is True
+    assert rows["1111"]["momentum_exhaustion_blocked"] is True
+    assert rows["1111"]["momentum_exhaustion_filtered"] is False

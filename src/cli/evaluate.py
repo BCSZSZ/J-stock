@@ -34,6 +34,10 @@ from src.utils.atr_runtime_overrides import (
     merge_portfolio_runtime_overrides,
 )
 from src.utils.atr_position_sizing import normalize_position_sizing_mode
+from src.utils.momentum_exhaustion import (
+    DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
+    resolve_momentum_exhaustion_config,
+)
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
 from .common import load_config
@@ -250,6 +254,13 @@ def _build_run_metadata(
         ),
         "overlay_enabled": bool(enable_overlay),
         "capacity_regime_mode_override": getattr(args, "capacity_regime_mode", None),
+        "momentum_exhaustion_mode": getattr(args, "momentum_exhaustion_mode", None),
+        "momentum_exhaustion_max_score": getattr(args, "momentum_exhaustion_max_score", None),
+        "momentum_exhaustion_threshold_method": getattr(
+            args,
+            "momentum_exhaustion_threshold_method",
+            None,
+        ),
         "universe_name": str(context_metadata.get("universe_name") or ""),
         "universe_file": str(
             context_metadata.get("universe_file") or monitor_list_file or ""
@@ -771,6 +782,28 @@ def _build_evaluator(
     )
 
     ranking_strategies = getattr(args, "ranking_strategies", None)
+    momentum_exhaustion_config = resolve_momentum_exhaustion_config(
+        config,
+        default_mode=DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
+        mode_override=getattr(args, "momentum_exhaustion_mode", None),
+        max_score_override=getattr(args, "momentum_exhaustion_max_score", None),
+        threshold_method_override=getattr(
+            args,
+            "momentum_exhaustion_threshold_method",
+            None,
+        ),
+        use_configured_mode=False,
+    )
+    effective_run_metadata = dict(run_metadata or {})
+    effective_run_metadata.update(
+        {
+            "momentum_exhaustion_mode": momentum_exhaustion_config.mode,
+            "momentum_exhaustion_max_score": momentum_exhaustion_config.max_score,
+            "momentum_exhaustion_threshold_method": (
+                momentum_exhaustion_config.threshold_method
+            ),
+        }
+    )
 
     return StrategyEvaluator(
         data_root="data",
@@ -791,7 +824,8 @@ def _build_evaluator(
         entry_filter_variants=entry_filter_variants,
         portfolio_overrides=portfolio_overrides,
         ranking_strategies=ranking_strategies,
-        run_metadata=run_metadata,
+        momentum_exhaustion_config=momentum_exhaustion_config,
+        run_metadata=effective_run_metadata,
     )
 
 
