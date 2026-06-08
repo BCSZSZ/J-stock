@@ -38,6 +38,13 @@ from src.utils.momentum_exhaustion import (
     evaluate_momentum_exhaustion,
     resolve_momentum_exhaustion_config,
 )
+from src.utils.industry_filter import (
+    DEFAULT_INDUSTRY_FILTER_MODE,
+    IndustryFilterDecision,
+    evaluate_industry_filter_for_ranked_tickers,
+    normalize_ticker_code,
+    resolve_industry_filter_config,
+)
 
 
 @dataclass(frozen=True)
@@ -293,6 +300,28 @@ def _resolve_momentum_exhaustion_for_daily(
     )
 
 
+def _resolve_industry_filter_for_daily(
+    raw_config: Dict[str, object],
+    args,
+):
+    return resolve_industry_filter_config(
+        raw_config,
+        default_mode=DEFAULT_INDUSTRY_FILTER_MODE,
+        mode_override=getattr(args, "industry_filter_mode", None),
+        max_buy_per_industry_per_day_override=getattr(
+            args,
+            "max_buy_per_industry_per_day",
+            None,
+        ),
+        max_total_positions_per_industry_override=getattr(
+            args,
+            "max_total_positions_per_industry",
+            None,
+        ),
+        reference_file_override=getattr(args, "industry_reference_file", None),
+    )
+
+
 def _append_reason(reason: Optional[str], suffix: str) -> str:
     base = str(reason or "").strip()
     if not base:
@@ -323,6 +352,43 @@ def _apply_momentum_exhaustion_to_signal(
     signal.momentum_exhaustion_reason = (
         str(payload["momentum_exhaustion_reason"])
         if payload["momentum_exhaustion_reason"] is not None
+        else None
+    )
+    signal.signal_metadata = dict(getattr(signal, "signal_metadata", {}) or {})
+    signal.signal_metadata.update(payload)
+    if decision.reason:
+        signal.reason = _append_reason(signal.reason, decision.reason)
+
+
+def _apply_industry_filter_to_signal(
+    signal,
+    decision: IndustryFilterDecision,
+) -> None:
+    payload = decision.to_metadata()
+    signal.industry_name = str(payload["industry_name"])
+    signal.industry_filter_mode = str(payload["industry_filter_mode"])
+    signal.industry_filter_max_buy_per_day = int(
+        payload["industry_filter_max_buy_per_day"]
+    )
+    signal.industry_filter_max_total_positions = int(
+        payload["industry_filter_max_total_positions"]
+    )
+    signal.industry_filter_rank = payload["industry_filter_rank"]
+    signal.industry_existing_positions = payload["industry_existing_positions"]
+    signal.industry_total_positions_after_buy = payload[
+        "industry_total_positions_after_buy"
+    ]
+    signal.industry_filter_daily_cap_blocked = bool(
+        payload["industry_filter_daily_cap_blocked"]
+    )
+    signal.industry_filter_total_position_blocked = bool(
+        payload["industry_filter_total_position_blocked"]
+    )
+    signal.industry_filter_blocked = bool(payload["industry_filter_blocked"])
+    signal.industry_filter_filtered = bool(payload["industry_filter_filtered"])
+    signal.industry_filter_reason = (
+        str(payload["industry_filter_reason"])
+        if payload["industry_filter_reason"] is not None
         else None
     )
     signal.signal_metadata = dict(getattr(signal, "signal_metadata", {}) or {})
@@ -511,6 +577,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         raw_config,
         args,
     )
+    industry_filter_config = _resolve_industry_filter_for_daily(raw_config, args)
     _apply_atr_runtime_overrides(args, prod_cfg)
     lot_sizes = raw_config.get("lot_sizes", {})
     default_lot_size = int(lot_sizes.get("default", 100) or 100)
@@ -532,6 +599,12 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     position_sizing_mode = str(
         getattr(prod_cfg, "position_sizing_mode", "fixed") or "fixed"
     ).lower()
+    print(
+        "  Industry filter: "
+        f"mode={industry_filter_config.mode}, "
+        f"max_buy_per_day={industry_filter_config.max_buy_per_industry_per_day}, "
+        f"max_total_positions={industry_filter_config.max_total_positions_per_industry}"
+    )
     entry_filter_raw = merge_entry_filter_runtime_bounds(entry_filter_raw, args)
     entry_filter = EntrySecondaryFilter.from_dict(entry_filter_raw)
 
@@ -1164,7 +1237,14 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             print(f"      ⚠️ Exit strategy load error: {e}")
             continue
 
-        current_tickers = {pos.ticker for pos in group.positions if pos.quantity > 0}
+        current_qty_by_ticker: Dict[str, int] = {}
+        for pos in group.positions:
+            if pos.quantity <= 0:
+                continue
+            current_qty_by_ticker[pos.ticker] = (
+                current_qty_by_ticker.get(pos.ticker, 0) + int(pos.quantity)
+            )
+        current_tickers = set(current_qty_by_ticker.keys())
         current_prices = _get_group_current_prices(group)
         total_value = group.cash + sum(
             pos.quantity * current_prices.get(pos.ticker, pos.entry_price)
@@ -1213,6 +1293,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         sell_count = 0
         projected_sell_proceeds = 0.0
         projected_position_count = len(current_tickers)
+        projected_sell_qty_by_ticker: Dict[str, int] = {}
         for position in group.positions:
             if position.quantity <= 0:
                 continue
@@ -1281,6 +1362,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     )
                     all_signals.append(signal)
                     projected_sell_proceeds += planned_sell_value
+                    projected_sell_qty_by_ticker[ticker] = (
+                        projected_sell_qty_by_ticker.get(ticker, 0)
+                        + int(planned_sell_qty or 0)
+                    )
                     projected_position_count -= 1
                     sell_count += 1
                     total_sell_signals += 1
@@ -1503,6 +1588,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 # Count only SELL signals for statistics
                 if signal_type == "SELL":
                     projected_sell_proceeds += float(planned_sell_value or 0.0)
+                    projected_sell_qty_by_ticker[ticker] = (
+                        projected_sell_qty_by_ticker.get(ticker, 0)
+                        + int(planned_sell_qty or 0)
+                    )
                     if (planned_sell_qty or 0) >= position.quantity:
                         projected_position_count -= 1
                     sell_count += 1
@@ -1575,12 +1664,19 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             buy_count += 1
             total_buy_signals += 1
 
+        projected_existing_tickers = [
+            ticker
+            for ticker, current_qty in current_qty_by_ticker.items()
+            if current_qty - projected_sell_qty_by_ticker.get(ticker, 0) > 0
+        ]
+
         # Store per-group context for post-ranking capital allocation
         _group_buy_contexts[group.id] = {
             "group": group,
             "overlay_decision": overlay_decision,
             "projected_sell_proceeds": projected_sell_proceeds,
             "projected_position_count": projected_position_count,
+            "projected_existing_tickers": projected_existing_tickers,
             "invested_value": invested_value,
             "total_value": total_value,
             "max_new_positions": max_new_positions,
@@ -1710,6 +1806,39 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 f"(positive momentum: {positive_momentum_count})"
             )
 
+        industry_candidate_buys = [
+            sig
+            for sig in group_buys
+            if not bool(getattr(sig, "momentum_exhaustion_filtered", False))
+            and not (
+                tail_guard_rank_limit is not None
+                and sig.rank is not None
+                and sig.rank > tail_guard_rank_limit
+            )
+        ]
+        industry_decisions = evaluate_industry_filter_for_ranked_tickers(
+            [sig.ticker for sig in industry_candidate_buys],
+            industry_filter_config,
+            existing_position_tickers=ctx.get("projected_existing_tickers", []),
+        )
+        industry_filtered_count = 0
+        industry_shadowed_count = 0
+        for sig in industry_candidate_buys:
+            decision = industry_decisions.get(normalize_ticker_code(sig.ticker))
+            if decision is None:
+                continue
+            _apply_industry_filter_to_signal(sig, decision)
+            if decision.filtered:
+                industry_filtered_count += 1
+            elif decision.shadowed:
+                industry_shadowed_count += 1
+        if industry_filtered_count or industry_shadowed_count:
+            print(
+                f"  Industry filter ({group_id}): "
+                f"filtered={industry_filtered_count}, "
+                f"shadowed={industry_shadowed_count}"
+            )
+
         for sig in group_buys:
             if capacity_snapshot is not None:
                 _apply_capacity_fields(sig, capacity_snapshot, None)
@@ -1725,6 +1854,9 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 sig.reason = (
                     f"{sig.reason}; Skipped: tail guard rank ({sig.rank}) > {tail_guard_rank_limit}"
                 )
+                continue
+
+            if bool(getattr(sig, "industry_filter_filtered", False)):
                 continue
 
             if position_sizing_mode != "atr":

@@ -12,6 +12,7 @@ from src.entry_analysis.forward_returns import compute_forward_returns
 from src.entry_exit_validation.models import EntryExitValidationRequest
 from src.entry_exit_validation.runtime import (
     resolve_filter_variants_for_request,
+    resolve_industry_filter_for_request,
     resolve_momentum_exhaustion_for_request,
     resolve_tail_guard_for_request,
 )
@@ -76,6 +77,7 @@ def scan_entry_exit_candidates(
     filter_variants = resolve_filter_variants_for_request(request)
     tail_guard_config = resolve_tail_guard_for_request(request)
     momentum_exhaustion_config = resolve_momentum_exhaustion_for_request(request)
+    industry_filter_config = resolve_industry_filter_for_request(request)
     label_mode = request.execution_mode
 
     contexts: list[EntryExitCandidateContext] = []
@@ -172,6 +174,7 @@ def scan_entry_exit_candidates(
                             ranking_strategy_name=request.ranking_strategy,
                             tail_guard_config=tail_guard_config,
                             momentum_exhaustion_config=momentum_exhaustion_config,
+                            industry_filter_config=industry_filter_config,
                         )
                         for record in selected_records:
                             ticker = str(record.get("ticker"))

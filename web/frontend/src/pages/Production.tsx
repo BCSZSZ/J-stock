@@ -5,6 +5,7 @@ import LogOutput from "../components/LogOutput";
 import { useStreamExec } from "../hooks/useStreamExec";
 import {
   api,
+  type IndustryFilterMode,
   type InputTradeImportPreviewResponse,
   type MomentumExhaustionMode,
   type StockPoolOption,
@@ -37,6 +38,10 @@ interface ProductionOptionsResponse {
     momentum_exhaustion_mode: MomentumExhaustionMode;
     momentum_exhaustion_max_score: number;
     momentum_exhaustion_threshold_method: "absolute";
+    industry_filter_mode: IndustryFilterMode;
+    max_buy_per_industry_per_day: number;
+    max_total_positions_per_industry: number;
+    industry_reference_file: string;
   };
   stock_pools: StockPoolOption[];
 }
@@ -81,6 +86,13 @@ function parseOptionalFloat(value: string): number | undefined {
   const normalized = value.trim();
   if (!normalized) return undefined;
   const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalInt(value: string): number | undefined {
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  const parsed = Number.parseInt(normalized, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
@@ -136,6 +148,13 @@ export default function Production() {
     useState<MomentumExhaustionMode>("shadow");
   const [momentumExhaustionMaxScore, setMomentumExhaustionMaxScore] =
     useState("4.0");
+  const [industryFilterMode, setIndustryFilterMode] =
+    useState<IndustryFilterMode>("enforce");
+  const [maxBuyPerIndustryPerDay, setMaxBuyPerIndustryPerDay] = useState("1");
+  const [maxTotalPositionsPerIndustry, setMaxTotalPositionsPerIndustry] =
+    useState("3");
+  const [industryReferenceFile, setIndustryReferenceFile] =
+    useState("data/jpx_final_list.csv");
   const [importingTrades, setImportingTrades] = useState(false);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
@@ -157,6 +176,10 @@ export default function Production() {
   const parsedAtrRatioMax = parseOptionalFloat(atrRatioMax);
   const parsedMomentumExhaustionMaxScore = parseOptionalFloat(
     momentumExhaustionMaxScore,
+  );
+  const parsedMaxBuyPerIndustryPerDay = parseOptionalInt(maxBuyPerIndustryPerDay);
+  const parsedMaxTotalPositionsPerIndustry = parseOptionalInt(
+    maxTotalPositionsPerIndustry,
   );
   const atrSizingRuntimeEnabled = positionSizingMode === "atr";
   const riskPerTradeInvalid =
@@ -181,6 +204,13 @@ export default function Production() {
     atrRatioMinInvalid ||
     atrRatioMaxInvalid ||
     atrRatioRangeInvalid;
+  const industryFilterInvalid =
+    (maxBuyPerIndustryPerDay.trim() !== "" &&
+      (parsedMaxBuyPerIndustryPerDay === undefined ||
+        parsedMaxBuyPerIndustryPerDay <= 0)) ||
+    (maxTotalPositionsPerIndustry.trim() !== "" &&
+      (parsedMaxTotalPositionsPerIndustry === undefined ||
+        parsedMaxTotalPositionsPerIndustry <= 0));
 
   useEffect(() => {
     if (!options.data) {
@@ -214,6 +244,16 @@ export default function Production() {
     );
     setMomentumExhaustionMaxScore(
       String(options.data.defaults.momentum_exhaustion_max_score ?? 4.0),
+    );
+    setIndustryFilterMode(options.data.defaults.industry_filter_mode ?? "enforce");
+    setMaxBuyPerIndustryPerDay(
+      String(options.data.defaults.max_buy_per_industry_per_day ?? 1),
+    );
+    setMaxTotalPositionsPerIndustry(
+      String(options.data.defaults.max_total_positions_per_industry ?? 3),
+    );
+    setIndustryReferenceFile(
+      options.data.defaults.industry_reference_file ?? "data/jpx_final_list.csv",
     );
   }, [options.data]);
 
@@ -256,7 +296,7 @@ export default function Production() {
   }
 
   async function handleDaily(noFetch: boolean) {
-    if (atrRuntimeInvalid) {
+    if (atrRuntimeInvalid || industryFilterInvalid) {
       return;
     }
     const normalizedAtrRatioMin =
@@ -273,6 +313,7 @@ export default function Production() {
           : `Position Sizing: ${positionSizingMode} (ATR runtime parameters ignored)`,
         `ATR% Filter Bounds: ${normalizedAtrRatioMin ?? "-"} - ${normalizedAtrRatioMax ?? "-"}`,
         `Momentum Exhaustion: ${momentumExhaustionMode} | max score ${parsedMomentumExhaustionMaxScore ?? "config default"}`,
+        `Industry Filter: ${industryFilterMode} | daily ${parsedMaxBuyPerIndustryPerDay ?? "config default"} | total ${parsedMaxTotalPositionsPerIndustry ?? "config default"}`,
       ].join("\n"),
     );
     if (!ok) return;
@@ -288,6 +329,10 @@ export default function Production() {
       momentum_exhaustion_mode: momentumExhaustionMode,
       momentum_exhaustion_max_score: parsedMomentumExhaustionMaxScore,
       momentum_exhaustion_threshold_method: "absolute",
+      industry_filter_mode: industryFilterMode,
+      max_buy_per_industry_per_day: parsedMaxBuyPerIndustryPerDay,
+      max_total_positions_per_industry: parsedMaxTotalPositionsPerIndustry,
+      industry_reference_file: industryReferenceFile.trim() || undefined,
     });
   }
 
@@ -462,17 +507,67 @@ export default function Production() {
               </label>
             </div>
           </div>
+          <div className="rounded border border-gray-800 bg-gray-950/40 p-3 space-y-3">
+            <div className="text-[11px] uppercase tracking-wide text-gray-500">
+              Industry Filter
+            </div>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>Mode</span>
+                <select
+                  value={industryFilterMode}
+                  onChange={(e) =>
+                    setIndustryFilterMode(e.target.value as IndustryFilterMode)
+                  }
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                >
+                  <option value="enforce">enforce</option>
+                  <option value="shadow">shadow</option>
+                  <option value="off">off</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>Daily Buy Cap</span>
+                <input
+                  value={maxBuyPerIndustryPerDay}
+                  onChange={(e) => setMaxBuyPerIndustryPerDay(e.target.value)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>Total Position Cap</span>
+                <input
+                  value={maxTotalPositionsPerIndustry}
+                  onChange={(e) => setMaxTotalPositionsPerIndustry(e.target.value)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-400">
+                <span>Reference CSV</span>
+                <input
+                  value={industryReferenceFile}
+                  onChange={(e) => setIndustryReferenceFile(e.target.value)}
+                  className="h-10 w-full rounded border border-gray-700 bg-gray-800 px-3 text-sm text-gray-100"
+                />
+              </label>
+            </div>
+            {industryFilterInvalid && (
+              <p className="text-xs text-red-400">
+                Industry caps must be positive integers.
+              </p>
+            )}
+          </div>
           <div className="flex gap-2">
             <button
               onClick={() => handleDaily(false)}
-              disabled={daily.running || atrRuntimeInvalid}
+              disabled={daily.running || atrRuntimeInvalid || industryFilterInvalid}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm"
             >
               Run Daily
             </button>
             <button
               onClick={() => handleDaily(true)}
-              disabled={daily.running || atrRuntimeInvalid}
+              disabled={daily.running || atrRuntimeInvalid || industryFilterInvalid}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded text-sm"
             >
               Run Daily (no-fetch)

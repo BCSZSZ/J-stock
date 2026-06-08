@@ -41,6 +41,10 @@ def _validate_daily_only_runtime_overrides(args) -> None:
         "momentum_exhaustion_mode",
         "momentum_exhaustion_max_score",
         "momentum_exhaustion_threshold_method",
+        "industry_filter_mode",
+        "max_buy_per_industry_per_day",
+        "max_total_positions_per_industry",
+        "industry_reference_file",
     )
     if not any(getattr(args, name, None) is not None for name in runtime_flags):
         return

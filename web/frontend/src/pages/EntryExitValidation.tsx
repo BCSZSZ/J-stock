@@ -6,6 +6,7 @@ import {
   type EntryExitValidationDatasetSummary,
   type EntryExitValidationOptions,
   type EntryExitValidationRunRequest,
+  type IndustryFilterMode,
   type MomentumExhaustionMode,
 } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
@@ -124,6 +125,13 @@ export default function EntryExitValidation() {
     useState<MomentumExhaustionMode>("enforce");
   const [momentumExhaustionMaxScore, setMomentumExhaustionMaxScore] =
     useState("4.0");
+  const [industryFilterMode, setIndustryFilterMode] =
+    useState<IndustryFilterMode>("enforce");
+  const [maxBuyPerIndustryPerDay, setMaxBuyPerIndustryPerDay] = useState("1");
+  const [maxTotalPositionsPerIndustry, setMaxTotalPositionsPerIndustry] =
+    useState("3");
+  const [industryReferenceFile, setIndustryReferenceFile] =
+    useState("data/jpx_final_list.csv");
   const [maxHoldingTradingDays, setMaxHoldingTradingDays] = useState("60");
   const [minSamples, setMinSamples] = useState("30");
   const [limit, setLimit] = useState("");
@@ -165,6 +173,16 @@ export default function EntryExitValidation() {
     setMomentumExhaustionMode(defaults.momentum_exhaustion_mode ?? "enforce");
     setMomentumExhaustionMaxScore(
       String(defaults.momentum_exhaustion_max_score ?? 4.0),
+    );
+    setIndustryFilterMode(defaults.industry_filter_mode ?? "enforce");
+    setMaxBuyPerIndustryPerDay(
+      String(defaults.max_buy_per_industry_per_day ?? 1),
+    );
+    setMaxTotalPositionsPerIndustry(
+      String(defaults.max_total_positions_per_industry ?? 3),
+    );
+    setIndustryReferenceFile(
+      defaults.industry_reference_file ?? "data/jpx_final_list.csv",
     );
     setMaxHoldingTradingDays(String(defaults.max_holding_trading_days ?? 60));
     setMinSamples(String(defaults.min_samples ?? 30));
@@ -211,6 +229,12 @@ export default function EntryExitValidation() {
       momentum_exhaustion_mode: momentumExhaustionMode,
       momentum_exhaustion_max_score: parseOptionalNumber(momentumExhaustionMaxScore),
       momentum_exhaustion_threshold_method: "absolute",
+      industry_filter_mode: industryFilterMode,
+      max_buy_per_industry_per_day: parseOptionalNumber(maxBuyPerIndustryPerDay),
+      max_total_positions_per_industry: parseOptionalNumber(
+        maxTotalPositionsPerIndustry,
+      ),
+      industry_reference_file: industryReferenceFile.trim() || undefined,
       max_holding_trading_days: Number.parseInt(maxHoldingTradingDays, 10) || 60,
       partial_exit_policy: "first_sell_full_exit",
       min_samples: Number.parseInt(minSamples, 10) || 30,
@@ -329,6 +353,26 @@ export default function EntryExitValidation() {
               <div>
                 <label className={labelClassName}>Momentum Max Score</label>
                 <input className={inputClassName} value={momentumExhaustionMaxScore} onChange={(event) => setMomentumExhaustionMaxScore(event.target.value)} />
+              </div>
+              <div>
+                <label className={labelClassName}>Industry Filter</label>
+                <select className={inputClassName} value={industryFilterMode} onChange={(event) => setIndustryFilterMode(event.target.value as IndustryFilterMode)}>
+                  <option value="enforce">enforce</option>
+                  <option value="shadow">shadow</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClassName}>Industry Daily Cap</label>
+                <input className={inputClassName} value={maxBuyPerIndustryPerDay} onChange={(event) => setMaxBuyPerIndustryPerDay(event.target.value)} />
+              </div>
+              <div>
+                <label className={labelClassName}>Industry Total Cap</label>
+                <input className={inputClassName} value={maxTotalPositionsPerIndustry} onChange={(event) => setMaxTotalPositionsPerIndustry(event.target.value)} />
+              </div>
+              <div>
+                <label className={labelClassName}>Industry CSV</label>
+                <input className={inputClassName} value={industryReferenceFile} onChange={(event) => setIndustryReferenceFile(event.target.value)} />
               </div>
               <label className="flex items-center gap-2 text-sm text-gray-300">
                 <input type="checkbox" checked={tailGuardEnabled} onChange={(event) => setTailGuardEnabled(event.target.checked)} />

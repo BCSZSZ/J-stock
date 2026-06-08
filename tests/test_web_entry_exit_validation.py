@@ -47,6 +47,10 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
         tail_guard_max_rank=8,
         momentum_exhaustion_mode="enforce",
         momentum_exhaustion_max_score=4.0,
+        industry_filter_mode="enforce",
+        max_buy_per_industry_per_day=1,
+        max_total_positions_per_industry=3,
+        industry_reference_file="data/jpx_final_list.csv",
         max_holding_trading_days=40,
         output_dir="output/entry_exit_validation_test",
     )
@@ -64,6 +68,10 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
     assert args[args.index("--momentum-exhaustion-mode") + 1] == "enforce"
     assert args[args.index("--momentum-exhaustion-max-score") + 1] == "4.0"
     assert args[args.index("--momentum-exhaustion-threshold-method") + 1] == "absolute"
+    assert args[args.index("--industry-filter-mode") + 1] == "enforce"
+    assert args[args.index("--max-buy-per-industry-per-day") + 1] == "1"
+    assert args[args.index("--max-total-positions-per-industry") + 1] == "3"
+    assert args[args.index("--industry-reference-file") + 1] == "data/jpx_final_list.csv"
     assert args[args.index("--max-holding-trading-days") + 1] == "40"
 
 

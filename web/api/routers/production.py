@@ -29,6 +29,10 @@ from src.utils.momentum_exhaustion import (
     DEFAULT_PRODUCTION_MOMENTUM_EXHAUSTION_MODE,
     resolve_momentum_exhaustion_config,
 )
+from src.utils.industry_filter import (
+    DEFAULT_INDUSTRY_FILTER_MODE,
+    resolve_industry_filter_config,
+)
 from web.api.dependencies import get_config_manager, get_production_config, get_project_root
 from web.api.schemas import (
     InputTradeRequest,
@@ -76,6 +80,23 @@ def _append_momentum_exhaustion_flags(args: list[str], req: ProductionDailyReque
         )
 
 
+def _append_industry_filter_flags(args: list[str], req: ProductionDailyRequest) -> None:
+    if req.industry_filter_mode:
+        args.extend(["--industry-filter-mode", req.industry_filter_mode])
+    if req.max_buy_per_industry_per_day is not None:
+        args.extend([
+            "--max-buy-per-industry-per-day",
+            str(req.max_buy_per_industry_per_day),
+        ])
+    if req.max_total_positions_per_industry is not None:
+        args.extend([
+            "--max-total-positions-per-industry",
+            str(req.max_total_positions_per_industry),
+        ])
+    if req.industry_reference_file:
+        args.extend(["--industry-reference-file", req.industry_reference_file])
+
+
 def _resolve_production_atr_defaults(cfg) -> dict[str, object]:
     raw_config = getattr(cfg, "raw_config", {}) or {}
     entry_filter = raw_config.get("production", {}).get("entry_filter")
@@ -100,6 +121,22 @@ def _resolve_production_momentum_exhaustion_defaults(cfg) -> dict[str, object]:
         "momentum_exhaustion_mode": cfg_filter.mode,
         "momentum_exhaustion_max_score": cfg_filter.max_score,
         "momentum_exhaustion_threshold_method": cfg_filter.threshold_method,
+    }
+
+
+def _resolve_production_industry_filter_defaults(cfg) -> dict[str, object]:
+    raw_config = getattr(cfg, "raw_config", {}) or {}
+    cfg_filter = resolve_industry_filter_config(
+        raw_config,
+        default_mode=DEFAULT_INDUSTRY_FILTER_MODE,
+    )
+    return {
+        "industry_filter_mode": cfg_filter.mode,
+        "max_buy_per_industry_per_day": cfg_filter.max_buy_per_industry_per_day,
+        "max_total_positions_per_industry": (
+            cfg_filter.max_total_positions_per_industry
+        ),
+        "industry_reference_file": cfg_filter.reference_file,
     }
 
 
@@ -402,6 +439,7 @@ def production_options() -> dict[str, object]:
             "pool_id": "",
             **_resolve_production_atr_defaults(cfg),
             **_resolve_production_momentum_exhaustion_defaults(cfg),
+            **_resolve_production_industry_filter_defaults(cfg),
         },
         "stock_pools": stock_pools,
     }
@@ -418,6 +456,7 @@ async def run_daily(req: ProductionDailyRequest) -> StreamingResponse:
         args.extend(["--pool-id", req.pool_id])
     _append_atr_runtime_flags(args, req)
     _append_momentum_exhaustion_flags(args, req)
+    _append_industry_filter_flags(args, req)
     return await _run_cli_streaming(args)
 
 

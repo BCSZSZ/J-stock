@@ -37,6 +37,18 @@ export interface SignalRecord {
   momentum_exhaustion_blocked?: boolean | null;
   momentum_exhaustion_filtered?: boolean | null;
   momentum_exhaustion_reason?: string | null;
+  industry_name?: string | null;
+  industry_filter_mode?: string | null;
+  industry_filter_max_buy_per_day?: number | null;
+  industry_filter_max_total_positions?: number | null;
+  industry_filter_rank?: number | null;
+  industry_existing_positions?: number | null;
+  industry_total_positions_after_buy?: number | null;
+  industry_filter_daily_cap_blocked?: boolean | null;
+  industry_filter_total_position_blocked?: boolean | null;
+  industry_filter_blocked?: boolean | null;
+  industry_filter_filtered?: boolean | null;
+  industry_filter_reason?: string | null;
   is_executable?: boolean | null;
   is_executable_buy?: boolean | null;
   is_executable_sell?: boolean | null;

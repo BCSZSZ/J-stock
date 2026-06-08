@@ -163,3 +163,77 @@ def test_select_daily_candidates_shadows_momentum_exhaustion_filter() -> None:
     assert rows["1111"]["selected"] is True
     assert rows["1111"]["momentum_exhaustion_blocked"] is True
     assert rows["1111"]["momentum_exhaustion_filtered"] is False
+
+
+def test_select_daily_candidates_enforces_industry_filter(tmp_path) -> None:
+    reference_file = tmp_path / "jpx_final_list.csv"
+    reference_file.write_text(
+        "\n".join(
+            [
+                "Yahoo_Ticker,Code,銘柄名,Type,市場・商品区分,33業種区分,規模区分",
+                "1111.T,1111,A,Stock,Prime,銀行業,TOPIX",
+                "2222.T,2222,B,Stock,Prime,銀行業,TOPIX",
+                "3333.T,3333,C,Stock,Prime,輸送用機器,TOPIX",
+            ]
+        ),
+        encoding="utf-8-sig",
+    )
+    candidates = [
+        _candidate("1111", 90.0, [10, 11, 12, 13, 14]),
+        _candidate("2222", 80.0, [10, 10.5, 11, 11.5, 12]),
+        _candidate("3333", 70.0, [10, 10.2, 10.4, 10.6, 10.8]),
+    ]
+
+    result = select_daily_candidates(
+        candidates,
+        ranking_strategy_name="score_only",
+        tail_guard_config={"enabled": False},
+        industry_filter_config={
+            "mode": "enforce",
+            "max_buy_per_industry_per_day": 1,
+            "max_total_positions_per_industry": 3,
+            "reference_file": str(reference_file),
+        },
+    )
+
+    rows = {row["ticker"]: row for row in result}
+    assert rows["1111"]["selected"] is True
+    assert rows["2222"]["selected"] is False
+    assert rows["2222"]["industry_filter_filtered"] is True
+    assert rows["2222"]["industry_filter_daily_cap_blocked"] is True
+    assert rows["3333"]["selected"] is True
+
+
+def test_select_daily_candidates_shadows_industry_filter(tmp_path) -> None:
+    reference_file = tmp_path / "jpx_final_list.csv"
+    reference_file.write_text(
+        "\n".join(
+            [
+                "Yahoo_Ticker,Code,銘柄名,Type,市場・商品区分,33業種区分,規模区分",
+                "1111.T,1111,A,Stock,Prime,銀行業,TOPIX",
+                "2222.T,2222,B,Stock,Prime,銀行業,TOPIX",
+            ]
+        ),
+        encoding="utf-8-sig",
+    )
+    candidates = [
+        _candidate("1111", 90.0, [10, 11, 12, 13, 14]),
+        _candidate("2222", 80.0, [10, 10.5, 11, 11.5, 12]),
+    ]
+
+    result = select_daily_candidates(
+        candidates,
+        ranking_strategy_name="score_only",
+        tail_guard_config={"enabled": False},
+        industry_filter_config={
+            "mode": "shadow",
+            "max_buy_per_industry_per_day": 1,
+            "max_total_positions_per_industry": 3,
+            "reference_file": str(reference_file),
+        },
+    )
+
+    rows = {row["ticker"]: row for row in result}
+    assert rows["2222"]["selected"] is True
+    assert rows["2222"]["industry_filter_blocked"] is True
+    assert rows["2222"]["industry_filter_filtered"] is False

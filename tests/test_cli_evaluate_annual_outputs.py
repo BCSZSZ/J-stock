@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime as real_datetime
 from types import SimpleNamespace
 
 import pandas as pd
@@ -64,6 +65,83 @@ def test_resolve_include_continuous_uses_cli_then_config_default() -> None:
         )
         is False
     )
+
+
+def test_output_run_slug_includes_filter_identity(monkeypatch) -> None:
+    monkeypatch.setattr(
+        evaluate_cli,
+        "_resolve_entry_exit_strategies",
+        lambda _args, _eval_cfg, announce=False: (
+            ["MACDHist2BarAnySignMaxBiasPct10Entry"],
+            ["MVXWL_N3_R0p75_T1p0_D10_B20p0_I1p2"],
+        ),
+    )
+    args = SimpleNamespace(
+        mode="annual",
+        years=[2025, 2026],
+        buy_fill_mode="next_open",
+        entry_reference_mode="raw_fill",
+        fill_buffer_enabled=False,
+        fill_buffer_pct=0.02,
+        momentum_exhaustion_mode="enforce",
+        momentum_exhaustion_max_score=4.0,
+        momentum_exhaustion_threshold_method="absolute",
+        industry_filter_mode="enforce",
+        max_buy_per_industry_per_day=1,
+        max_total_positions_per_industry=3,
+        industry_reference_file="data/jpx_final_list.csv",
+        ranking_mode="prs_train",
+        ranking_strategies=["momentum"],
+        entry_filter_mode="atr",
+        position_sizing_mode="atr",
+        risk_per_trade_pct=0.0078,
+        atr_stop_multiple=1.0,
+    )
+
+    slug = evaluate_cli._build_output_run_slug("evaluate", args, {})
+
+    assert "mom_enf_s4" in slug
+    assert "ind_enf_d1_t3" in slug
+    assert "__sig_" in slug
+    assert len(slug) <= 180
+
+
+def test_resolve_output_dir_uses_high_resolution_unique_names(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class FixedDatetime:
+        @classmethod
+        def now(cls):
+            return real_datetime(2026, 6, 8, 16, 9, 48, 123456)
+
+    monkeypatch.setattr(evaluate_cli, "datetime", FixedDatetime)
+    monkeypatch.setattr(
+        evaluate_cli,
+        "_build_output_run_slug",
+        lambda _run_kind, _args, _eval_cfg: "same_slug",
+    )
+
+    first = Path(
+        evaluate_cli._resolve_output_dir(
+            "evaluate",
+            SimpleNamespace(),
+            str(tmp_path),
+            {},
+        )
+    )
+    second = Path(
+        evaluate_cli._resolve_output_dir(
+            "evaluate",
+            SimpleNamespace(),
+            str(tmp_path),
+            {},
+        )
+    )
+
+    assert first.name == "same_slug__160948_123456"
+    assert second.name == "same_slug__160948_123456_01"
+    assert first != second
 
 
 def test_run_context_bundle_skips_continuous_when_disabled(monkeypatch, tmp_path: Path) -> None:

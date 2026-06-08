@@ -20,6 +20,10 @@ from src.utils.momentum_exhaustion import (
     DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
     resolve_momentum_exhaustion_config,
 )
+from src.utils.industry_filter import (
+    DEFAULT_INDUSTRY_FILTER_MODE,
+    resolve_industry_filter_config,
+)
 from web.api.dependencies import get_config_manager, get_production_config, get_project_root
 from web.api.schemas import EntryExitValidationRunRequest
 
@@ -65,6 +69,26 @@ def _append_momentum_exhaustion_flags(
         )
 
 
+def _append_industry_filter_flags(
+    args: list[str],
+    req: EntryExitValidationRunRequest,
+) -> None:
+    if req.industry_filter_mode:
+        args.extend(["--industry-filter-mode", req.industry_filter_mode])
+    if req.max_buy_per_industry_per_day is not None:
+        args.extend([
+            "--max-buy-per-industry-per-day",
+            str(req.max_buy_per_industry_per_day),
+        ])
+    if req.max_total_positions_per_industry is not None:
+        args.extend([
+            "--max-total-positions-per-industry",
+            str(req.max_total_positions_per_industry),
+        ])
+    if req.industry_reference_file:
+        args.extend(["--industry-reference-file", req.industry_reference_file])
+
+
 def _resolve_momentum_exhaustion_defaults(raw_config: dict[str, object]) -> dict[str, object]:
     cfg = resolve_momentum_exhaustion_config(
         raw_config,
@@ -75,6 +99,19 @@ def _resolve_momentum_exhaustion_defaults(raw_config: dict[str, object]) -> dict
         "momentum_exhaustion_mode": cfg.mode,
         "momentum_exhaustion_max_score": cfg.max_score,
         "momentum_exhaustion_threshold_method": cfg.threshold_method,
+    }
+
+
+def _resolve_industry_filter_defaults(raw_config: dict[str, object]) -> dict[str, object]:
+    cfg = resolve_industry_filter_config(
+        raw_config,
+        default_mode=DEFAULT_INDUSTRY_FILTER_MODE,
+    )
+    return {
+        "industry_filter_mode": cfg.mode,
+        "max_buy_per_industry_per_day": cfg.max_buy_per_industry_per_day,
+        "max_total_positions_per_industry": cfg.max_total_positions_per_industry,
+        "industry_reference_file": cfg.reference_file,
     }
 
 
@@ -149,6 +186,7 @@ def _build_cli_args(req: EntryExitValidationRunRequest) -> list[str]:
     if req.tail_guard_max_rank is not None:
         args.extend(["--tail-guard-max-rank", str(req.tail_guard_max_rank)])
     _append_momentum_exhaustion_flags(args, req)
+    _append_industry_filter_flags(args, req)
     args.extend(["--max-holding-trading-days", str(req.max_holding_trading_days)])
     args.extend(["--partial-exit-policy", req.partial_exit_policy])
     args.extend(["--min-samples", str(req.min_samples)])
@@ -298,6 +336,7 @@ def get_options() -> dict[str, object]:
             "tail_guard_enabled": bool(tail_guard.get("enabled", True)),
             "tail_guard_max_rank": int(tail_guard.get("max_rank", 12) or 12),
             **_resolve_momentum_exhaustion_defaults(raw_config),
+            **_resolve_industry_filter_defaults(raw_config),
             "max_holding_trading_days": 60,
             "partial_exit_policy": "first_sell_full_exit",
             "min_samples": 30,

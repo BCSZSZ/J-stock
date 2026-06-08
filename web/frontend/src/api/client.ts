@@ -3,6 +3,7 @@ import type { SignalRecord } from "../signalSemantics";
 const BASE = "/api";
 
 export type MomentumExhaustionMode = "off" | "shadow" | "enforce";
+export type IndustryFilterMode = "off" | "shadow" | "enforce";
 
 export type TradeHistoryEvent = {
   date: string;
@@ -71,6 +72,10 @@ export type EntrySignalAnalysisOptions = {
     momentum_exhaustion_mode: MomentumExhaustionMode;
     momentum_exhaustion_max_score: number;
     momentum_exhaustion_threshold_method: "absolute";
+    industry_filter_mode: IndustryFilterMode;
+    max_buy_per_industry_per_day: number;
+    max_total_positions_per_industry: number;
+    industry_reference_file: string;
     data_root: string;
     output_dir: string;
   };
@@ -99,6 +104,10 @@ export type EntrySignalAnalysisRunRequest = {
   momentum_exhaustion_mode?: MomentumExhaustionMode | null;
   momentum_exhaustion_max_score?: number | null;
   momentum_exhaustion_threshold_method?: "absolute";
+  industry_filter_mode?: IndustryFilterMode | null;
+  max_buy_per_industry_per_day?: number | null;
+  max_total_positions_per_industry?: number | null;
+  industry_reference_file?: string | null;
   limit?: number | null;
   data_root: string;
   output_dir?: string;
@@ -263,6 +272,10 @@ export type EntryExitValidationOptions = {
     momentum_exhaustion_mode: MomentumExhaustionMode;
     momentum_exhaustion_max_score: number;
     momentum_exhaustion_threshold_method: "absolute";
+    industry_filter_mode: IndustryFilterMode;
+    max_buy_per_industry_per_day: number;
+    max_total_positions_per_industry: number;
+    industry_reference_file: string;
     max_holding_trading_days: number;
     partial_exit_policy: string;
     min_samples: number;
@@ -292,6 +305,10 @@ export type EntryExitValidationRunRequest = {
   momentum_exhaustion_mode?: MomentumExhaustionMode | null;
   momentum_exhaustion_max_score?: number | null;
   momentum_exhaustion_threshold_method?: "absolute";
+  industry_filter_mode?: IndustryFilterMode | null;
+  max_buy_per_industry_per_day?: number | null;
+  max_total_positions_per_industry?: number | null;
+  industry_reference_file?: string | null;
   max_holding_trading_days: number;
   partial_exit_policy: "first_sell_full_exit";
   min_samples: number;
@@ -563,6 +580,10 @@ export const api = {
         momentum_exhaustion_mode: MomentumExhaustionMode;
         momentum_exhaustion_max_score: number;
         momentum_exhaustion_threshold_method: "absolute";
+        industry_filter_mode: IndustryFilterMode;
+        max_buy_per_industry_per_day: number;
+        max_total_positions_per_industry: number;
+        industry_reference_file: string;
       };
       stock_pools: StockPoolOption[];
     }>("/production/options"),
@@ -632,6 +653,10 @@ export const api = {
         momentum_exhaustion_mode: MomentumExhaustionMode;
         momentum_exhaustion_max_score: number;
         momentum_exhaustion_threshold_method: "absolute";
+        industry_filter_mode: IndustryFilterMode;
+        max_buy_per_industry_per_day: number;
+        max_total_positions_per_industry: number;
+        industry_reference_file: string;
       };
     }>("/evaluation/options"),
   evalReportContext: (reportFile: string) =>

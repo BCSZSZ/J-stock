@@ -25,8 +25,20 @@ def test_momentum_exhaustion_cli_flags_are_available_on_runtime_commands() -> No
                 "4.0",
                 "--momentum-exhaustion-threshold-method",
                 "absolute",
+                "--industry-filter-mode",
+                "enforce",
+                "--max-buy-per-industry-per-day",
+                "1",
+                "--max-total-positions-per-industry",
+                "3",
+                "--industry-reference-file",
+                "data/jpx_final_list.csv",
             ]
         )
         assert args.momentum_exhaustion_mode == "enforce"
         assert args.momentum_exhaustion_max_score == 4.0
         assert args.momentum_exhaustion_threshold_method == "absolute"
+        assert args.industry_filter_mode == "enforce"
+        assert args.max_buy_per_industry_per_day == 1
+        assert args.max_total_positions_per_industry == 3
+        assert args.industry_reference_file == "data/jpx_final_list.csv"

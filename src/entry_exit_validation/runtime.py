@@ -14,6 +14,7 @@ from src.entry_signal_analysis.runtime import (
     load_tickers,
     resolve_date_range,
     resolve_entry_filter_variants,
+    resolve_industry_filter_for_request as resolve_entry_signal_industry_filter_for_request,
     resolve_production_ranking_strategy,
     resolve_tail_guard_config,
     resolve_universe_files,
@@ -27,6 +28,7 @@ from src.utils.momentum_exhaustion import (
     MomentumExhaustionConfig,
     resolve_momentum_exhaustion_config,
 )
+from src.utils.industry_filter import IndustryFilterConfig
 
 
 FilterVariant: TypeAlias = tuple[str, dict[str, object]]
@@ -135,6 +137,14 @@ def build_request_from_args(args: object) -> EntryExitValidationRequest:
         momentum_exhaustion_threshold_method=(
             getattr(args, "momentum_exhaustion_threshold_method", None) or "absolute"
         ),
+        industry_filter_mode=getattr(args, "industry_filter_mode", None),
+        max_buy_per_industry_per_day=getattr(args, "max_buy_per_industry_per_day", None),
+        max_total_positions_per_industry=getattr(
+            args,
+            "max_total_positions_per_industry",
+            None,
+        ),
+        industry_reference_file=getattr(args, "industry_reference_file", None),
         max_holding_trading_days=int(getattr(args, "max_holding_trading_days", None) or 60),
         partial_exit_policy=str(getattr(args, "partial_exit_policy", None) or "first_sell_full_exit"),
         min_samples=int(getattr(args, "min_samples", None) or 30),
@@ -196,3 +206,9 @@ def resolve_momentum_exhaustion_for_request(
         threshold_method_override=request.momentum_exhaustion_threshold_method,
         use_configured_mode=False,
     )
+
+
+def resolve_industry_filter_for_request(
+    request: EntryExitValidationRequest,
+) -> IndustryFilterConfig:
+    return resolve_entry_signal_industry_filter_for_request(request)

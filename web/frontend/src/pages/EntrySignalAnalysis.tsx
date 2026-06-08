@@ -11,6 +11,7 @@ import {
   type EntrySignalAnalysisPrimaryValidationSlice,
   type EntrySignalAnalysisRunRequest,
   type EntrySignalAnalysisTopDailyWindows,
+  type IndustryFilterMode,
   type MomentumExhaustionMode,
 } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
@@ -218,6 +219,13 @@ export default function EntrySignalAnalysis() {
     useState<MomentumExhaustionMode>("enforce");
   const [momentumExhaustionMaxScore, setMomentumExhaustionMaxScore] =
     useState("4.0");
+  const [industryFilterMode, setIndustryFilterMode] =
+    useState<IndustryFilterMode>("enforce");
+  const [maxBuyPerIndustryPerDay, setMaxBuyPerIndustryPerDay] = useState("1");
+  const [maxTotalPositionsPerIndustry, setMaxTotalPositionsPerIndustry] =
+    useState("3");
+  const [industryReferenceFile, setIndustryReferenceFile] =
+    useState("data/jpx_final_list.csv");
   const [limit, setLimit] = useState("");
   const [dataRoot, setDataRoot] = useState("data");
   const [outputDir, setOutputDir] = useState("");
@@ -266,6 +274,16 @@ export default function EntrySignalAnalysis() {
     setMomentumExhaustionMode(defaults.momentum_exhaustion_mode ?? "enforce");
     setMomentumExhaustionMaxScore(
       String(defaults.momentum_exhaustion_max_score ?? 4.0),
+    );
+    setIndustryFilterMode(defaults.industry_filter_mode ?? "enforce");
+    setMaxBuyPerIndustryPerDay(
+      String(defaults.max_buy_per_industry_per_day ?? 1),
+    );
+    setMaxTotalPositionsPerIndustry(
+      String(defaults.max_total_positions_per_industry ?? 3),
+    );
+    setIndustryReferenceFile(
+      defaults.industry_reference_file ?? "data/jpx_final_list.csv",
     );
     setDataRoot(defaults.data_root ?? "data");
     setOutputDir(defaults.output_dir ?? "entry_signal_analysis");
@@ -349,6 +367,12 @@ export default function EntrySignalAnalysis() {
       momentum_exhaustion_mode: momentumExhaustionMode,
       momentum_exhaustion_max_score: parseOptionalNumber(momentumExhaustionMaxScore),
       momentum_exhaustion_threshold_method: "absolute",
+      industry_filter_mode: industryFilterMode,
+      max_buy_per_industry_per_day: parseOptionalNumber(maxBuyPerIndustryPerDay),
+      max_total_positions_per_industry: parseOptionalNumber(
+        maxTotalPositionsPerIndustry,
+      ),
+      industry_reference_file: industryReferenceFile.trim() || undefined,
       limit: parseOptionalNumber(limit),
       data_root: dataRoot.trim() || "data",
       output_dir: outputDir.trim() || undefined,
@@ -514,6 +538,40 @@ export default function EntrySignalAnalysis() {
                 value={momentumExhaustionMaxScore}
                 onChange={(e) => setMomentumExhaustionMaxScore(e.target.value)}
                 placeholder="max rank_score"
+                className={inputClassName}
+              />
+            </div>
+          </div>
+          <div className={cardClassName}>
+            <label className={labelClassName}>Industry Filter</label>
+            <div className="space-y-2">
+              <select
+                value={industryFilterMode}
+                onChange={(e) =>
+                  setIndustryFilterMode(e.target.value as IndustryFilterMode)
+                }
+                className={inputClassName}
+              >
+                <option value="enforce">enforce</option>
+                <option value="shadow">shadow</option>
+                <option value="off">off</option>
+              </select>
+              <input
+                value={maxBuyPerIndustryPerDay}
+                onChange={(e) => setMaxBuyPerIndustryPerDay(e.target.value)}
+                placeholder="daily cap"
+                className={inputClassName}
+              />
+              <input
+                value={maxTotalPositionsPerIndustry}
+                onChange={(e) => setMaxTotalPositionsPerIndustry(e.target.value)}
+                placeholder="total cap"
+                className={inputClassName}
+              />
+              <input
+                value={industryReferenceFile}
+                onChange={(e) => setIndustryReferenceFile(e.target.value)}
+                placeholder="reference csv"
                 className={inputClassName}
               />
             </div>

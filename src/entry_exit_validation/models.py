@@ -13,6 +13,7 @@ EntryExitTailGuardRankLimitMode = Literal["max", "min"]
 EntryExitPartialExitPolicy = Literal["first_sell_full_exit"]
 EntryExitMomentumExhaustionMode = Literal["off", "shadow", "enforce"]
 EntryExitMomentumExhaustionThresholdMethod = Literal["absolute"]
+EntryExitIndustryFilterMode = Literal["off", "shadow", "enforce"]
 
 
 class EntryExitValidationRequest(BaseModel):
@@ -36,6 +37,10 @@ class EntryExitValidationRequest(BaseModel):
     momentum_exhaustion_mode: EntryExitMomentumExhaustionMode | None = None
     momentum_exhaustion_max_score: float | None = None
     momentum_exhaustion_threshold_method: EntryExitMomentumExhaustionThresholdMethod = "absolute"
+    industry_filter_mode: EntryExitIndustryFilterMode | None = None
+    max_buy_per_industry_per_day: int | None = None
+    max_total_positions_per_industry: int | None = None
+    industry_reference_file: str | None = None
     max_holding_trading_days: int = 60
     partial_exit_policy: EntryExitPartialExitPolicy = "first_sell_full_exit"
     min_samples: int = 30

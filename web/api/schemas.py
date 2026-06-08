@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 MomentumExhaustionMode = Literal["off", "shadow", "enforce"]
 MomentumExhaustionThresholdMethod = Literal["absolute"]
+IndustryFilterMode = Literal["off", "shadow", "enforce"]
 
 
 def _validate_atr_sizing_runtime_fields(model: BaseModel) -> BaseModel:
@@ -224,6 +225,10 @@ class EvaluationRunRequest(BaseModel):
     momentum_exhaustion_mode: MomentumExhaustionMode | None = None
     momentum_exhaustion_max_score: float | None = None
     momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
+    industry_filter_mode: IndustryFilterMode | None = None
+    max_buy_per_industry_per_day: int | None = Field(default=None, ge=1)
+    max_total_positions_per_industry: int | None = Field(default=None, ge=1)
+    industry_reference_file: str | None = None
     output_dir: str | None = None
     verbose: bool = False
 
@@ -258,6 +263,10 @@ class EntrySignalAnalysisRunRequest(BaseModel):
     momentum_exhaustion_mode: MomentumExhaustionMode | None = None
     momentum_exhaustion_max_score: float | None = None
     momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
+    industry_filter_mode: IndustryFilterMode | None = None
+    max_buy_per_industry_per_day: int | None = Field(default=None, ge=1)
+    max_total_positions_per_industry: int | None = Field(default=None, ge=1)
+    industry_reference_file: str | None = None
     limit: int | None = None
     data_root: str = "data"
     output_dir: str | None = None
@@ -300,6 +309,10 @@ class EntryExitValidationRunRequest(BaseModel):
     momentum_exhaustion_mode: MomentumExhaustionMode | None = None
     momentum_exhaustion_max_score: float | None = None
     momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
+    industry_filter_mode: IndustryFilterMode | None = None
+    max_buy_per_industry_per_day: int | None = Field(default=None, ge=1)
+    max_total_positions_per_industry: int | None = Field(default=None, ge=1)
+    industry_reference_file: str | None = None
     max_holding_trading_days: int = Field(default=60, ge=1)
     partial_exit_policy: Literal["first_sell_full_exit"] = "first_sell_full_exit"
     min_samples: int = Field(default=30, ge=1)
@@ -324,6 +337,10 @@ class ProductionDailyRequest(BaseModel):
     momentum_exhaustion_mode: MomentumExhaustionMode | None = None
     momentum_exhaustion_max_score: float | None = None
     momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
+    industry_filter_mode: IndustryFilterMode | None = None
+    max_buy_per_industry_per_day: int | None = Field(default=None, ge=1)
+    max_total_positions_per_industry: int | None = Field(default=None, ge=1)
+    industry_reference_file: str | None = None
     confirm: bool = False
 
     @model_validator(mode="after")

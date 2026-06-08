@@ -138,6 +138,32 @@ def _add_momentum_exhaustion_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_industry_filter_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--industry-filter-mode",
+        choices=["off", "shadow", "enforce"],
+        default=None,
+        help="Industry concentration filter mode: off, shadow, or enforce.",
+    )
+    parser.add_argument(
+        "--max-buy-per-industry-per-day",
+        type=int,
+        default=None,
+        help="Maximum same-day BUY signals allowed per 33-sector industry.",
+    )
+    parser.add_argument(
+        "--max-total-positions-per-industry",
+        type=int,
+        default=None,
+        help="Maximum total portfolio positions allowed per 33-sector industry.",
+    )
+    parser.add_argument(
+        "--industry-reference-file",
+        default=None,
+        help="JPX industry reference CSV. Defaults to data/jpx_final_list.csv.",
+    )
+
+
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
@@ -251,6 +277,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     )
     _add_ranking_strategy_arguments(parser)
     _add_momentum_exhaustion_arguments(parser)
+    _add_industry_filter_arguments(parser)
 
 
 def _add_atr_runtime_override_arguments(parser: argparse.ArgumentParser) -> None:
@@ -382,6 +409,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
     )
     _add_ranking_strategy_arguments(parser)
     _add_momentum_exhaustion_arguments(parser)
+    _add_industry_filter_arguments(parser)
 
 
 def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -616,6 +644,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_atr_runtime_override_arguments(production_parser)
     _add_momentum_exhaustion_arguments(production_parser)
+    _add_industry_filter_arguments(production_parser)
     production_overlay_mode = production_parser.add_mutually_exclusive_group()
     production_overlay_mode.add_argument(
         "--enable-overlay",
@@ -911,6 +940,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_replay_evaluation_arguments(replay_evaluate_parser)
     _add_momentum_exhaustion_arguments(replay_evaluate_parser)
+    _add_industry_filter_arguments(replay_evaluate_parser)
     replay_evaluate_parser.set_defaults(func=_cmd_replay_evaluation)
 
     entry_analysis_parser = subparsers.add_parser(
@@ -1072,6 +1102,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_atr_runtime_override_arguments(entry_signal_analysis_parser)
     _add_momentum_exhaustion_arguments(entry_signal_analysis_parser)
+    _add_industry_filter_arguments(entry_signal_analysis_parser)
     entry_signal_analysis_parser.add_argument(
         "--tail-guard-enabled",
         action=argparse.BooleanOptionalAction,
@@ -1180,6 +1211,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_atr_runtime_override_arguments(entry_exit_validation_parser)
     _add_momentum_exhaustion_arguments(entry_exit_validation_parser)
+    _add_industry_filter_arguments(entry_exit_validation_parser)
     entry_exit_validation_parser.add_argument(
         "--tail-guard-enabled",
         action=argparse.BooleanOptionalAction,

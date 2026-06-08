@@ -14,6 +14,11 @@ from src.utils.momentum_exhaustion import (
     MomentumExhaustionConfig,
     evaluate_momentum_exhaustion,
 )
+from src.utils.industry_filter import (
+    IndustryFilterConfig,
+    evaluate_industry_filter_for_ranked_tickers,
+    normalize_ticker_code,
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,7 @@ def select_daily_candidates(
     ranking_strategy_name: str,
     tail_guard_config: Mapping[str, object] | None,
     momentum_exhaustion_config: MomentumExhaustionConfig | Mapping[str, object] | None = None,
+    industry_filter_config: IndustryFilterConfig | Mapping[str, object] | None = None,
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
@@ -64,6 +70,11 @@ def select_daily_candidates(
         ticker: (index + 1, float(priority))
         for index, (ticker, _signal, priority) in enumerate(ranked)
     }
+    industry_decisions = evaluate_industry_filter_for_ranked_tickers(
+        [ticker for ticker, _signal, _priority in ranked],
+        industry_filter_config,
+        existing_position_tickers=None,
+    )
 
     annotated: list[dict[str, Any]] = []
     ranking_name = str(ranking_strategy_name or "default")
@@ -76,6 +87,9 @@ def select_daily_candidates(
         selected = rank is not None and (
             tail_guard_limit is None or rank <= tail_guard_limit
         ) and not exhaustion_decision.filtered
+        industry_decision = industry_decisions.get(normalize_ticker_code(candidate.ticker))
+        if industry_decision is not None and industry_decision.filtered:
+            selected = False
         record = dict(candidate.payload)
         record.update({
             "ticker": candidate.ticker,
@@ -92,6 +106,8 @@ def select_daily_candidates(
             "ranking_strategy": ranking_name,
         })
         record.update(exhaustion_decision.to_metadata())
+        if industry_decision is not None:
+            record.update(industry_decision.to_metadata())
         annotated.append(record)
 
     return annotated

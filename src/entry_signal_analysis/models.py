@@ -13,6 +13,7 @@ TailGuardRankLimitMode = Literal["max", "min"]
 SignalStrengthMetric = Literal["rank_score", "score", "confidence"]
 MomentumExhaustionMode = Literal["off", "shadow", "enforce"]
 MomentumExhaustionThresholdMethod = Literal["absolute"]
+IndustryFilterMode = Literal["off", "shadow", "enforce"]
 
 
 class EntrySignalAnalysisRequest(BaseModel):
@@ -38,6 +39,10 @@ class EntrySignalAnalysisRequest(BaseModel):
     momentum_exhaustion_mode: MomentumExhaustionMode | None = None
     momentum_exhaustion_max_score: float | None = None
     momentum_exhaustion_threshold_method: MomentumExhaustionThresholdMethod = "absolute"
+    industry_filter_mode: IndustryFilterMode | None = None
+    max_buy_per_industry_per_day: int | None = None
+    max_total_positions_per_industry: int | None = None
+    industry_reference_file: str | None = None
     data_root: str = "data"
     output_dir: str = "entry_signal_analysis"
 

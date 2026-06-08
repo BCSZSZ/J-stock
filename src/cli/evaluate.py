@@ -1,3 +1,4 @@
+import hashlib
 import json
 import time
 from dataclasses import dataclass, field
@@ -37,6 +38,10 @@ from src.utils.atr_position_sizing import normalize_position_sizing_mode
 from src.utils.momentum_exhaustion import (
     DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
     resolve_momentum_exhaustion_config,
+)
+from src.utils.industry_filter import (
+    DEFAULT_INDUSTRY_FILTER_MODE,
+    resolve_industry_filter_config,
 )
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
@@ -127,6 +132,120 @@ def _summarize_selection_for_dir(label: str, values) -> str:
     return f"{label}_{len(normalized)}_{first}_plus{len(normalized) - 1}"
 
 
+def _format_dir_scalar(value) -> str:
+    if value is None or str(value).strip() == "":
+        return "cfg"
+    try:
+        text = f"{float(value):g}"
+    except (TypeError, ValueError):
+        text = str(value).strip()
+    return _sanitize_name(text.replace("-", "m").replace(".", "p")) or "cfg"
+
+
+def _short_mode_slug(value, mapping: Dict[str, str]) -> str:
+    mode = str(value or "cfg").strip().lower()
+    return mapping.get(mode, _sanitize_name(mode) or "cfg")
+
+
+def _build_momentum_output_slug(args) -> str:
+    mode_slug = _short_mode_slug(
+        getattr(args, "momentum_exhaustion_mode", None),
+        {"off": "off", "shadow": "shd", "enforce": "enf"},
+    )
+    if mode_slug in {"off", "cfg"}:
+        return f"mom_{mode_slug}"
+    max_score = _format_dir_scalar(
+        getattr(args, "momentum_exhaustion_max_score", None)
+    )
+    return f"mom_{mode_slug}_s{max_score}"
+
+
+def _build_industry_output_slug(args) -> str:
+    mode_slug = _short_mode_slug(
+        getattr(args, "industry_filter_mode", None),
+        {"off": "off", "shadow": "shd", "enforce": "enf"},
+    )
+    if mode_slug in {"off", "cfg"}:
+        return f"ind_{mode_slug}"
+    daily_cap = _format_dir_scalar(
+        getattr(args, "max_buy_per_industry_per_day", None)
+    )
+    total_cap = _format_dir_scalar(
+        getattr(args, "max_total_positions_per_industry", None)
+    )
+    return f"ind_{mode_slug}_d{daily_cap}_t{total_cap}"
+
+
+_OUTPUT_SIGNATURE_FIELDS = (
+    "mode",
+    "years",
+    "months",
+    "custom_periods",
+    "launch_date",
+    "entry_filter_mode",
+    "entry_filter_name",
+    "atr_ratio_min",
+    "atr_ratio_max",
+    "ranking_mode",
+    "ranking_strategies",
+    "buy_fill_mode",
+    "entry_reference_mode",
+    "fill_buffer_enabled",
+    "fill_buffer_pct",
+    "capacity_regime_mode",
+    "position_sizing_mode",
+    "risk_per_trade_pct",
+    "atr_stop_multiple",
+    "enable_overlay",
+    "momentum_exhaustion_mode",
+    "momentum_exhaustion_max_score",
+    "momentum_exhaustion_threshold_method",
+    "industry_filter_mode",
+    "max_buy_per_industry_per_day",
+    "max_total_positions_per_industry",
+    "industry_reference_file",
+    "universe_file",
+)
+
+
+def _build_output_signature_slug(
+    run_kind: str,
+    args,
+    entry_strategies,
+    exit_strategies,
+) -> str:
+    payload = {
+        "run_kind": run_kind,
+        "entry_strategies": _json_safe_value(entry_strategies),
+        "exit_strategies": _json_safe_value(exit_strategies),
+    }
+    for field_name in _OUTPUT_SIGNATURE_FIELDS:
+        payload[field_name] = _json_safe_value(getattr(args, field_name, None))
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha1(serialized.encode("utf-8")).hexdigest()[:8]
+    return f"sig_{digest}"
+
+
+def _reserve_identity_suffix(base_slug: str, identity_parts: List[str]) -> str:
+    identity_suffix = "__".join(part for part in identity_parts if part)
+    if not identity_suffix:
+        return base_slug[:180].rstrip("_")
+
+    max_len = 180
+    separator = "__"
+    max_base_len = max_len - len(separator) - len(identity_suffix)
+    if max_base_len <= 0:
+        return identity_suffix[:max_len].rstrip("_")
+
+    truncated_base = base_slug[:max_base_len].rstrip("_")
+    return f"{truncated_base}{separator}{identity_suffix}".rstrip("_")
+
+
 def _build_output_run_slug(run_kind: str, args, eval_cfg) -> str:
     entry_strategies, exit_strategies = _resolve_entry_exit_strategies(
         args, eval_cfg, announce=False
@@ -164,7 +283,31 @@ def _build_output_run_slug(run_kind: str, args, eval_cfg) -> str:
         parts.append(_summarize_selection_for_dir("profile", profile_names))
 
     slug = "__".join(part for part in parts if part)
-    return slug[:180].rstrip("_")
+    identity_parts = [
+        _build_momentum_output_slug(args),
+        _build_industry_output_slug(args),
+        _build_output_signature_slug(
+            run_kind,
+            args,
+            entry_strategies,
+            exit_strategies,
+        ),
+    ]
+    return _reserve_identity_suffix(slug, identity_parts)
+
+
+def _create_unique_output_run_dir(date_dir: Path, run_slug: str, now: datetime) -> Path:
+    timestamp = now.strftime("%H%M%S_%f")
+    base_name = f"{run_slug}__{timestamp}"
+    for index in range(1000):
+        suffix = "" if index == 0 else f"_{index:02d}"
+        candidate = date_dir / f"{base_name}{suffix}"
+        try:
+            candidate.mkdir(parents=True, exist_ok=False)
+            return candidate
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"Could not create unique evaluation output dir: {base_name}")
 
 
 def _resolve_output_dir(run_kind: str, args, user_output_dir, eval_cfg):
@@ -177,8 +320,7 @@ def _resolve_output_dir(run_kind: str, args, user_output_dir, eval_cfg):
     now = datetime.now()
     date_dir = Path(output_root) / now.strftime("%Y%m%d")
     run_slug = _build_output_run_slug(run_kind, args, eval_cfg)
-    run_dir = date_dir / f"{run_slug}__{now.strftime('%H%M%S')}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = _create_unique_output_run_dir(date_dir, run_slug, now)
 
     print(f"📁 输出根目录: {output_root}")
     print(f"📁 本次输出目录: {run_dir}")
@@ -261,6 +403,18 @@ def _build_run_metadata(
             "momentum_exhaustion_threshold_method",
             None,
         ),
+        "industry_filter_mode": getattr(args, "industry_filter_mode", None),
+        "max_buy_per_industry_per_day": getattr(
+            args,
+            "max_buy_per_industry_per_day",
+            None,
+        ),
+        "max_total_positions_per_industry": getattr(
+            args,
+            "max_total_positions_per_industry",
+            None,
+        ),
+        "industry_reference_file": getattr(args, "industry_reference_file", None),
         "universe_name": str(context_metadata.get("universe_name") or ""),
         "universe_file": str(
             context_metadata.get("universe_file") or monitor_list_file or ""
@@ -794,6 +948,22 @@ def _build_evaluator(
         ),
         use_configured_mode=False,
     )
+    industry_filter_config = resolve_industry_filter_config(
+        config,
+        default_mode=DEFAULT_INDUSTRY_FILTER_MODE,
+        mode_override=getattr(args, "industry_filter_mode", None),
+        max_buy_per_industry_per_day_override=getattr(
+            args,
+            "max_buy_per_industry_per_day",
+            None,
+        ),
+        max_total_positions_per_industry_override=getattr(
+            args,
+            "max_total_positions_per_industry",
+            None,
+        ),
+        reference_file_override=getattr(args, "industry_reference_file", None),
+    )
     effective_run_metadata = dict(run_metadata or {})
     effective_run_metadata.update(
         {
@@ -802,6 +972,14 @@ def _build_evaluator(
             "momentum_exhaustion_threshold_method": (
                 momentum_exhaustion_config.threshold_method
             ),
+            "industry_filter_mode": industry_filter_config.mode,
+            "max_buy_per_industry_per_day": (
+                industry_filter_config.max_buy_per_industry_per_day
+            ),
+            "max_total_positions_per_industry": (
+                industry_filter_config.max_total_positions_per_industry
+            ),
+            "industry_reference_file": industry_filter_config.reference_file,
         }
     )
 
@@ -825,6 +1003,7 @@ def _build_evaluator(
         portfolio_overrides=portfolio_overrides,
         ranking_strategies=ranking_strategies,
         momentum_exhaustion_config=momentum_exhaustion_config,
+        industry_filter_config=industry_filter_config,
         run_metadata=effective_run_metadata,
     )
 

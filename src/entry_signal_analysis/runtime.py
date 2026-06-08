@@ -21,6 +21,11 @@ from src.utils.momentum_exhaustion import (
     MomentumExhaustionConfig,
     resolve_momentum_exhaustion_config,
 )
+from src.utils.industry_filter import (
+    DEFAULT_INDUSTRY_FILTER_MODE,
+    IndustryFilterConfig,
+    resolve_industry_filter_config,
+)
 from src.utils.universe_loader import load_tickers_from_file
 
 
@@ -267,6 +272,14 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         momentum_exhaustion_threshold_method=(
             getattr(args, "momentum_exhaustion_threshold_method", None) or "absolute"
         ),
+        industry_filter_mode=getattr(args, "industry_filter_mode", None),
+        max_buy_per_industry_per_day=getattr(args, "max_buy_per_industry_per_day", None),
+        max_total_positions_per_industry=getattr(
+            args,
+            "max_total_positions_per_industry",
+            None,
+        ),
+        industry_reference_file=getattr(args, "industry_reference_file", None),
         data_root=str(getattr(args, "data_root", None) or "data"),
         output_dir=resolve_output_dir(args, raw_config),
     )
@@ -323,4 +336,18 @@ def resolve_momentum_exhaustion_for_request(
         max_score_override=request.momentum_exhaustion_max_score,
         threshold_method_override=request.momentum_exhaustion_threshold_method,
         use_configured_mode=False,
+    )
+
+
+def resolve_industry_filter_for_request(
+    request: EntrySignalAnalysisRequest,
+) -> IndustryFilterConfig:
+    raw_config = load_runtime_config()
+    return resolve_industry_filter_config(
+        raw_config,
+        default_mode=DEFAULT_INDUSTRY_FILTER_MODE,
+        mode_override=request.industry_filter_mode,
+        max_buy_per_industry_per_day_override=request.max_buy_per_industry_per_day,
+        max_total_positions_per_industry_override=request.max_total_positions_per_industry,
+        reference_file_override=request.industry_reference_file,
     )

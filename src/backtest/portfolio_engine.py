@@ -42,6 +42,12 @@ from ..utils.momentum_exhaustion import (
     evaluate_momentum_exhaustion,
     normalize_momentum_exhaustion_config,
 )
+from ..utils.industry_filter import (
+    IndustryFilterConfig,
+    evaluate_industry_filter_for_ranked_tickers,
+    normalize_industry_filter_config,
+    normalize_ticker_code,
+)
 from .fill_buffer import (
     apply_buy_fill_buffer,
     apply_sell_fill_buffer,
@@ -98,6 +104,9 @@ class PortfolioBacktestEngine:
         tail_guard_config: Optional[Dict[str, object]] = None,
         momentum_exhaustion_config: Optional[
             Union[MomentumExhaustionConfig, Dict[str, object]]
+        ] = None,
+        industry_filter_config: Optional[
+            Union[IndustryFilterConfig, Dict[str, object]]
         ] = None,
     ):
         """
@@ -165,6 +174,7 @@ class PortfolioBacktestEngine:
         )
         self.tail_guard_config = dict(tail_guard_config or {})
         self.momentum_exhaustion_config = momentum_exhaustion_config
+        self.industry_filter_config = industry_filter_config
 
         # 创建信号排序器: 优先使用实例，否则按旧字符串方式
         if signal_ranker is not None:
@@ -504,6 +514,8 @@ class PortfolioBacktestEngine:
                     new_positions_opened = 0
                     momentum_exhaustion_filtered_count = 0
                     momentum_exhaustion_shadowed_count = 0
+                    industry_filtered_count = 0
+                    industry_shadowed_count = 0
 
                     # 对买入信号排序
                     using_preloaded_pending_signals = self._uses_preloaded_pending_signals(
@@ -546,6 +558,14 @@ class PortfolioBacktestEngine:
                             tail_guard_rank_limit,
                             positive_rank_score_count,
                         ) = self._apply_tail_guard_to_ranked_signals(ranked_signals)
+                    (
+                        ranked_signals,
+                        industry_filtered_count,
+                        industry_shadowed_count,
+                    ) = self._apply_industry_filter_to_ranked_signals(
+                        ranked_signals,
+                        existing_position_tickers=list(portfolio.positions.keys()),
+                    )
 
                     if (
                         show_signal_ranking
@@ -563,6 +583,14 @@ class PortfolioBacktestEngine:
                         print(
                             f"  Tail guard: rank <= {tail_guard_rank_limit} "
                             f"(positive momentum: {positive_rank_score_count})"
+                        )
+                    if show_signal_ranking and (
+                        industry_filtered_count or industry_shadowed_count
+                    ):
+                        print(
+                            "  Industry filter: "
+                            f"filtered={industry_filtered_count}, "
+                            f"shadowed={industry_shadowed_count}"
                         )
 
                     # 依次尝试买入
@@ -1129,6 +1157,7 @@ class PortfolioBacktestEngine:
         if (
             self.position_sizing_config.unlimited_positions
             or self._momentum_exhaustion_filters_allocations()
+            or self._industry_filter_filters_allocations()
         ):
             return None
         return max(
@@ -1152,6 +1181,17 @@ class PortfolioBacktestEngine:
         )
         return normalized.mode == "enforce"
 
+    def _industry_filter_filters_allocations(self) -> bool:
+        if self.industry_filter_config is None:
+            return False
+        if isinstance(self.industry_filter_config, IndustryFilterConfig):
+            return self.industry_filter_config.mode == "enforce"
+        normalized = normalize_industry_filter_config(
+            self.industry_filter_config,
+            default_mode="off",
+        )
+        return normalized.mode == "enforce"
+
     def _apply_momentum_exhaustion_to_ranked_signals(
         self,
         ranked_signals: List[tuple[str, TradingSignal, float]],
@@ -1167,6 +1207,40 @@ class PortfolioBacktestEngine:
                 priority,
                 self.momentum_exhaustion_config,
             )
+            metadata = dict(signal.metadata or {})
+            metadata.update(decision.to_metadata())
+            signal.metadata = metadata
+            if decision.filtered:
+                filtered_count += 1
+                continue
+            if decision.shadowed:
+                shadowed_count += 1
+            kept.append((ticker, signal, priority))
+
+        return kept, filtered_count, shadowed_count
+
+    def _apply_industry_filter_to_ranked_signals(
+        self,
+        ranked_signals: List[tuple[str, TradingSignal, float]],
+        *,
+        existing_position_tickers: Sequence[object] | None,
+    ) -> tuple[List[tuple[str, TradingSignal, float]], int, int]:
+        if not ranked_signals or self.industry_filter_config is None:
+            return ranked_signals, 0, 0
+
+        decisions = evaluate_industry_filter_for_ranked_tickers(
+            [ticker for ticker, _signal, _priority in ranked_signals],
+            self.industry_filter_config,
+            existing_position_tickers=existing_position_tickers,
+        )
+        kept: List[tuple[str, TradingSignal, float]] = []
+        filtered_count = 0
+        shadowed_count = 0
+        for ticker, signal, priority in ranked_signals:
+            decision = decisions.get(normalize_ticker_code(ticker))
+            if decision is None:
+                kept.append((ticker, signal, priority))
+                continue
             metadata = dict(signal.metadata or {})
             metadata.update(decision.to_metadata())
             signal.metadata = metadata

@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+from types import SimpleNamespace
+
 import pytest
 
 from web.api.routers import evaluation as evaluation_router
@@ -137,6 +139,10 @@ def test_build_cli_args_includes_atr_runtime_flags(monkeypatch) -> None:
         atr_ratio_max=0.03,
         momentum_exhaustion_mode="enforce",
         momentum_exhaustion_max_score=4.0,
+        industry_filter_mode="enforce",
+        max_buy_per_industry_per_day=1,
+        max_total_positions_per_industry=3,
+        industry_reference_file="data/jpx_final_list.csv",
     )
 
     args = evaluation_router._build_cli_args(req)
@@ -149,6 +155,10 @@ def test_build_cli_args_includes_atr_runtime_flags(monkeypatch) -> None:
     assert args[args.index("--momentum-exhaustion-mode") + 1] == "enforce"
     assert args[args.index("--momentum-exhaustion-max-score") + 1] == "4.0"
     assert args[args.index("--momentum-exhaustion-threshold-method") + 1] == "absolute"
+    assert args[args.index("--industry-filter-mode") + 1] == "enforce"
+    assert args[args.index("--max-buy-per-industry-per-day") + 1] == "1"
+    assert args[args.index("--max-total-positions-per-industry") + 1] == "3"
+    assert args[args.index("--industry-reference-file") + 1] == "data/jpx_final_list.csv"
 
 
 def test_evaluation_request_allows_ignored_atr_sizing_fields_when_fixed() -> None:

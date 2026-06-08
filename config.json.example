@@ -183,6 +183,13 @@
       "threshold_method": "absolute",
       "max_score": 4.0
     },
+    "industry_filter": {
+      "enabled": true,
+      "mode": "enforce",
+      "max_buy_per_industry_per_day": 1,
+      "max_total_positions_per_industry": 3,
+      "reference_file": "data/jpx_final_list.csv"
+    },
     "strategy_groups": [
       {
         "id": "group_main",

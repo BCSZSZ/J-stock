@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type MomentumExhaustionMode, type StockPoolOption } from "../api/client";
+import {
+  api,
+  type IndustryFilterMode,
+  type MomentumExhaustionMode,
+  type StockPoolOption,
+} from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
 import ExitStrategyFamilyBuilder from "../components/ExitStrategyFamilyBuilder";
 import MultiDatePicker from "../components/MultiDatePicker";
@@ -56,6 +61,10 @@ interface EvaluationDefaults {
   momentum_exhaustion_mode: MomentumExhaustionMode;
   momentum_exhaustion_max_score: number;
   momentum_exhaustion_threshold_method: "absolute";
+  industry_filter_mode: IndustryFilterMode;
+  max_buy_per_industry_per_day: number;
+  max_total_positions_per_industry: number;
+  industry_reference_file: string;
 }
 
 interface EvaluationOptionsResponse {
@@ -285,6 +294,10 @@ function isMomentumExhaustionMode(value: string): value is MomentumExhaustionMod
   return value === "off" || value === "shadow" || value === "enforce";
 }
 
+function isIndustryFilterMode(value: string): value is IndustryFilterMode {
+  return value === "off" || value === "shadow" || value === "enforce";
+}
+
 function formatEntryFilterModeLabel(mode: string): string {
   if (mode === "atr") return "atr (ATR only)";
   if (mode === "single") return "single (configured)";
@@ -345,6 +358,13 @@ export default function Evaluation() {
     useState<MomentumExhaustionMode>("enforce");
   const [momentumExhaustionMaxScore, setMomentumExhaustionMaxScore] =
     useState("4.0");
+  const [industryFilterMode, setIndustryFilterMode] =
+    useState<IndustryFilterMode>("enforce");
+  const [maxBuyPerIndustryPerDay, setMaxBuyPerIndustryPerDay] = useState("1");
+  const [maxTotalPositionsPerIndustry, setMaxTotalPositionsPerIndustry] =
+    useState("3");
+  const [industryReferenceFile, setIndustryReferenceFile] =
+    useState("data/jpx_final_list.csv");
   const [overrideProfileSizing, setOverrideProfileSizing] = useState(false);
   const [rankingMode, setRankingMode] = useState("prs_train");
   const [minTrainYears, setMinTrainYears] = useState("2");
@@ -588,6 +608,20 @@ export default function Evaluation() {
     setMomentumExhaustionMaxScore(
       String(defaults.momentum_exhaustion_max_score ?? 4.0),
     );
+    setIndustryFilterMode(
+      isIndustryFilterMode(defaults.industry_filter_mode)
+        ? defaults.industry_filter_mode
+        : "enforce",
+    );
+    setMaxBuyPerIndustryPerDay(
+      String(defaults.max_buy_per_industry_per_day ?? 1),
+    );
+    setMaxTotalPositionsPerIndustry(
+      String(defaults.max_total_positions_per_industry ?? 3),
+    );
+    setIndustryReferenceFile(
+      defaults.industry_reference_file ?? "data/jpx_final_list.csv",
+    );
     setRankingMode(defaults.ranking_mode ?? "prs_train");
     setMinTrainYears(String(defaults.min_train_years ?? 2));
     setPositionFile(defaults.position_file ?? "");
@@ -661,6 +695,22 @@ export default function Evaluation() {
       atrRatioMin.trim() === "" ? null : parsedAtrRatioMin;
     const normalizedAtrRatioMax =
       atrRatioMax.trim() === "" ? null : parsedAtrRatioMax;
+    const parsedMaxBuyPerIndustryPerDay = parseOptionalInt(
+      maxBuyPerIndustryPerDay,
+    );
+    const parsedMaxTotalPositionsPerIndustry = parseOptionalInt(
+      maxTotalPositionsPerIndustry,
+    );
+    const industryFilterInvalid =
+      (maxBuyPerIndustryPerDay.trim() !== "" &&
+        (parsedMaxBuyPerIndustryPerDay === undefined ||
+          parsedMaxBuyPerIndustryPerDay <= 0)) ||
+      (maxTotalPositionsPerIndustry.trim() !== "" &&
+        (parsedMaxTotalPositionsPerIndustry === undefined ||
+          parsedMaxTotalPositionsPerIndustry <= 0));
+    if (industryFilterInvalid) {
+      return;
+    }
     const payload: Record<string, unknown> = {
       command,
       buy_fill_modes: selectedBuyFillModes,
@@ -693,6 +743,10 @@ export default function Evaluation() {
       momentum_exhaustion_mode: momentumExhaustionMode,
       momentum_exhaustion_max_score: parsedMomentumExhaustionMaxScore,
       momentum_exhaustion_threshold_method: "absolute",
+      industry_filter_mode: industryFilterMode,
+      max_buy_per_industry_per_day: parsedMaxBuyPerIndustryPerDay,
+      max_total_positions_per_industry: parsedMaxTotalPositionsPerIndustry,
+      industry_reference_file: industryReferenceFile.trim() || undefined,
     };
 
     if (supportsContinuousCompanion) {
@@ -745,6 +799,7 @@ export default function Evaluation() {
         `Position Sizing: ${includeSizingRuntimeOverrides ? (positionSizingMode === "atr" ? `${positionSizingMode} | risk ${normalizedRiskPerTradePct} | stop ${normalizedAtrStopMultiple} ATR` : "fixed | ATR sizing params ignored") : "profile defaults"}`,
         `ATR% Filter Bounds: ${parsedAtrRatioMin ?? "-"} - ${parsedAtrRatioMax ?? "-"}`,
         `Momentum Exhaustion: ${momentumExhaustionMode} | max score ${parsedMomentumExhaustionMaxScore ?? "config default"}`,
+        `Industry Filter: ${industryFilterMode} | daily ${parsedMaxBuyPerIndustryPerDay ?? "config default"} | total ${parsedMaxTotalPositionsPerIndustry ?? "config default"}`,
         `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
         `Continuous Companion: ${supportsContinuousCompanion ? (includeContinuous ? "on" : "off") : "n/a"}`,
@@ -761,7 +816,7 @@ export default function Evaluation() {
         `Signal Ranking Strategy: ${productionRankingStrategy || "(config default)"}`,
         `Universe: ${selectedUniverseSummary}`,
         `Output Root: ${resolvedOutputDir ?? "(config default)"}`,
-        "Output Layout: YYYYMMDD/<entry+exit+timestamp>/...",
+        "Output Layout: YYYYMMDD/<strategy+runtime-signature+timestamp>/...",
       ].filter(Boolean).join("\n"),
     );
     if (!ok) return;
@@ -875,7 +930,7 @@ export default function Evaluation() {
               : productionUniverse || "Production monitor list not configured"}
           </div>
           <div className="mt-auto pt-3 text-xs text-gray-500">
-            YYYYMMDD / entry+exit+timestamp
+            YYYYMMDD / strategy+filters+signature+timestamp
           </div>
         </div>
       </div>
@@ -1232,6 +1287,48 @@ export default function Evaluation() {
               />
             </div>
 
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Industry Filter</label>
+              <select
+                value={industryFilterMode}
+                onChange={(e) =>
+                  setIndustryFilterMode(e.target.value as IndustryFilterMode)
+                }
+                className={compactInputClassName}
+              >
+                <option value="enforce">enforce</option>
+                <option value="shadow">shadow</option>
+                <option value="off">off</option>
+              </select>
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Industry Daily Cap</label>
+              <input
+                value={maxBuyPerIndustryPerDay}
+                onChange={(e) => setMaxBuyPerIndustryPerDay(e.target.value)}
+                className={compactInputClassName}
+              />
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Industry Total Cap</label>
+              <input
+                value={maxTotalPositionsPerIndustry}
+                onChange={(e) => setMaxTotalPositionsPerIndustry(e.target.value)}
+                className={compactInputClassName}
+              />
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Industry CSV</label>
+              <input
+                value={industryReferenceFile}
+                onChange={(e) => setIndustryReferenceFile(e.target.value)}
+                className={compactInputClassName}
+              />
+            </div>
+
             <div className={`${fieldCardClassName} justify-center`}>
               <div className="text-xs text-gray-400">
                 {isPosEvaluation && !overrideProfileSizing
@@ -1446,7 +1543,7 @@ export default function Evaluation() {
                 {resolvedOutputDir ?? "(config default output dir)"}
               </p>
               <p className="mt-2 text-[11px] text-gray-500">
-                Results are stored automatically as YYYYMMDD / entry+exit+timestamp.
+                Results are stored automatically as YYYYMMDD / strategy+filters+signature+timestamp.
               </p>
             </div>
           </div>

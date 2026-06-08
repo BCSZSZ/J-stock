@@ -48,6 +48,11 @@ from src.utils.atr_position_sizing import (
     parse_portfolio_sizing_config,
 )
 from src.utils.momentum_exhaustion import MomentumExhaustionConfig
+from src.utils.industry_filter import (
+    IndustryFilterConfig,
+    evaluate_industry_filter_for_ranked_tickers,
+    normalize_ticker_code,
+)
 from src.utils.strategy_loader import get_strategy_complexity_penalty
 
 
@@ -623,6 +628,7 @@ class StrategyEvaluator:
         fill_buffer_pct: float = 0.02,
         capacity_regime_mode_override: Optional[str] = None,
         momentum_exhaustion_config: Optional[MomentumExhaustionConfig] = None,
+        industry_filter_config: Optional[IndustryFilterConfig] = None,
         run_metadata: Optional[Dict[str, Any]] = None,
     ):
         """
@@ -672,6 +678,7 @@ class StrategyEvaluator:
         )
         self.run_metadata = self._json_safe_data(run_metadata or {})
         self.momentum_exhaustion_config = momentum_exhaustion_config
+        self.industry_filter_config = industry_filter_config
 
         self.overlay_manager = OverlayManager.from_config(
             self.overlay_config,
@@ -1318,6 +1325,7 @@ class StrategyEvaluator:
             initial_pending_sell_signals=initial_pending_sell_signals,
             tail_guard_config=self._get_production_tail_guard_config(),
             momentum_exhaustion_config=self.momentum_exhaustion_config,
+            industry_filter_config=self.industry_filter_config,
         )
         self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 
@@ -1906,6 +1914,7 @@ class StrategyEvaluator:
         sell_signals: List[ProductionSignal] = []
         projected_sell_proceeds = 0.0
         projected_position_count = len(positions_by_ticker)
+        projected_sell_qty_by_ticker: Dict[str, int] = {}
         report_ts = pd.Timestamp(report_date)
 
         for raw_signal in raw_sell_signals:
@@ -1985,11 +1994,21 @@ class StrategyEvaluator:
 
             if planned_sell_qty > 0:
                 projected_sell_proceeds += planned_sell_value
+                projected_sell_qty_by_ticker[ticker] = (
+                    projected_sell_qty_by_ticker.get(ticker, 0) + planned_sell_qty
+                )
                 if planned_sell_qty >= position_qty:
                     projected_position_count = max(0, projected_position_count - 1)
 
         planning_cash = final_cash_jpy + projected_sell_proceeds
         max_positions, max_position_pct = self._get_replay_report_portfolio_limits()
+        projected_existing_tickers = [
+            ticker
+            for ticker, position in positions_by_ticker.items()
+            if int(position.get("quantity") or 0)
+            - projected_sell_qty_by_ticker.get(ticker, 0)
+            > 0
+        ]
 
         def _buy_sort_key(raw_signal: Dict[str, Any]) -> Tuple[float, float, str]:
             ticker = str(raw_signal.get("ticker") or "").strip()
@@ -2001,9 +2020,21 @@ class StrategyEvaluator:
                 ticker,
             )
 
+        sorted_raw_buy_signals = sorted(raw_buy_signals, key=_buy_sort_key)
+        industry_decisions = evaluate_industry_filter_for_ranked_tickers(
+            [
+                str(raw_signal.get("ticker") or "").strip()
+                for raw_signal in sorted_raw_buy_signals
+                if str(raw_signal.get("ticker") or "").strip()
+                and str(raw_signal.get("ticker") or "").strip() not in positions_by_ticker
+            ],
+            self.industry_filter_config,
+            existing_position_tickers=projected_existing_tickers,
+        )
+
         buy_signals: List[ProductionSignal] = []
         new_positions_opened = 0
-        for raw_signal in sorted(raw_buy_signals, key=_buy_sort_key):
+        for raw_signal in sorted_raw_buy_signals:
             ticker = str(raw_signal.get("ticker") or "").strip()
             if not ticker:
                 continue
@@ -2028,11 +2059,17 @@ class StrategyEvaluator:
             required_capital = 0.0
             lot_size = LotSizeManager.get_lot_size(ticker)
             reason = base_reason
+            industry_decision = industry_decisions.get(normalize_ticker_code(ticker))
+            industry_payload = (
+                industry_decision.to_metadata() if industry_decision is not None else {}
+            )
 
             if ticker in positions_by_ticker:
                 reason = f"{base_reason}; Skipped: already in portfolio"
             elif close_price is None or planning_price is None or planning_price <= 0:
                 reason = f"{base_reason}; Skipped: missing close price"
+            elif industry_decision is not None and industry_decision.filtered:
+                reason = f"{base_reason}; {industry_decision.reason}"
             elif projected_position_count + new_positions_opened >= max_positions:
                 reason = (
                     f"{base_reason}; Skipped: max positions ({max_positions}) reached"
@@ -2092,9 +2129,38 @@ class StrategyEvaluator:
                     if rank_info.get("rank_score") is not None
                     else None
                 ),
+                industry_name=industry_payload.get("industry_name"),
+                industry_filter_mode=industry_payload.get("industry_filter_mode"),
+                industry_filter_max_buy_per_day=industry_payload.get(
+                    "industry_filter_max_buy_per_day"
+                ),
+                industry_filter_max_total_positions=industry_payload.get(
+                    "industry_filter_max_total_positions"
+                ),
+                industry_filter_rank=industry_payload.get("industry_filter_rank"),
+                industry_existing_positions=industry_payload.get(
+                    "industry_existing_positions"
+                ),
+                industry_total_positions_after_buy=industry_payload.get(
+                    "industry_total_positions_after_buy"
+                ),
+                industry_filter_daily_cap_blocked=bool(
+                    industry_payload.get("industry_filter_daily_cap_blocked", False)
+                ),
+                industry_filter_total_position_blocked=bool(
+                    industry_payload.get("industry_filter_total_position_blocked", False)
+                ),
+                industry_filter_blocked=bool(
+                    industry_payload.get("industry_filter_blocked", False)
+                ),
+                industry_filter_filtered=bool(
+                    industry_payload.get("industry_filter_filtered", False)
+                ),
+                industry_filter_reason=industry_payload.get("industry_filter_reason"),
                 is_executable=suggested_qty > 0,
                 is_executable_buy=suggested_qty > 0,
                 strategy_name=str(raw_signal.get("strategy_name") or ""),
+                signal_metadata={**dict(metadata), **industry_payload},
             )
             buy_signals.append(signal)
 

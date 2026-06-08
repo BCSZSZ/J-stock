@@ -2,6 +2,7 @@ import pytest
 
 from web.api.routers.production import (
     _append_atr_runtime_flags,
+    _append_industry_filter_flags,
     _append_momentum_exhaustion_flags,
 )
 from web.api.schemas import ProductionDailyRequest
@@ -112,4 +113,27 @@ def test_production_daily_cli_args_include_momentum_exhaustion_flags() -> None:
         "4.0",
         "--momentum-exhaustion-threshold-method",
         "absolute",
+    ]
+
+
+def test_production_daily_cli_args_include_industry_filter_flags() -> None:
+    req = ProductionDailyRequest(
+        industry_filter_mode="enforce",
+        max_buy_per_industry_per_day=1,
+        max_total_positions_per_industry=3,
+        industry_reference_file="data/jpx_final_list.csv",
+    )
+    args: list[str] = []
+
+    _append_industry_filter_flags(args, req)
+
+    assert args == [
+        "--industry-filter-mode",
+        "enforce",
+        "--max-buy-per-industry-per-day",
+        "1",
+        "--max-total-positions-per-industry",
+        "3",
+        "--industry-reference-file",
+        "data/jpx_final_list.csv",
     ]

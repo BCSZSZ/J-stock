@@ -1,0 +1,88 @@
+{
+  // Human-readable template for worker-ready batch manifests.
+  // Generator owns worker planning. Runner executes each job exactly as written.
+  "schema_version": 1,
+  "jobs": [
+    {
+      // Stable per-worker identifier used in summary/log files.
+      "worker_id": "I1p2_T1p0_R0p45-0p75_w01",
+
+      // Human-readable label for approval, logs, and summary output.
+      "job_name": "I1p2_ATR1p2_worker01",
+
+      // Optional informational group label. The runner does not interpret it.
+      "job_group": "I1p2_ATR1p2",
+
+      // CLI subcommand. WebUI batch flow usually uses `evaluate`.
+      // Allowed examples: evaluate, pos-evaluation, walk-forward-evaluate, replay-evaluation.
+      "command": "evaluate",
+
+      // Shared main.py arguments for this worker.
+      // Keep these as CLI args only. Do not include `uv`, `run`, `python`, `main.py`, or `--exit-strategies` here.
+      "base_args": [
+        // Time scope
+        "--mode", "annual",                    // WebUI default: annual
+        "--years", "2026",                     // Required for most evaluate jobs
+        "--no-include-continuous",              // Current repo policy for these studies: off by default
+
+        // Strategy defaults
+        "--entry-strategies", "MACDHist2BarAnySignMaxBiasPct10Entry", // Production/WebUI default entry
+
+        // Optional strategy overrides
+        // "--exit-confirm-days", "1",         // WebUI/config default if explicitly pinned
+
+        // Entry filter
+        "--entry-filter-mode", "off",          // WebUI default is atr; set off only when intentionally overriding
+        // "--entry-filter-name", "my_filter", // Use for single/grid modes only
+        // "--atr-ratio-min", "none",          // Entry ATR% lower bound, not ATR sizing
+        // "--atr-ratio-max", "none",          // Entry ATR% upper bound
+
+        // Ranking
+        "--ranking-mode", "prs_train",         // WebUI default
+        "--ranking-strategies", "momentum",    // Effective WebUI default ranking strategy
+
+        // Universe/output
+        "--universe-file", "G:/My Drive/AI-Stock-Sync/state/production_monitor_list.json",
+        // "--output-dir", "G:/My Drive/AI-Stock-Sync/strategy_evaluation", // Usually omit and let config drive it
+        // "--verbose",                          // Default false
+
+        // Execution assumptions
+        // "--buy-fill-mode", "next_open",     // WebUI default
+        // "--entry-reference-mode", "raw_fill", // WebUI default
+        // "--fill-buffer-enabled",              // WebUI default false; include only to enable
+        // "--fill-buffer-pct", "0.02",        // Config/WebUI default when buffer is enabled
+
+        // Capacity and overlay
+        // "--capacity-regime-mode", "off",    // WebUI/config default unless explicitly enforcing
+        // "--enable-overlay",                   // Default OFF; include only when the user explicitly asks
+
+        // ATR sizing runtime overrides
+        "--position-sizing-mode", "atr",       // Pin when the study is about ATR sizing
+        "--risk-per-trade-pct", "0.0073",      // Used only when position-sizing-mode=atr
+        "--atr-stop-multiple", "1.2",          // S in the research framing
+
+        // pos-evaluation only
+        // "--position-file", "evaluation-position.json",
+        // "--profile-name", "profile_a",
+        // "--overlay-modes", "off",           // pos-evaluation overlay comparison control
+
+        // walk-forward only
+        // "--min-train-years", "2",
+
+        // replay-evaluation only
+        // "--report-file", "G:/My Drive/AI-Stock-Sync/reports/2026-05-28.md"
+      ],
+
+      // Exact strategy slice for this worker. Runner must not split this again.
+      "exit_strategies": [
+        "MVXWL_N3_R0p45_T1p0_D10_B20p0_I1p2",
+        "MVXWL_N3_R0p6_T1p0_D10_B20p0_I1p2",
+        "MVXWL_N3_R0p75_T1p0_D10_B20p0_I1p2"
+      ],
+
+      // Optional informational fields. Runner can surface them in summary but should not reinterpret them.
+      "expected_output_root": "G:/My Drive/AI-Stock-Sync/strategy_evaluation",
+      "notes": "Keep I=S=1.2 fixed; this worker covers the low-R slice at T=1.0"
+    }
+  ]
+}
