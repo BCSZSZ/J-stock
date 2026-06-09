@@ -1,11 +1,30 @@
-# SKILL.md
-
+---
 name: ai-native-architecture
-description: TRIGGERS AUTOMATICALLY when creating new classes, designing system architecture, generating business logic, or refactoring object-oriented code. Enforces stateless design and RORO.
+description: Use when designing or refactoring J-stock Python architecture, introducing new services/classes, separating business logic from I/O, or reviewing object-oriented code for hidden state and testability.
+---
 
-## Core Directives
+# AI-Native Architecture
 
-1. **Stateless Classes**: Classes MUST NOT maintain implicit mutable state (e.g., do not mutate `self.state` or `self.current_target` within methods). Use classes strictly for dependency injection, routing, or defining Strategy Pattern interfaces.
-2. **Data/Logic Separation**: Define all state using `pydantic.BaseModel` or `@dataclass(frozen=True)`.
-3. **The RORO Pattern**: Core business logic methods within classes MUST receive explicit state objects as arguments and return new state objects (or modified copies). Never rely on internal instance variables for computation.
-4. **I/O Isolation**: Pure calculation logic must be completely isolated from side effects (Network, DB, File System). I/O operations must be handled at the outermost boundaries of the application.
+Use this skill as an architectural bias, not a blanket prohibition. Prefer designs that make state explicit, calculations testable, and side effects easy to locate.
+
+## Guidance
+
+- Prefer pure functions or small services whose dependencies are injected explicitly.
+- Keep mutable runtime state in explicit domain objects, request objects, or persistence layers instead of hidden instance attributes.
+- Use `pydantic.BaseModel`, dataclasses, `TypedDict`, or existing project models when they improve clarity at module boundaries.
+- Use RORO-style request/response objects for complex workflows, especially when a function has many related inputs or outputs.
+- Keep file, network, subprocess, database, and clock access at workflow boundaries. Put deterministic calculations behind functions that can be tested without I/O.
+- Preserve existing local patterns when they are clear and already tested. Do not refactor working code only to force a pattern.
+
+## Review Checklist
+
+- Can the core behavior be tested without touching the filesystem, network, or current time?
+- Is the state needed by the calculation visible in the function signature or model?
+- Are class attributes limited to stable dependencies, configuration, or caches with clear invalidation?
+- Would a future agent understand how data flows through the module without reconstructing hidden mutations?
+
+## Avoid
+
+- Introducing broad architecture rewrites while making a narrow feature or bug fix.
+- Adding Pydantic/dataclass wrappers for simple local values that are already obvious.
+- Treating every class as invalid just because it owns state; prefer explicit, documented state when the domain requires it.
