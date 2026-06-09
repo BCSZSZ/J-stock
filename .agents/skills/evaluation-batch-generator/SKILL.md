@@ -67,6 +67,7 @@ Default source priority:
 Runtime config note:
 
 - In this workspace, if `G:/My Drive/AI-Stock-Sync/config.json` exists, treat it as the default source of truth for production-backed defaults unless the user explicitly points to another config or `JSA_CONFIG_FILE` is set.
+- Production config source of truth is `G:/My Drive/AI-Stock-Sync/config.json`. Do not treat repo-local files such as `config.local.json`, `config.json.example`, or `c:/code/J-stock/config.json` as production config unless the user explicitly says they are testing a local fixture.
 - Do not infer production defaults from `evaluation.default_entry_strategies` / `evaluation.default_exit_strategies` or from the repo-local `c:/code/J-stock/config.json` when the G-drive config is active.
 
 WebUI vs direct CLI mismatch notes:
@@ -78,7 +79,7 @@ WebUI vs direct CLI mismatch notes:
 Current workspace concrete defaults to remember:
 
 - Production entry default: `MACDHist2BarAnySignMaxBiasPct10Entry` from `G:/My Drive/AI-Stock-Sync/config.json` `production.strategy_groups[id=group_main].entry_strategy`.
-- Production exit default: `MVXW_N3_R0p54_T1p3_D10_B20p0` from `G:/My Drive/AI-Stock-Sync/config.json` `production.strategy_groups[id=group_main].exit_strategy`.
+- Production exit default: `MVXWL_N3_R0p75_T1p0_D10_B20p0_I1p2` from `G:/My Drive/AI-Stock-Sync/config.json` `production.strategy_groups[id=group_main].exit_strategy`.
 - Evaluation fallback entry default in the same file is different: `evaluation.default_entry_strategies = MACDPreCross3BarEntry`. Do not silently substitute this when the task clearly intends production/WebUI defaults.
 - Effective WebUI ranking strategy default is currently `momentum`.
 - Output root default is `G:/My Drive/AI-Stock-Sync/strategy_evaluation` and the CLI auto-creates the dated detailed run directory beneath it.

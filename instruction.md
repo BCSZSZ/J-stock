@@ -10,6 +10,8 @@
 
 - Primary config, state, signal, report, universe, and operational files should be treated as living under `G:\My Drive\AI-Stock-Sync`, not under the local repository, unless a task explicitly asks for local fixture/example config.
 - Treat `G:\My Drive\AI-Stock-Sync` as the default external read/write sync root for project operations. If the current sandbox requires approval for that path, request access to that path instead of assuming local config files are authoritative.
+- Production config source of truth: use `G:\My Drive\AI-Stock-Sync\config.json`. Do not treat repo-local files such as `config.local.json`, `config.json.example`, or `c:\code\J-stock\config.json` as production config unless the user explicitly says they are testing a local fixture.
+- When resolving current production strategy defaults, read `production.strategy_groups` from `G:\My Drive\AI-Stock-Sync\config.json`; do not infer them from `evaluation.default_*` fields or repo-local config files.
 
 ## 大前提（所有任务通用）
 
