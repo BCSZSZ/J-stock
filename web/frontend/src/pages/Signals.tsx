@@ -4,9 +4,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import {
   compareSignalsForDisplay,
+  getBuyBlockReason,
   getDisplayAction,
-  getExecutableBuy,
-  getExecutableSell,
   getExecutionLabel,
   getMomentumRank,
   getMomentumValue,
@@ -15,6 +14,7 @@ import {
   getSellPeriodLabel,
   getSellPlanLabel,
   getSellTriggerLabel,
+  getSignalTone,
 } from "../signalSemantics";
 import { useTickerNames } from "../hooks/useTickerNames";
 
@@ -76,11 +76,12 @@ export default function Signals() {
       {/* Signals table */}
       {!viewReport && signals.data && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1440px] text-sm">
+          <table className="w-full min-w-[1600px] text-sm">
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-800">
                 <th className="py-2 px-3">Ticker</th>
                 <th className="py-2 px-3">Name</th>
+                <th className="py-2 px-3">Industry</th>
                 <th className="py-2 px-3">Action</th>
                 <th className="py-2 px-3">Execution</th>
                 <th className="py-2 px-3">Momentum</th>
@@ -90,13 +91,12 @@ export default function Signals() {
                 <th className="py-2 px-3 w-[180px]">Plan</th>
                 <th className="py-2 px-3 w-[240px]">Trigger</th>
                 <th className="py-2 px-3">Period</th>
-                <th className="py-2 px-3 w-[300px]">Reason</th>
+                <th className="py-2 px-3 w-[360px]">Reason</th>
               </tr>
             </thead>
             <tbody>
               {sortedSignals.map((s, i) => {
-                const executableBuy = getExecutableBuy(s);
-                const executableSell = getExecutableSell(s);
+                const signalTone = getSignalTone(s);
                 const momentumRank = getMomentumRank(s);
                 const momentumValue = getMomentumValue(s);
                 const sellIntent = getSellIntent(s);
@@ -104,12 +104,18 @@ export default function Signals() {
                 const sellPlan = getSellPlanLabel(s);
                 const sellTrigger = getSellTriggerLabel(s);
                 const sellPeriod = getSellPeriodLabel(s);
+                const reasonText =
+                  signalTone === "filteredBuy"
+                    ? getBuyBlockReason(s)
+                    : ((s.reason as string) ?? "");
 
                 let rowClassName = "border-b border-gray-800/50 hover:bg-gray-800/30";
-                if (executableSell) {
+                if (signalTone === "sell") {
                   rowClassName = "border-b border-red-900/60 bg-red-950/20 hover:bg-red-950/30";
-                } else if (executableBuy) {
+                } else if (signalTone === "buy") {
                   rowClassName = "border-b border-emerald-900/60 bg-emerald-950/20 hover:bg-emerald-950/30";
+                } else if (signalTone === "filteredBuy") {
+                  rowClassName = "border-b border-amber-900/60 bg-amber-950/20 hover:bg-amber-950/30";
                 }
 
                 return (
@@ -128,10 +134,15 @@ export default function Signals() {
                   <td className="py-2 px-3 text-gray-400 text-xs">
                     {names[String(s.ticker ?? "")] ?? ""}
                   </td>
+                  <td className="py-2 px-3 text-gray-400 text-xs">
+                    {s.industry_name || "—"}
+                  </td>
                   <td className="py-2 px-3">
                     <span
                       className={
-                        s.signal_type === "BUY"
+                        signalTone === "filteredBuy"
+                          ? "text-amber-300 font-medium"
+                          : s.signal_type === "BUY"
                           ? "text-green-400 font-medium"
                           : s.signal_type === "SELL"
                             ? "text-red-400 font-medium"
@@ -144,11 +155,13 @@ export default function Signals() {
                   <td className="py-2 px-3">
                     <span
                       className={
-                        executableSell
+                        signalTone === "sell"
                           ? "rounded bg-red-500/15 px-2 py-1 text-xs font-medium text-red-300"
-                          : executableBuy
+                          : signalTone === "buy"
                             ? "rounded bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-300"
-                            : "text-gray-500 text-xs"
+                            : signalTone === "filteredBuy"
+                              ? "rounded bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-300"
+                              : "text-gray-500 text-xs"
                       }
                     >
                       {getExecutionLabel(s)}
@@ -179,8 +192,15 @@ export default function Signals() {
                   <td className="py-2 px-3 text-xs text-gray-300">
                     {sellPeriod}
                   </td>
-                  <td className="py-2 px-3 text-xs text-gray-500 truncate max-w-[300px]">
-                    {(s.reason as string) ?? ""}
+                  <td
+                    className={
+                      signalTone === "filteredBuy"
+                        ? "py-2 px-3 text-xs text-amber-200/90 max-w-[360px] whitespace-normal break-words leading-snug"
+                        : "py-2 px-3 text-xs text-gray-500 max-w-[360px] whitespace-normal break-words leading-snug"
+                    }
+                    title={(s.reason as string) ?? reasonText}
+                  >
+                    {reasonText}
                   </td>
                 </tr>
                 );

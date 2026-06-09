@@ -14,6 +14,7 @@ export interface SignalRecord {
   planned_sell_value?: number | null;
   strategy_name?: string | null;
   reason?: string | null;
+  capacity_blocking_reason?: string | null;
   exit_trigger?: string | null;
   execution_intent?: string | null;
   execution_method?: string | null;
@@ -56,8 +57,39 @@ export interface SignalRecord {
   rank_score?: number | null;
 }
 
+export type SignalTone = "sell" | "buy" | "filteredBuy" | "neutral";
+
+const BUY_BLOCK_REASON_MARKERS = [
+  "Filtered:",
+  "Capacity blocked:",
+  "SuggestedQty=0:",
+  "Skipped:",
+  "Overlay blocked new entries",
+];
+
 function asNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function cleanText(value: string | null | undefined): string | null {
+  const text = value?.trim();
+  return text ? text : null;
+}
+
+function extractBuyBlockReason(reason: string | null | undefined): string | null {
+  const text = cleanText(reason);
+  if (text === null) {
+    return null;
+  }
+
+  const blockedParts = text
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) =>
+      BUY_BLOCK_REASON_MARKERS.some((marker) => part.startsWith(marker)),
+    );
+
+  return blockedParts.length > 0 ? blockedParts.join("; ") : null;
 }
 
 function formatOrderPrice(value: number | null): string | null {
@@ -83,6 +115,10 @@ export function getExecutableBuy(signal: SignalRecord): boolean {
     return signal.is_executable_buy;
   }
   return isBuySignal(signal) && Number(signal.suggested_qty ?? 0) > 0;
+}
+
+export function getFilteredBuy(signal: SignalRecord): boolean {
+  return isBuySignal(signal) && !getExecutableBuy(signal);
 }
 
 export function getExecutableSell(signal: SignalRecord): boolean {
@@ -139,12 +175,52 @@ export function getDisplayAction(signal: SignalRecord): string {
   return signal.action || signal.signal_type;
 }
 
+export function getBuyBlockReason(signal: SignalRecord): string {
+  const industryReason = cleanText(signal.industry_filter_reason);
+  if (industryReason !== null) {
+    return industryReason;
+  }
+
+  const momentumReason = cleanText(signal.momentum_exhaustion_reason);
+  if (momentumReason !== null) {
+    return momentumReason;
+  }
+
+  const capacityReason = cleanText(signal.capacity_blocking_reason);
+  if (capacityReason !== null) {
+    return `Capacity blocked: ${capacityReason}`;
+  }
+
+  const extractedReason = extractBuyBlockReason(signal.reason);
+  if (extractedReason !== null) {
+    return extractedReason;
+  }
+
+  return cleanText(signal.reason) ?? "BUY signal is not executable";
+}
+
+export function getSignalTone(signal: SignalRecord): SignalTone {
+  if (getExecutableSell(signal)) {
+    return "sell";
+  }
+  if (getExecutableBuy(signal)) {
+    return "buy";
+  }
+  if (getFilteredBuy(signal)) {
+    return "filteredBuy";
+  }
+  return "neutral";
+}
+
 export function getExecutionLabel(signal: SignalRecord): string {
   if (getExecutableSell(signal)) {
     return `SELL ${getExecutionQuantity(signal)}股`;
   }
   if (getExecutableBuy(signal)) {
     return `BUY ${getExecutionQuantity(signal)}股`;
+  }
+  if (getFilteredBuy(signal)) {
+    return "Filtered Buy";
   }
   if (isBuySignal(signal)) {
     return "Candidate Buy";
