@@ -2,6 +2,10 @@
   // Human-readable template for worker-ready batch manifests.
   // Generator owns worker planning. Runner executes each job exactly as written.
   "schema_version": 1,
+
+  // Maximum concurrent worker processes. Omit to use runner default: 8.
+  "max_workers": 8,
+
   "jobs": [
     {
       // Stable per-worker identifier used in summary/log files.

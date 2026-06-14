@@ -29,6 +29,7 @@ After approval, hand execution to `evaluation-batch-executor`.
 - The generator owns worker planning. Split jobs by worker here, not in the runner or executor.
 - Emit worker-ready jobs. Each manifest `jobs[]` entry must already be one executable worker unit.
 - Do not rely on executor or runner to reinterpret `num_workers`, repartition `exit_strategies`, or rebalance jobs.
+- Include top-level `max_workers` when the requested batch is large or concurrency matters. The runner default is 8 concurrent workers when omitted.
 - When presenting a manifest for approval, always report both worker-job counts and underlying evaluation-point counts. If one worker bundles multiple `exit_strategies`, state that explicitly instead of conflating job count with point count.
 - Overlay defaults to OFF. Never add `--enable-overlay` unless the user explicitly asks for overlay. If the user wants overlay comparison, show both off/on commands and get approval.
 - Keep manifests minimal but WebUI-equivalent: include required flags, user-requested overrides, and WebUI defaults that would change behavior if omitted. Omit a default only when the CLI/config would infer the same value, and mention important omitted defaults in the explanation.
@@ -98,6 +99,7 @@ Runtime manifest form:
 ```json
 {
 	"schema_version": 1,
+	"max_workers": 8,
 	"jobs": [
 		{
 			"worker_id": "groupA_w01",
@@ -115,6 +117,7 @@ Rules:
 
 - The generated runtime manifest must be strict JSON with no comments. Put comments only in the checked-in `.jsonc` template.
 - The generated runtime manifest path is always `tmp/evaluationtmp.json` relative to the J-stock repo root.
+- `max_workers` is optional but recommended for large manifests. Use `8` unless the user asks for a different concurrency limit.
 - Assume the runner will be launched with the current working directory at the J-stock repo root. Do not hardcode a checkout path such as `c:\code\J-stock` into manifest jobs.
 - Each `jobs[]` entry must already be the final worker slice. The runner will execute jobs exactly as provided.
 - The runtime job shape should include at least `worker_id`, `job_name`, `command`, `base_args`, and `exit_strategies`.
@@ -150,6 +153,7 @@ Before running, respond with:
 **Explanation**
 - <why these jobs were split this way>
 - <worker-job counts and evaluation-point counts by relevant grid/job_group; if workers bundle multiple exit_strategies, say so explicitly>
+- <concurrency limit from max_workers or runner default>
 - <which WebUI defaults were pinned>
 - <which defaults were intentionally omitted>
 - <generated file: tmp/evaluationtmp.json>

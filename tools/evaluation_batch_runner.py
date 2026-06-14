@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TMP_ROOT = REPO_ROOT / "tmp"
 DEFAULT_SPEC_PATH = TMP_ROOT / "evaluationtmp.json"
 DEFAULT_RUNS_ROOT = TMP_ROOT / "parallel_eval"
+DEFAULT_MAX_WORKERS = 8
 
 _OUTPUT_DIR_RE = re.compile(r"本次输出目录:\s*([^\r\n]+)")
 _RAW_CSV_RE = re.compile(
@@ -87,6 +88,7 @@ class BatchManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: int = 1
+    max_workers: int = Field(default=DEFAULT_MAX_WORKERS, ge=1)
     jobs: list[WorkerJobSpec] = Field(min_length=1)
 
 
@@ -115,6 +117,7 @@ class RunnerSummary(BaseModel):
     manifest_path: str
     repo_root: str
     run_dir: str
+    max_workers: int = Field(ge=1)
     started_at: str
     finished_at: str | None = None
     failed_worker_count: int = 0
@@ -186,6 +189,7 @@ def _initial_summary(
     manifest: BatchManifest,
     spec_path: Path,
     run_dir: Path,
+    max_workers: int,
 ) -> RunnerSummary:
     workers: list[WorkerStatus] = []
     for job in manifest.jobs:
@@ -205,6 +209,7 @@ def _initial_summary(
         manifest_path=str(spec_path),
         repo_root=str(REPO_ROOT),
         run_dir=str(run_dir),
+        max_workers=max_workers,
         started_at=_timestamp_now(),
         workers=workers,
     )
@@ -323,20 +328,36 @@ def run_worker_job(job: WorkerJobSpec, run_dir: Path, tracker: SummaryTracker) -
     return exit_code
 
 
+def _resolve_effective_max_workers(requested_max_workers: int, job_count: int) -> int:
+    if requested_max_workers < 1:
+        raise ValueError("max_workers must be at least 1")
+    return min(requested_max_workers, job_count)
+
+
 def execute_manifest(
     manifest: BatchManifest,
     spec_path: Path,
     *,
     runs_root: Path = DEFAULT_RUNS_ROOT,
+    max_workers: int | None = None,
 ) -> tuple[RunnerSummary, int]:
     run_dir = runs_root / datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
     summary_path = run_dir / "summary.json"
+    effective_max_workers = _resolve_effective_max_workers(
+        max_workers if max_workers is not None else manifest.max_workers,
+        len(manifest.jobs),
+    )
 
-    summary = _initial_summary(manifest, spec_path, run_dir)
+    summary = _initial_summary(
+        manifest,
+        spec_path,
+        run_dir,
+        effective_max_workers,
+    )
     tracker = SummaryTracker(summary, summary_path)
 
-    with ThreadPoolExecutor(max_workers=len(manifest.jobs)) as executor:
+    with ThreadPoolExecutor(max_workers=effective_max_workers) as executor:
         futures = [
             executor.submit(run_worker_job, job, run_dir, tracker)
             for job in manifest.jobs
@@ -361,6 +382,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=str(DEFAULT_RUNS_ROOT),
         help="Local directory where worker logs and summary.json are written.",
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help=(
+            "Maximum concurrent worker processes. Overrides manifest max_workers "
+            f"when provided; default manifest value is {DEFAULT_MAX_WORKERS}."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -379,7 +409,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Invalid manifest: {exc}", file=sys.stderr)
         return 1
 
-    _, exit_code = execute_manifest(manifest, spec_path, runs_root=runs_root)
+    try:
+        _, exit_code = execute_manifest(
+            manifest,
+            spec_path,
+            runs_root=runs_root,
+            max_workers=args.max_workers,
+        )
+    except ValueError as exc:
+        print(f"Invalid runner configuration: {exc}", file=sys.stderr)
+        return 1
     return exit_code
 
 

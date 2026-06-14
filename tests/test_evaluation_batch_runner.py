@@ -1,10 +1,13 @@
 import json
+import threading
 from pathlib import Path
+from time import sleep
 
 import pytest
 
 from tools.evaluation_batch_runner import (
     BatchManifest,
+    DEFAULT_MAX_WORKERS,
     build_worker_command,
     execute_manifest,
     load_manifest,
@@ -35,6 +38,47 @@ def test_load_manifest_rejects_runner_side_worker_planning_fields(tmp_path: Path
 
     with pytest.raises(Exception):
         load_manifest(spec_path)
+
+
+def test_load_manifest_defaults_to_bounded_max_workers(tmp_path: Path) -> None:
+    spec_path = _write_manifest(
+        tmp_path / "spec.json",
+        {
+            "schema_version": 1,
+            "jobs": [
+                {
+                    "worker_id": "w1",
+                    "job_name": "job-1",
+                    "base_args": ["--mode", "annual"],
+                }
+            ],
+        },
+    )
+
+    manifest = load_manifest(spec_path)
+
+    assert manifest.max_workers == DEFAULT_MAX_WORKERS
+
+
+def test_load_manifest_accepts_top_level_max_workers(tmp_path: Path) -> None:
+    spec_path = _write_manifest(
+        tmp_path / "spec.json",
+        {
+            "schema_version": 1,
+            "max_workers": 3,
+            "jobs": [
+                {
+                    "worker_id": "w1",
+                    "job_name": "job-1",
+                    "base_args": ["--mode", "annual"],
+                }
+            ],
+        },
+    )
+
+    manifest = load_manifest(spec_path)
+
+    assert manifest.max_workers == 3
 
 
 def test_build_worker_command_assembles_manifest_without_resplitting() -> None:
@@ -239,6 +283,57 @@ def test_execute_manifest_writes_summary_and_logs(tmp_path: Path, monkeypatch: p
     run_dir = Path(summary.run_dir)
     assert (run_dir / "summary.json").exists()
     assert all(Path(worker.log_file).exists() for worker in summary.workers)
+
+
+def test_execute_manifest_limits_concurrent_workers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec_path = _write_manifest(
+        tmp_path / "spec.json",
+        {
+            "schema_version": 1,
+            "max_workers": 2,
+            "jobs": [
+                {
+                    "worker_id": f"worker-{index}",
+                    "job_name": f"job-{index}",
+                    "base_args": ["--mode", "annual"],
+                }
+                for index in range(5)
+            ],
+        },
+    )
+    manifest = load_manifest(spec_path)
+    lock = threading.Lock()
+    active_workers = 0
+    max_seen_active_workers = 0
+
+    def _wait_callback() -> None:
+        nonlocal active_workers
+        sleep(0.05)
+        with lock:
+            active_workers -= 1
+
+    def _fake_popen(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal active_workers, max_seen_active_workers
+        with lock:
+            active_workers += 1
+            max_seen_active_workers = max(max_seen_active_workers, active_workers)
+        return _FakeProcess(["ok\n"], 0, wait_callback=_wait_callback)
+
+    monkeypatch.setattr("tools.evaluation_batch_runner.subprocess.Popen", _fake_popen)
+
+    summary, exit_code = execute_manifest(
+        manifest,
+        spec_path,
+        runs_root=tmp_path / "parallel_eval",
+    )
+
+    assert exit_code == 0
+    assert summary.max_workers == 2
+    assert len(summary.workers) == 5
+    assert max_seen_active_workers <= 2
 
 
 def test_execute_manifest_returns_nonzero_when_worker_fails(
