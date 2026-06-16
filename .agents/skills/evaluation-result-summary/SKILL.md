@@ -15,7 +15,7 @@ This skill is post-run analysis. It does not execute backtests, generate manifes
 The workflow is always:
 
 1. Resolve the exact completed output directories to analyze.
-2. Decide the summary mode: `merge-surface` or `compare-jobs`.
+2. Decide the summary mode: `merge-surface`, `compare-jobs`, or `mesh-deep-dive`.
 3. Read the completed result files needed for the requested summary.
 4. Generate a markdown summary file under `G:/My Drive/AI-Stock-Sync/summary/<YYYY-MM-DD>/`.
 5. Return the summary file path plus concise findings in chat.
@@ -76,6 +76,47 @@ Default report sections for `compare-jobs`:
 - Per-job champions
 - Optional champion exit mix
 - Provenance
+
+### `mesh-deep-dive`
+
+Use when a completed parameter mesh needs a second-pass diagnostic report after an initial surface summary already exists.
+
+Typical examples:
+
+- Confirming whether each mesh axis has a stable single-factor tendency.
+- Comparing full-period results against 2025/2026 or 2026-only conclusions.
+- Finding whether the current best region is a plateau, an edge, or an unresolved boundary.
+- Producing concrete next-mesh recommendations from completed annual evaluation outputs.
+
+Reference implementation:
+
+- `references/mesh_deep_dive_report.py`
+
+Default report sections for `mesh-deep-dive`:
+
+- Scope
+- Parameter grid check
+- Executive summary
+- Top overall combinations
+- Top 2026 combinations
+- Single-axis marginal tables with paired deltas
+- 2026 and 2025/2026 confirmation
+- Risk x ATR surface
+- Daily x total cap surface
+- Plateau / high-table analysis
+- Next mesh recommendation
+- Provenance
+
+Required metrics for `mesh-deep-dive`:
+
+- full-period mean return
+- 2026 return
+- 2025/2026 mean return
+- average max drawdown and worst-year max drawdown
+- average Sharpe
+- average win rate from `win_rate_pct`
+- 2026 win rate from `win_rate_pct`
+- trade count when it materially affects interpretation
 
 ## Input Resolution
 
@@ -149,6 +190,18 @@ From each completed output directory:
 - required: `*_prs_train_rank_*.csv`
 - optional: `*_exit_urgency_contribution_*.csv`
 - optional: `*_annual_final_review_*.md`
+
+For `mesh-deep-dive`, run the reference script instead of recreating ad hoc analysis code:
+
+```powershell
+uv run python .agents/skills/evaluation-result-summary/references/mesh_deep_dive_report.py `
+  --output-root "G:/My Drive/AI-Stock-Sync/strategy_evaluation/<YYYYMMDD>" `
+  --source-summary "G:/My Drive/AI-Stock-Sync/summary/<YYYY-MM-DD>/<existing-summary>.md" `
+  --output "G:/My Drive/AI-Stock-Sync/summary/<YYYY-MM-DD>/<timestamp>__mesh-deep-dive__<slug>.md" `
+  --title "<report title>"
+```
+
+`mesh-deep-dive` must treat raw CSV `win_rate_pct` as a first-class metric. Include both full-period `avg_win` and `win_2026` in top tables, single-axis marginal tables, risk/ATR surfaces, cap surfaces, and plateau tables.
 
 Parameter-source priority:
 
