@@ -1,6 +1,6 @@
 """
 Phase 1: Configuration Manager
-负责从 config.json 读取系统初始化参数
+负责从运行时选择的配置文件读取系统初始化参数
 """
 
 from dataclasses import dataclass
@@ -10,14 +10,14 @@ from typing import Any, Dict, List, Optional
 
 from src.config.capacity import CapacityRegimeConfig, parse_capacity_regime, parse_production_capacity_mode
 from src.config.stock_pools import StockPoolEntry, get_stock_pool_catalog_path, load_stock_pool_catalog, resolve_stock_pools
-from src.config.runtime import is_local_path, sample_path_from_pattern
+from src.config.runtime import get_config_file_path, is_local_path, sample_path_from_pattern
 from src.config.service import load_config
 from src.utils.atr_position_sizing import AtrPositionSizingConfig, parse_portfolio_sizing_config
 
 
 @dataclass
 class ProductionConfig:
-    """Production configuration from config.json"""
+    """Production configuration from the runtime-selected config file."""
 
     # Data paths
     monitor_list_file: str
@@ -63,10 +63,10 @@ class ProductionConfig:
 
 class ConfigManager:
     """
-    负责加载和验证 config.json 配置
+    负责加载和验证运行时选择的配置
 
     责任范围:
-    - 从 config.json 读取静态配置参数
+    - 从运行时选择的配置文件读取静态配置参数
     - 验证必要的字段存在
     - 提供默认值
     - 返回类型化的 ProductionConfig 对象
@@ -75,8 +75,6 @@ class ConfigManager:
     - 保存运行时状态（那是 ProductionState 的工作）
     - 管理实时 positions（那是 ProductionState 的工作）
     """
-
-    DEFAULT_CONFIG_FILE = "config.json"
 
     # 必需的字段
     REQUIRED_FIELDS = {
@@ -99,20 +97,23 @@ class ConfigManager:
         "buy_threshold": 65.0,
     }
 
-    def __init__(self, config_file: str = DEFAULT_CONFIG_FILE):
+    def __init__(self, config_file: str | Path | None = None):
         """
         Initialize ConfigManager
 
         Args:
-            config_file: Path to config.json
+            config_file: Optional explicit config path. When omitted, use the
+                runtime config priority: env override -> G-drive -> local.
 
         Raises:
             FileNotFoundError: If config file not found
             ValueError: If config is missing required fields
         """
-        self.config_file = Path(config_file)
+        self.config_file = (
+            Path(config_file) if config_file is not None else get_config_file_path()
+        )
         if not self.config_file.exists():
-            raise FileNotFoundError(f"Config file not found: {config_file}")
+            raise FileNotFoundError(f"Config file not found: {self.config_file}")
 
         self.raw_config = self._load_config()
         self._validate_config()

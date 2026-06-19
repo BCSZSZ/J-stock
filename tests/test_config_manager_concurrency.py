@@ -7,6 +7,63 @@ from pathlib import Path
 from src.production.config_manager import ConfigManager
 
 
+def test_default_config_manager_uses_runtime_config_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_file = tmp_path / "runtime_config.json"
+    monitor_list_file = tmp_path / "data" / "monitor_list.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "data": {
+                    "monitor_list_file": str(monitor_list_file),
+                    "data_dir": str(tmp_path / "data"),
+                },
+                "backtest": {
+                    "starting_capital_jpy": 5_000_000,
+                },
+                "portfolio": {
+                    "max_positions": 7,
+                    "max_position_pct": 0.18,
+                },
+                "default_strategies": {
+                    "entry": "RuntimeEntry",
+                    "exit": "RuntimeExit",
+                },
+                "evaluation": {
+                    "capacity_regime_mode": "off",
+                },
+                "production": {
+                    "capacity_regime_mode": "off",
+                },
+                "capacity_regime": {
+                    "version": "test",
+                    "equity_window_days": 20,
+                    "turnover_field": "Turnover_Median_20",
+                    "tiers": [
+                        {
+                            "name": "tier0",
+                            "max_equity_jpy": None,
+                            "max_positions": 7,
+                            "max_position_pct": 0.18,
+                            "participation_cap_pct": 0.02,
+                            "min_turnover_20_jpy": 500000000,
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("JSA_CONFIG_FILE", str(config_file))
+
+    manager = ConfigManager()
+
+    assert manager.config_file == config_file
+    assert manager.get_default_strategies() == ("RuntimeEntry", "RuntimeExit")
+
+
 def test_get_production_config_is_safe_under_concurrent_access(
     tmp_path: Path,
 ) -> None:

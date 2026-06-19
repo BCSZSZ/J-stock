@@ -10,12 +10,14 @@ Options:
 """
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
 
+from src.config.runtime import get_config_file_path
+from src.config.service import load_config
 from src.data.stock_data_manager import StockDataManager
+from src.utils.universe_loader import load_tickers_from_file
 
 # Setup logging
 logging.basicConfig(
@@ -25,33 +27,41 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_monitor_list(config_path: str = "config.json") -> list:
-    """Load monitor list from config."""
+def _resolve_monitor_file(config: dict[str, object]) -> Path:
+    production_cfg = config.get("production", {})
+    if not isinstance(production_cfg, dict):
+        production_cfg = {}
+    data_cfg = config.get("data", {})
+    if not isinstance(data_cfg, dict):
+        data_cfg = {}
+    monitor_path = (
+        production_cfg.get("monitor_list_file")
+        or data_cfg.get("monitor_list_file")
+        or "data/monitor_list.json"
+    )
+    return Path(str(monitor_path))
+
+
+def load_monitor_list(config_path: str | Path | None = None) -> list[str]:
+    """Load monitor list from the runtime-selected config."""
+    resolved_config_path = (
+        Path(config_path) if config_path is not None else get_config_file_path()
+    )
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
-            monitor_file = Path(config["data"]["monitor_list_file"])
+        config = load_config(str(resolved_config_path))
+        monitor_file = _resolve_monitor_file(config)
     except Exception as e:
-        logger.warning(f"Failed to load config: {e}, using default path")
+        logger.warning(
+            "Failed to load config %s: %s, using default path",
+            resolved_config_path,
+            e,
+        )
         monitor_file = Path("data/monitor_list.json")
 
     if not monitor_file.exists():
         raise FileNotFoundError(f"Monitor list not found: {monitor_file}")
 
-    # Load JSON format
-    if monitor_file.suffix == ".json":
-        with open(monitor_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return [stock["code"] for stock in data["tickers"]]
-
-    # Fallback to TXT format
-    stocks = []
-    with open(monitor_file, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                stocks.append(line)
-    return stocks
+    return load_tickers_from_file(monitor_file)
 
 
 def main():
