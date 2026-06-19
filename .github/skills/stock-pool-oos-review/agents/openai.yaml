@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Pool OOS Review"
+  short_description: "Review OOS stock-pool experiment results"
+  default_prompt: "Summarize out-of-sample stock-pool experiment results and leakage checks."

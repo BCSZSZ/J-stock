@@ -21,7 +21,11 @@ from src.backtest.entry_reference import (
     RAW_FILL_ENTRY_REFERENCE,
 )
 from src.config.runtime import is_local_path
-from src.utils.atr_position_sizing import parse_portfolio_sizing_config
+from src.utils.atr_position_sizing import (
+    DEFAULT_ATR_RISK_PER_TRADE_PCT,
+    DEFAULT_ATR_STOP_MULTIPLE,
+    parse_portfolio_sizing_config,
+)
 from src.utils.momentum_exhaustion import (
     DEFAULT_ANALYSIS_MOMENTUM_EXHAUSTION_MODE,
     resolve_momentum_exhaustion_config,
@@ -340,6 +344,18 @@ def _append_industry_filter_flags(args: list[str], req: EvaluationRunRequest) ->
         args.extend(["--industry-reference-file", req.industry_reference_file])
 
 
+def _append_held_position_buy_flags(
+    args: list[str],
+    req: EvaluationRunRequest,
+) -> None:
+    if req.allow_held_position_buys and req.command in {
+        "evaluate",
+        "pos-evaluation",
+        "walk-forward-evaluate",
+    }:
+        args.append("--allow-held-position-buys")
+
+
 def _resolve_atr_runtime_defaults(prod_cfg) -> dict[str, object]:
     raw_config = getattr(prod_cfg, "raw_config", {}) or {}
     default_filter = raw_config.get("production", {}).get("entry_filter")
@@ -347,8 +363,20 @@ def _resolve_atr_runtime_defaults(prod_cfg) -> dict[str, object]:
         default_filter = {}
     return {
         "position_sizing_mode": str(getattr(prod_cfg, "position_sizing_mode", "fixed") or "fixed"),
-        "risk_per_trade_pct": float(getattr(prod_cfg.atr_position_sizing, "risk_per_trade_pct", 0.0078)),
-        "atr_stop_multiple": float(getattr(prod_cfg.atr_position_sizing, "atr_stop_multiple", 1.0)),
+        "risk_per_trade_pct": float(
+            getattr(
+                prod_cfg.atr_position_sizing,
+                "risk_per_trade_pct",
+                DEFAULT_ATR_RISK_PER_TRADE_PCT,
+            )
+        ),
+        "atr_stop_multiple": float(
+            getattr(
+                prod_cfg.atr_position_sizing,
+                "atr_stop_multiple",
+                DEFAULT_ATR_STOP_MULTIPLE,
+            )
+        ),
         "atr_ratio_min": default_filter.get("atr_price_min"),
         "atr_ratio_max": default_filter.get("atr_price_max"),
     }
@@ -633,6 +661,7 @@ def _build_cli_args(
     _append_atr_runtime_flags(args, req)
     _append_momentum_exhaustion_flags(args, req)
     _append_industry_filter_flags(args, req)
+    _append_held_position_buy_flags(args, req)
 
     _append_multi_flag(
         args,

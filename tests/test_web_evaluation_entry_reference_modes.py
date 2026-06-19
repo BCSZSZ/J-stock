@@ -1,11 +1,38 @@
-from types import SimpleNamespace
-
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from web.api.routers import evaluation as evaluation_router
 from web.api.schemas import EvaluationRunRequest
+
+
+def _patch_production_defaults(monkeypatch) -> None:
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_production_config",
+        lambda: SimpleNamespace(
+            monitor_list_file="data/monitor_list.json",
+            strategy_groups=[
+                {
+                    "id": "group_main",
+                    "entry_strategy": "EntryStrategy",
+                    "exit_strategy": "ExitStrategy",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        evaluation_router,
+        "get_config_manager",
+        lambda: SimpleNamespace(raw_config={"production": {}}),
+    )
+
+
+def _test_report_root(name: str) -> Path:
+    root = Path("tmp/test_web_evaluation_entry_reference_modes") / name
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
 
 
 def test_resolve_requested_entry_reference_modes_dedupes_preserving_order() -> None:
@@ -159,6 +186,36 @@ def test_build_cli_args_includes_atr_runtime_flags(monkeypatch) -> None:
     assert args[args.index("--max-buy-per-industry-per-day") + 1] == "1"
     assert args[args.index("--max-total-positions-per-industry") + 1] == "3"
     assert args[args.index("--industry-reference-file") + 1] == "data/jpx_final_list.csv"
+
+
+def test_build_cli_args_includes_allow_held_position_buys_for_evaluation(
+    monkeypatch,
+) -> None:
+    _patch_production_defaults(monkeypatch)
+    req = EvaluationRunRequest(
+        command="evaluate",
+        mode="annual",
+        allow_held_position_buys=True,
+    )
+
+    args = evaluation_router._build_cli_args(req)
+
+    assert "--allow-held-position-buys" in args
+
+
+def test_build_cli_args_omits_allow_held_position_buys_for_replay(
+    monkeypatch,
+) -> None:
+    _patch_production_defaults(monkeypatch)
+    req = EvaluationRunRequest(
+        command="replay-evaluation",
+        report_file="report.md",
+        allow_held_position_buys=True,
+    )
+
+    args = evaluation_router._build_cli_args(req)
+
+    assert "--allow-held-position-buys" not in args
 
 
 def test_evaluation_request_allows_ignored_atr_sizing_fields_when_fixed() -> None:
@@ -351,8 +408,8 @@ def test_build_cli_args_includes_multiple_launch_dates_for_evaluate(monkeypatch)
     ]
 
 
-def test_get_report_context_extracts_entry_and_exit(tmp_path) -> None:
-    report_file = tmp_path / "2026-05-15.md"
+def test_get_report_context_extracts_entry_and_exit() -> None:
+    report_file = _test_report_root("overview") / "2026-05-15.md"
     report_file.write_text(
         "\n".join(
             [
@@ -377,8 +434,8 @@ def test_get_report_context_extracts_entry_and_exit(tmp_path) -> None:
     }
 
 
-def test_get_report_context_falls_back_to_pair_header(tmp_path) -> None:
-    report_file = tmp_path / "2026-05-15.md"
+def test_get_report_context_falls_back_to_pair_header() -> None:
+    report_file = _test_report_root("pair_header") / "2026-05-15.md"
     report_file.write_text(
         "\n".join(
             [
@@ -400,12 +457,12 @@ def test_get_report_context_falls_back_to_pair_header(tmp_path) -> None:
     }
 
 
-def test_get_report_context_falls_back_to_report_buy_and_config_exit(tmp_path) -> None:
-    report_root = tmp_path
+def test_get_report_context_falls_back_to_report_buy_and_config_exit() -> None:
+    report_root = _test_report_root("buy_config_exit")
     reports_dir = report_root / "reports"
     old_dir = report_root / "old"
-    reports_dir.mkdir()
-    old_dir.mkdir()
+    reports_dir.mkdir(exist_ok=True)
+    old_dir.mkdir(exist_ok=True)
 
     report_file = reports_dir / "2026-02-17.md"
     report_file.write_text(

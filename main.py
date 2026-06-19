@@ -164,6 +164,18 @@ def _add_industry_filter_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_held_position_buy_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--allow-held-position-buys",
+        action="store_true",
+        default=False,
+        help=(
+            "Allow tickers that are already held to generate BUY candidates and "
+            "top up existing positions after normal ranking/filter/allocation."
+        ),
+    )
+
+
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
@@ -278,6 +290,7 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     _add_ranking_strategy_arguments(parser)
     _add_momentum_exhaustion_arguments(parser)
     _add_industry_filter_arguments(parser)
+    _add_held_position_buy_arguments(parser)
 
 
 def _add_atr_runtime_override_arguments(parser: argparse.ArgumentParser) -> None:
@@ -410,6 +423,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
     _add_ranking_strategy_arguments(parser)
     _add_momentum_exhaustion_arguments(parser)
     _add_industry_filter_arguments(parser)
+    _add_held_position_buy_arguments(parser)
 
 
 def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
@@ -645,6 +659,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_atr_runtime_override_arguments(production_parser)
     _add_momentum_exhaustion_arguments(production_parser)
     _add_industry_filter_arguments(production_parser)
+    _add_held_position_buy_arguments(production_parser)
     production_overlay_mode = production_parser.add_mutually_exclusive_group()
     production_overlay_mode.add_argument(
         "--enable-overlay",

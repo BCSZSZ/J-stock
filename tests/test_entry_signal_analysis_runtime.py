@@ -49,8 +49,8 @@ def test_build_request_from_args_uses_production_defaults(monkeypatch) -> None:
         monitor_list_file="data/production_monitor_list.json",
         position_sizing_mode="atr",
         atr_position_sizing=SimpleNamespace(
-            risk_per_trade_pct=0.0078,
-            atr_stop_multiple=1.0,
+            risk_per_trade_pct=0.0108,
+            atr_stop_multiple=0.6,
         ),
     )
     config_mgr = SimpleNamespace(
@@ -71,8 +71,8 @@ def test_build_request_from_args_uses_production_defaults(monkeypatch) -> None:
     assert request.entry_strategies == ["ProdEntry"]
     assert request.tickers == ["7203"]
     assert request.ranking_strategy == "momentum"
-    assert request.risk_per_trade_pct == 0.0078
-    assert request.atr_stop_multiple == 1.0
+    assert request.risk_per_trade_pct == 0.0108
+    assert request.atr_stop_multiple == 0.6
     assert request.primary_horizons == [5]
 
 
@@ -85,8 +85,8 @@ def test_build_request_from_args_supports_multiple_primary_horizons(monkeypatch)
         monitor_list_file="data/production_monitor_list.json",
         position_sizing_mode="atr",
         atr_position_sizing=SimpleNamespace(
-            risk_per_trade_pct=0.0078,
-            atr_stop_multiple=1.0,
+            risk_per_trade_pct=0.0108,
+            atr_stop_multiple=0.6,
         ),
     )
     config_mgr = SimpleNamespace(
@@ -118,8 +118,8 @@ def test_build_request_from_args_normalizes_unbounded_atr_ratio_strings(monkeypa
         monitor_list_file="data/production_monitor_list.json",
         position_sizing_mode="atr",
         atr_position_sizing=SimpleNamespace(
-            risk_per_trade_pct=0.0078,
-            atr_stop_multiple=1.0,
+            risk_per_trade_pct=0.0108,
+            atr_stop_multiple=0.6,
         ),
     )
     config_mgr = SimpleNamespace(

@@ -209,8 +209,8 @@ export default function EntrySignalAnalysis() {
   const [entryFilterMode, setEntryFilterMode] = useState<"auto" | "off" | "atr" | "single" | "grid">("auto");
   const [entryFilterNames, setEntryFilterNames] = useState("");
   const [positionSizingMode, setPositionSizingMode] = useState<"fixed" | "atr">("atr");
-  const [riskPerTradePct, setRiskPerTradePct] = useState("0.0078");
-  const [atrStopMultiple, setAtrStopMultiple] = useState("1.0");
+  const [riskPerTradePct, setRiskPerTradePct] = useState("0.0108");
+  const [atrStopMultiple, setAtrStopMultiple] = useState("0.6");
   const [atrRatioMin, setAtrRatioMin] = useState("");
   const [atrRatioMax, setAtrRatioMax] = useState("");
   const [tailGuardEnabled, setTailGuardEnabled] = useState(true);
@@ -265,8 +265,8 @@ export default function EntrySignalAnalysis() {
     );
     setEntryFilterNames((defaults.entry_filter_names ?? []).join(","));
     setPositionSizingMode((defaults.position_sizing_mode as "fixed" | "atr") ?? "atr");
-    setRiskPerTradePct(String(defaults.risk_per_trade_pct ?? 0.0078));
-    setAtrStopMultiple(String(defaults.atr_stop_multiple ?? 1.0));
+    setRiskPerTradePct(String(defaults.risk_per_trade_pct ?? 0.0108));
+    setAtrStopMultiple(String(defaults.atr_stop_multiple ?? 0.6));
     setAtrRatioMin(defaults.atr_ratio_min == null ? "" : String(defaults.atr_ratio_min));
     setAtrRatioMax(defaults.atr_ratio_max == null ? "" : String(defaults.atr_ratio_max));
     setTailGuardEnabled(Boolean(defaults.tail_guard_enabled));

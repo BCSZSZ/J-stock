@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Pool Ticker Selector"
+  short_description: "Aggregate training signals into selected ticker pools"
+  default_prompt: "Build a robust ticker ranking and export selected stock-pool universe files."

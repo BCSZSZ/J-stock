@@ -2,6 +2,7 @@ import pytest
 
 from web.api.routers.production import (
     _append_atr_runtime_flags,
+    _append_held_position_buy_flags,
     _append_industry_filter_flags,
     _append_momentum_exhaustion_flags,
 )
@@ -137,3 +138,12 @@ def test_production_daily_cli_args_include_industry_filter_flags() -> None:
         "--industry-reference-file",
         "data/jpx_final_list.csv",
     ]
+
+
+def test_production_daily_cli_args_include_allow_held_position_buys_flag() -> None:
+    req = ProductionDailyRequest(allow_held_position_buys=True)
+    args: list[str] = []
+
+    _append_held_position_buy_flags(args, req)
+
+    assert args == ["--allow-held-position-buys"]

@@ -42,3 +42,20 @@ def test_momentum_exhaustion_cli_flags_are_available_on_runtime_commands() -> No
         assert args.max_buy_per_industry_per_day == 1
         assert args.max_total_positions_per_industry == 3
         assert args.industry_reference_file == "data/jpx_final_list.csv"
+
+
+def test_allow_held_position_buys_cli_flag_is_available_on_supported_commands() -> None:
+    parser = build_parser()
+    supported_commands = [
+        ["evaluate"],
+        ["pos-evaluation"],
+        ["walk-forward-evaluate", "--years", "2024", "2025"],
+        ["production", "--daily"],
+    ]
+
+    for command in supported_commands:
+        default_args = parser.parse_args(command)
+        enabled_args = parser.parse_args([*command, "--allow-held-position-buys"])
+
+        assert default_args.allow_held_position_buys is False
+        assert enabled_args.allow_held_position_buys is True

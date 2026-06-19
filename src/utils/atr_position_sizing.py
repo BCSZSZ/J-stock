@@ -7,11 +7,14 @@ from typing import Literal, Mapping
 
 PositionSizingMode = Literal["fixed", "atr"]
 
+DEFAULT_ATR_RISK_PER_TRADE_PCT = 0.0108
+DEFAULT_ATR_STOP_MULTIPLE = 0.6
+
 
 @dataclass(frozen=True)
 class AtrPositionSizingConfig:
-    risk_per_trade_pct: float = 0.006
-    atr_stop_multiple: float = 2.0
+    risk_per_trade_pct: float = DEFAULT_ATR_RISK_PER_TRADE_PCT
+    atr_stop_multiple: float = DEFAULT_ATR_STOP_MULTIPLE
     min_position_value_jpy: float = 0.0
 
 
@@ -89,8 +92,16 @@ def normalize_position_sizing_mode(value: object) -> PositionSizingMode:
 def parse_atr_position_sizing_config(raw_config: object) -> AtrPositionSizingConfig:
     data = raw_config if isinstance(raw_config, Mapping) else {}
     return AtrPositionSizingConfig(
-        risk_per_trade_pct=_read_float(data, "risk_per_trade_pct", 0.006),
-        atr_stop_multiple=_read_float(data, "atr_stop_multiple", 2.0),
+        risk_per_trade_pct=_read_float(
+            data,
+            "risk_per_trade_pct",
+            DEFAULT_ATR_RISK_PER_TRADE_PCT,
+        ),
+        atr_stop_multiple=_read_float(
+            data,
+            "atr_stop_multiple",
+            DEFAULT_ATR_STOP_MULTIPLE,
+        ),
         min_position_value_jpy=_read_float(data, "min_position_value_jpy", 0.0),
     )
 

@@ -33,6 +33,10 @@ from src.utils.industry_filter import (
     DEFAULT_INDUSTRY_FILTER_MODE,
     resolve_industry_filter_config,
 )
+from src.utils.atr_position_sizing import (
+    DEFAULT_ATR_RISK_PER_TRADE_PCT,
+    DEFAULT_ATR_STOP_MULTIPLE,
+)
 from web.api.dependencies import get_config_manager, get_production_config, get_project_root
 from web.api.schemas import (
     InputTradeRequest,
@@ -97,6 +101,11 @@ def _append_industry_filter_flags(args: list[str], req: ProductionDailyRequest) 
         args.extend(["--industry-reference-file", req.industry_reference_file])
 
 
+def _append_held_position_buy_flags(args: list[str], req: ProductionDailyRequest) -> None:
+    if req.allow_held_position_buys:
+        args.append("--allow-held-position-buys")
+
+
 def _resolve_production_atr_defaults(cfg) -> dict[str, object]:
     raw_config = getattr(cfg, "raw_config", {}) or {}
     entry_filter = raw_config.get("production", {}).get("entry_filter")
@@ -104,8 +113,20 @@ def _resolve_production_atr_defaults(cfg) -> dict[str, object]:
         entry_filter = {}
     return {
         "position_sizing_mode": str(getattr(cfg, "position_sizing_mode", "fixed") or "fixed"),
-        "risk_per_trade_pct": float(getattr(cfg.atr_position_sizing, "risk_per_trade_pct", 0.0078)),
-        "atr_stop_multiple": float(getattr(cfg.atr_position_sizing, "atr_stop_multiple", 1.0)),
+        "risk_per_trade_pct": float(
+            getattr(
+                cfg.atr_position_sizing,
+                "risk_per_trade_pct",
+                DEFAULT_ATR_RISK_PER_TRADE_PCT,
+            )
+        ),
+        "atr_stop_multiple": float(
+            getattr(
+                cfg.atr_position_sizing,
+                "atr_stop_multiple",
+                DEFAULT_ATR_STOP_MULTIPLE,
+            )
+        ),
         "atr_ratio_min": entry_filter.get("atr_price_min"),
         "atr_ratio_max": entry_filter.get("atr_price_max"),
     }
@@ -457,6 +478,7 @@ async def run_daily(req: ProductionDailyRequest) -> StreamingResponse:
     _append_atr_runtime_flags(args, req)
     _append_momentum_exhaustion_flags(args, req)
     _append_industry_filter_flags(args, req)
+    _append_held_position_buy_flags(args, req)
     return await _run_cli_streaming(args)
 
 

@@ -350,8 +350,8 @@ export default function Evaluation() {
     useState<CapacityRegimeMode>("off");
   const [positionSizingMode, setPositionSizingMode] =
     useState<PositionSizingMode>("fixed");
-  const [riskPerTradePct, setRiskPerTradePct] = useState("0.0078");
-  const [atrStopMultiple, setAtrStopMultiple] = useState("1.0");
+  const [riskPerTradePct, setRiskPerTradePct] = useState("0.0108");
+  const [atrStopMultiple, setAtrStopMultiple] = useState("0.6");
   const [atrRatioMin, setAtrRatioMin] = useState("");
   const [atrRatioMax, setAtrRatioMax] = useState("");
   const [momentumExhaustionMode, setMomentumExhaustionMode] =
@@ -588,8 +588,8 @@ export default function Evaluation() {
         ? defaults.position_sizing_mode
         : "fixed",
     );
-    setRiskPerTradePct(String(defaults.risk_per_trade_pct ?? 0.0078));
-    setAtrStopMultiple(String(defaults.atr_stop_multiple ?? 1.0));
+    setRiskPerTradePct(String(defaults.risk_per_trade_pct ?? 0.0108));
+    setAtrStopMultiple(String(defaults.atr_stop_multiple ?? 0.6));
     setAtrRatioMin(
       defaults.atr_ratio_min !== null && defaults.atr_ratio_min !== undefined
         ? String(defaults.atr_ratio_min)

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Pool OOS Evaluation Plan"
+  short_description: "Generate OOS evaluation manifests for pool controls"
+  default_prompt: "Build an approved evaluation manifest comparing selected, current, and full universes."

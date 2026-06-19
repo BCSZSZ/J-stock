@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Pool Split Planner"
+  short_description: "Design train/test windows for stock-pool selection"
+  default_prompt: "Create leakage-safe train/test splits and controls for a stock-pool experiment."

@@ -629,6 +629,7 @@ class StrategyEvaluator:
         capacity_regime_mode_override: Optional[str] = None,
         momentum_exhaustion_config: Optional[MomentumExhaustionConfig] = None,
         industry_filter_config: Optional[IndustryFilterConfig] = None,
+        allow_held_position_buys: bool = False,
         run_metadata: Optional[Dict[str, Any]] = None,
     ):
         """
@@ -679,6 +680,7 @@ class StrategyEvaluator:
         self.run_metadata = self._json_safe_data(run_metadata or {})
         self.momentum_exhaustion_config = momentum_exhaustion_config
         self.industry_filter_config = industry_filter_config
+        self.allow_held_position_buys = bool(allow_held_position_buys)
 
         self.overlay_manager = OverlayManager.from_config(
             self.overlay_config,
@@ -1326,6 +1328,7 @@ class StrategyEvaluator:
             tail_guard_config=self._get_production_tail_guard_config(),
             momentum_exhaustion_config=self.momentum_exhaustion_config,
             industry_filter_config=self.industry_filter_config,
+            allow_held_position_buys=self.allow_held_position_buys,
         )
         self._timing_counters["task_engine_init"] += time.perf_counter() - phase_started
 

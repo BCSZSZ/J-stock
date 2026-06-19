@@ -70,8 +70,8 @@ def test_momentum_exhaustion_resolves_rollout_defaults_from_production_config() 
         default_mode=DEFAULT_PRODUCTION_MOMENTUM_EXHAUSTION_MODE,
     )
 
-    assert evaluation_config.mode == "enforce"
-    assert production_config.mode == "shadow"
+    assert evaluation_config.mode == "off"
+    assert production_config.mode == "off"
     assert evaluation_config.max_score == DEFAULT_MOMENTUM_EXHAUSTION_MAX_SCORE
 
 
@@ -96,6 +96,6 @@ def test_analysis_resolution_uses_threshold_but_not_production_mode() -> None:
         default_mode=DEFAULT_PRODUCTION_MOMENTUM_EXHAUSTION_MODE,
     )
 
-    assert evaluation_config.mode == "enforce"
+    assert evaluation_config.mode == "off"
     assert evaluation_config.max_score == 3.5
     assert production_config.mode == "shadow"

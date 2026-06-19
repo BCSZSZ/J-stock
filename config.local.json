@@ -18,8 +18,8 @@
     "starting_capital_jpy": 9000000,
     "position_sizing_mode": "atr",
     "atr_position_sizing": {
-      "risk_per_trade_pct": 0.006,
-      "atr_stop_multiple": 2.0,
+      "risk_per_trade_pct": 0.0108,
+      "atr_stop_multiple": 0.6,
       "min_position_value_jpy": 0
     },
     "max_positions": 7,
@@ -145,8 +145,8 @@
     "max_position_pct": 0.18,
     "position_sizing_mode": "atr",
     "atr_position_sizing": {
-      "risk_per_trade_pct": 0.006,
-      "atr_stop_multiple": 2.0,
+      "risk_per_trade_pct": 0.0108,
+      "atr_stop_multiple": 0.6,
       "min_position_value_jpy": 0
     },
     "capacity_regime_mode": "off",
@@ -156,10 +156,17 @@
       "max_rank": 12
     },
     "momentum_exhaustion_filter": {
-      "enabled": true,
-      "mode": "shadow",
+      "enabled": false,
+      "mode": "off",
       "threshold_method": "absolute",
       "max_score": 4.0
+    },
+    "industry_filter": {
+      "enabled": true,
+      "mode": "enforce",
+      "max_buy_per_industry_per_day": 3,
+      "max_total_positions_per_industry": 4,
+      "reference_file": "data/jpx_final_list.csv"
     },
     "strategy_groups": [
       {

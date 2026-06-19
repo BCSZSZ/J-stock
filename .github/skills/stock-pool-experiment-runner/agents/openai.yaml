@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Pool Experiment Runner"
+  short_description: "Coordinate J-stock stock-pool OOS experiments"
+  default_prompt: "Plan and run a leakage-controlled stock-pool experiment."

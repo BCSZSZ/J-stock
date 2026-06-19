@@ -229,6 +229,7 @@ class EvaluationRunRequest(BaseModel):
     max_buy_per_industry_per_day: int | None = Field(default=None, ge=1)
     max_total_positions_per_industry: int | None = Field(default=None, ge=1)
     industry_reference_file: str | None = None
+    allow_held_position_buys: bool = False
     output_dir: str | None = None
     verbose: bool = False
 
@@ -341,6 +342,7 @@ class ProductionDailyRequest(BaseModel):
     max_buy_per_industry_per_day: int | None = Field(default=None, ge=1)
     max_total_positions_per_industry: int | None = Field(default=None, ge=1)
     industry_reference_file: str | None = None
+    allow_held_position_buys: bool = False
     confirm: bool = False
 
     @model_validator(mode="after")

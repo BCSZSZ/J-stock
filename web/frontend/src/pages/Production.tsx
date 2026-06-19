@@ -140,8 +140,8 @@ export default function Production() {
   const [selectedPoolId, setSelectedPoolId] = useState("");
   const [positionSizingMode, setPositionSizingMode] =
     useState<PositionSizingMode>("fixed");
-  const [riskPerTradePct, setRiskPerTradePct] = useState("0.0078");
-  const [atrStopMultiple, setAtrStopMultiple] = useState("1.0");
+  const [riskPerTradePct, setRiskPerTradePct] = useState("0.0108");
+  const [atrStopMultiple, setAtrStopMultiple] = useState("0.6");
   const [atrRatioMin, setAtrRatioMin] = useState("");
   const [atrRatioMax, setAtrRatioMax] = useState("");
   const [momentumExhaustionMode, setMomentumExhaustionMode] =
@@ -225,8 +225,8 @@ export default function Production() {
           ? options.data.defaults.position_sizing_mode
           : "fixed",
     );
-    setRiskPerTradePct(String(options.data.defaults.risk_per_trade_pct ?? 0.0078));
-    setAtrStopMultiple(String(options.data.defaults.atr_stop_multiple ?? 1.0));
+    setRiskPerTradePct(String(options.data.defaults.risk_per_trade_pct ?? 0.0108));
+    setAtrStopMultiple(String(options.data.defaults.atr_stop_multiple ?? 0.6));
     setAtrRatioMin(
       options.data.defaults.atr_ratio_min !== null &&
         options.data.defaults.atr_ratio_min !== undefined

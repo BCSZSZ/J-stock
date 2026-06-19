@@ -108,6 +108,7 @@ class PortfolioBacktestEngine:
         industry_filter_config: Optional[
             Union[IndustryFilterConfig, Dict[str, object]]
         ] = None,
+        allow_held_position_buys: bool = False,
     ):
         """
         Args:
@@ -175,6 +176,7 @@ class PortfolioBacktestEngine:
         self.tail_guard_config = dict(tail_guard_config or {})
         self.momentum_exhaustion_config = momentum_exhaustion_config
         self.industry_filter_config = industry_filter_config
+        self.allow_held_position_buys = bool(allow_held_position_buys)
 
         # 创建信号排序器: 优先使用实例，否则按旧字符串方式
         if signal_ranker is not None:
@@ -359,12 +361,14 @@ class PortfolioBacktestEngine:
                                 strategy_name="Overlay",
                             )
 
-            # ================================================================
-            # STEP 1: 执行待执行的卖出订单（释放资金）
-            # ================================================================
-            for ticker in list(pending_sell_signals.keys()):
+            def execute_pending_sell_order(ticker: str) -> bool:
+                sell_signal = pending_sell_signals.get(ticker)
+                if sell_signal is None:
+                    return False
+
+                executed = False
+                should_clear_pending = True
                 if ticker in portfolio.positions:
-                    sell_signal = pending_sell_signals[ticker]
                     position = portfolio.positions[ticker]
 
                     # 获取卖出价格（明天开盘价）
@@ -373,21 +377,18 @@ class PortfolioBacktestEngine:
                     )
 
                     if exit_price is None:
-                        continue
+                        return False
 
+                    signal_metadata = dict(sell_signal.metadata or {})
                     # 支持部分卖出：默认全卖
-                    planned_sell_qty = sell_signal.metadata.get(
-                        "planned_sell_quantity"
-                    )
+                    planned_sell_qty = signal_metadata.get("planned_sell_quantity")
                     if planned_sell_qty is not None:
                         qty_to_sell = min(
                             position.quantity,
                             max(0, int(planned_sell_qty)),
                         )
                     else:
-                        sell_pct = float(
-                            sell_signal.metadata.get("sell_percentage", 1.0)
-                        )
+                        sell_pct = float(signal_metadata.get("sell_percentage", 1.0))
                         qty_to_sell = self._calculate_sell_quantity(
                             ticker=ticker,
                             total_qty=position.quantity,
@@ -395,7 +396,7 @@ class PortfolioBacktestEngine:
                         )
 
                     if qty_to_sell <= 0:
-                        continue
+                        return False
 
                     position_quantity_before_exit = position.quantity
                     entry_price = position.entry_price
@@ -404,7 +405,7 @@ class PortfolioBacktestEngine:
                     entry_score = position.entry_signal.metadata.get("score", 0.0)
                     entry_confidence = position.entry_signal.confidence
                     entry_metadata = position.entry_signal.metadata
-                    exit_metadata = dict(sell_signal.metadata or {})
+                    exit_metadata = signal_metadata
                     try:
                         exit_sell_percentage = float(
                             exit_metadata.get("sell_percentage", 1.0)
@@ -422,6 +423,7 @@ class PortfolioBacktestEngine:
 
                     if proceeds is not None:
                         invalidate_portfolio_total_value()
+                        executed = True
                         position_quantity_after_exit = max(position.quantity, 0)
                         exit_is_full_exit = position_quantity_after_exit == 0
 
@@ -442,7 +444,7 @@ class PortfolioBacktestEngine:
                             exit_reason=sell_signal.reasons[0]
                             if sell_signal.reasons
                             else "Unknown",
-                            exit_urgency=sell_signal.metadata.get("trigger", "Unknown"),
+                            exit_urgency=signal_metadata.get("trigger", "Unknown"),
                             holding_days=holding_days,
                             shares=qty_to_sell,
                             return_pct=return_pct,
@@ -457,7 +459,7 @@ class PortfolioBacktestEngine:
                         trades.append(trade)
 
                         profit_icon = "↑" if return_pct > 0 else "↓"
-                        trigger = sell_signal.metadata.get("trigger", "N/A")
+                        trigger = signal_metadata.get("trigger", "N/A")
                         executed_sells.append(
                             f"{profit_icon} SELL {current_date.date()} {ticker}: {qty_to_sell:,} shares @ ¥{exit_price:,.2f} "
                             f"({return_pct:+.2f}%, ¥{return_jpy:+,.0f}) - {trigger}"
@@ -475,12 +477,28 @@ class PortfolioBacktestEngine:
                                 else "Unknown",
                                 "strategy_name": sell_signal.strategy_name,
                                 "signal_source": str(
-                                    (sell_signal.metadata or {}).get("source") or "generated_pending"
+                                    signal_metadata.get("source") or "generated_pending"
                                 ),
                             }
                         )
 
-                del pending_sell_signals[ticker]
+                if should_clear_pending:
+                    pending_sell_signals.pop(ticker, None)
+                return executed
+
+            delayed_conflict_sell_tickers = (
+                set(pending_buy_signals.keys()).intersection(pending_sell_signals.keys())
+                if self.allow_held_position_buys
+                else set()
+            )
+
+            # ================================================================
+            # STEP 1: 执行待执行的卖出订单（释放资金）
+            # ================================================================
+            for ticker in list(pending_sell_signals.keys()):
+                if ticker in delayed_conflict_sell_tickers:
+                    continue
+                execute_pending_sell_order(ticker)
 
             # ================================================================
             # STEP 2: 执行待执行的买入订单
@@ -565,6 +583,11 @@ class PortfolioBacktestEngine:
                     ) = self._apply_industry_filter_to_ranked_signals(
                         ranked_signals,
                         existing_position_tickers=list(portfolio.positions.keys()),
+                        add_on_tickers=[
+                            ticker
+                            for ticker, _signal, _priority in ranked_signals
+                            if portfolio.has_position(ticker)
+                        ],
                     )
 
                     if (
@@ -595,19 +618,27 @@ class PortfolioBacktestEngine:
 
                     # 依次尝试买入
                     for ticker, buy_signal, priority in ranked_signals:
-                        if max_new_positions is not None:
+                        is_add_on_buy = (
+                            self.allow_held_position_buys
+                            and portfolio.has_position(ticker)
+                        )
+                        if max_new_positions is not None and not is_add_on_buy:
                             if new_positions_opened >= max_new_positions:
+                                if self.allow_held_position_buys:
+                                    continue
                                 break
                         # 检查是否已达持仓上限
-                        if not portfolio.can_open_new_position():
+                        if not is_add_on_buy and not portfolio.can_open_new_position():
                             if show_signal_ranking:
                                 print(
                                     f"  ⚠️  已达最大持仓数 {portfolio.max_positions}，跳过剩余信号"
                                 )
+                            if self.allow_held_position_buys:
+                                continue
                             break
 
                         # 检查是否已持有
-                        if portfolio.has_position(ticker):
+                        if portfolio.has_position(ticker) and not is_add_on_buy:
                             continue
 
                         # 获取买入价格（默认明天开盘价，可配置为明天收盘价）
@@ -657,6 +688,39 @@ class PortfolioBacktestEngine:
                                 signal_buy_scale *= overlay_decision.position_scale
 
                             atr_order_value_cap = available_exposure
+                            add_on_order_value_cap = None
+                            if is_add_on_buy:
+                                existing_position = portfolio.positions[ticker]
+                                existing_price = current_prices.get(ticker, entry_price)
+                                existing_market_value = (
+                                    existing_position.quantity * existing_price
+                                )
+                                target_position_value = (
+                                    get_portfolio_total_value()
+                                    * portfolio.max_position_pct
+                                    * signal_buy_scale
+                                )
+                                add_on_order_value_cap = max(
+                                    0.0,
+                                    target_position_value - existing_market_value,
+                                )
+                                entry_metadata.update(
+                                    {
+                                        "is_add_on_buy": True,
+                                        "existing_position_value_jpy": existing_market_value,
+                                        "add_on_target_position_value_jpy": target_position_value,
+                                        "add_on_order_value_cap_jpy": add_on_order_value_cap,
+                                    }
+                                )
+                                if add_on_order_value_cap <= 0.0:
+                                    continue
+                                if atr_order_value_cap is None:
+                                    atr_order_value_cap = add_on_order_value_cap
+                                else:
+                                    atr_order_value_cap = min(
+                                        atr_order_value_cap,
+                                        add_on_order_value_cap,
+                                    )
                             market_data_for_capacity = None
                             if day_capacity_snapshot is not None:
                                 capacity_cap_applies = capacity_order_cap_applies_to_sizing(
@@ -691,6 +755,15 @@ class PortfolioBacktestEngine:
                                 if capacity_cap_applies:
                                     max_cash = capacity_decision.order_cap_jpy
                                     atr_order_value_cap = capacity_decision.order_cap_jpy
+                                    if add_on_order_value_cap is not None:
+                                        max_cash = min(
+                                            max_cash,
+                                            add_on_order_value_cap,
+                                        )
+                                        atr_order_value_cap = min(
+                                            atr_order_value_cap,
+                                            add_on_order_value_cap,
+                                        )
                                     if capacity_decision.is_trimmed:
                                         capacity_trimmed_buys += 1
                                     capacity_cash_drag_jpy += max(
@@ -719,10 +792,20 @@ class PortfolioBacktestEngine:
                                     }
                                 )
                             else:
-                                max_cash = portfolio.calculate_max_position_size(current_prices)
-                                if available_exposure is not None:
-                                    max_cash = min(max_cash, available_exposure)
-                                max_cash *= signal_buy_scale
+                                if add_on_order_value_cap is not None:
+                                    max_cash = min(
+                                        portfolio.cash,
+                                        add_on_order_value_cap,
+                                    )
+                                    if available_exposure is not None:
+                                        max_cash = min(max_cash, available_exposure)
+                                else:
+                                    max_cash = portfolio.calculate_max_position_size(
+                                        current_prices
+                                    )
+                                    if available_exposure is not None:
+                                        max_cash = min(max_cash, available_exposure)
+                                    max_cash *= signal_buy_scale
 
                             if self.position_sizing_config.mode == "atr":
                                 market_data_for_sizing = market_data_for_capacity or get_market_data_for_today(ticker)
@@ -770,11 +853,17 @@ class PortfolioBacktestEngine:
                             )
 
                             # 添加到组合
-                            if portfolio.add_position(position):
+                            added_position = (
+                                portfolio.increase_position(position)
+                                if is_add_on_buy
+                                else portfolio.add_position(position)
+                            )
+                            if added_position:
                                 invalidate_portfolio_total_value()
                                 score_display = buy_signal.metadata.get("score", "N/A")
+                                buy_label = "ADD BUY" if is_add_on_buy else "BUY"
                                 executed_buys.append(
-                                    f"[BUY] {current_date.date()} {ticker}: {shares:,} shares @ {entry_price:,.2f}JPY "
+                                    f"[{buy_label}] {current_date.date()} {ticker}: {shares:,} shares @ {entry_price:,.2f}JPY "
                                     f"(Score: {score_display})"
                                 )
                                 self.last_execution_events.append(
@@ -794,9 +883,16 @@ class PortfolioBacktestEngine:
                                         ),
                                     }
                                 )
-                                new_positions_opened += 1
+                                if is_add_on_buy:
+                                    pending_sell_signals.pop(ticker, None)
+                                else:
+                                    new_positions_opened += 1
 
                 pending_buy_signals.clear()
+
+            for ticker in list(delayed_conflict_sell_tickers):
+                if ticker in pending_sell_signals:
+                    execute_pending_sell_order(ticker)
 
             if show_signal_details and (executed_buys or executed_sells):
                 print(f"\n交易 ({current_date.date()}):")
@@ -830,8 +926,8 @@ class PortfolioBacktestEngine:
 
                 in_position = has_position(ticker)
 
-                # 生成入场信号（对所有未持仓的股票）
-                if not in_position:
+                # 生成入场信号（默认仅未持仓；开关开启时已持仓也可补仓）
+                if not in_position or self.allow_held_position_buys:
                     entry_signal = generate_signal_v2(
                         market_data=market_data, entry_strategy=entry_strategy
                     )
@@ -842,6 +938,8 @@ class PortfolioBacktestEngine:
                         signal_date = str(current_date.date())
                         entry_signal.metadata.setdefault("signal_date", signal_date)
                         entry_signal.metadata.setdefault("entry_signal_date", signal_date)
+                        if in_position:
+                            entry_signal.metadata["is_add_on_buy"] = True
                         buy_signals_today[ticker] = entry_signal
 
                 # 生成出场信号（仅对已持仓的股票）
@@ -1224,6 +1322,7 @@ class PortfolioBacktestEngine:
         ranked_signals: List[tuple[str, TradingSignal, float]],
         *,
         existing_position_tickers: Sequence[object] | None,
+        add_on_tickers: Sequence[object] | None = None,
     ) -> tuple[List[tuple[str, TradingSignal, float]], int, int]:
         if not ranked_signals or self.industry_filter_config is None:
             return ranked_signals, 0, 0
@@ -1232,6 +1331,7 @@ class PortfolioBacktestEngine:
             [ticker for ticker, _signal, _priority in ranked_signals],
             self.industry_filter_config,
             existing_position_tickers=existing_position_tickers,
+            add_on_tickers=add_on_tickers,
         )
         kept: List[tuple[str, TradingSignal, float]] = []
         filtered_count = 0

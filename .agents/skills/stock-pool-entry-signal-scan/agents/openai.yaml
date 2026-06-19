@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stock Pool Entry Signal Scan"
+  short_description: "Generate training-period entry signal datasets"
+  default_prompt: "Generate entry-signal-analysis commands for full-universe stock-pool training data."

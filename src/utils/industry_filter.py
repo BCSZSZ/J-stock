@@ -8,8 +8,8 @@ from typing import Mapping, Sequence
 
 
 DEFAULT_INDUSTRY_FILTER_MODE = "enforce"
-DEFAULT_MAX_BUY_PER_INDUSTRY_PER_DAY = 1
-DEFAULT_MAX_TOTAL_POSITIONS_PER_INDUSTRY = 3
+DEFAULT_MAX_BUY_PER_INDUSTRY_PER_DAY = 3
+DEFAULT_MAX_TOTAL_POSITIONS_PER_INDUSTRY = 4
 DEFAULT_INDUSTRY_REFERENCE_FILE = "data/jpx_final_list.csv"
 UNKNOWN_INDUSTRY = "Unknown"
 
@@ -245,6 +245,7 @@ def evaluate_industry_filter_for_ranked_tickers(
     config: IndustryFilterConfig | Mapping[str, object] | None,
     *,
     existing_position_tickers: Sequence[object] | None = None,
+    add_on_tickers: Sequence[object] | None = None,
 ) -> dict[str, IndustryFilterDecision]:
     normalized = (
         config
@@ -255,6 +256,11 @@ def evaluate_industry_filter_for_ranked_tickers(
         existing_position_tickers,
         normalized.reference_file,
     )
+    add_on_codes = {
+        code
+        for code in (normalize_ticker_code(ticker) for ticker in add_on_tickers or [])
+        if code
+    }
     seen_new_counts: dict[str, int] = {}
     accepted_new_counts: dict[str, int] = {}
     decisions: dict[str, IndustryFilterDecision] = {}
@@ -271,22 +277,26 @@ def evaluate_industry_filter_for_ranked_tickers(
         total_after_buy: int | None = None
         daily_blocked = False
         total_blocked = False
+        is_add_on_buy = ticker in add_on_codes
 
         if enforceable:
             industry_rank = seen_new_counts.get(industry, 0) + 1
             seen_new_counts[industry] = industry_rank
             existing_count = existing_counts.get(industry, 0)
             accepted_count = accepted_new_counts.get(industry, 0)
-            total_after_buy = existing_count + accepted_count + 1
+            total_after_buy = existing_count + accepted_count + (
+                0 if is_add_on_buy else 1
+            )
             daily_blocked = industry_rank > normalized.max_buy_per_industry_per_day
             total_blocked = (
-                existing_count + accepted_count
+                (not is_add_on_buy)
+                and existing_count + accepted_count
                 >= normalized.max_total_positions_per_industry
             )
 
         blocked = bool(daily_blocked or total_blocked)
         filtered = bool(blocked and normalized.mode == "enforce")
-        if enforceable and not filtered:
+        if enforceable and not filtered and not is_add_on_buy:
             accepted_new_counts[industry] = accepted_new_counts.get(industry, 0) + 1
 
         reason = None

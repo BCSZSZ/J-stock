@@ -283,6 +283,52 @@ def _resolve_tail_guard_rank_limit(
     )
 
 
+def _calculate_add_on_order_value_cap(
+    *,
+    total_portfolio_value: float,
+    max_position_pct: float,
+    signal_buy_scale: float,
+    existing_position_value: float,
+) -> float:
+    target_position_value = (
+        max(float(total_portfolio_value), 0.0)
+        * max(float(max_position_pct), 0.0)
+        * max(float(signal_buy_scale), 0.0)
+    )
+    return max(0.0, target_position_value - max(float(existing_position_value), 0.0))
+
+
+def _exclude_same_ticker_sell_proceeds_for_add_on(
+    *,
+    planning_cash: float,
+    planning_invested_value: float,
+    same_ticker_projected_sell_value: float,
+    is_add_on_buy: bool,
+) -> tuple[float, float]:
+    if not is_add_on_buy:
+        return float(planning_cash), float(planning_invested_value)
+
+    excluded_value = max(float(same_ticker_projected_sell_value), 0.0)
+    return (
+        max(0.0, float(planning_cash) - excluded_value),
+        max(0.0, float(planning_invested_value)) + excluded_value,
+    )
+
+
+def _restore_projected_position_count_for_cancelled_add_on_sell(
+    *,
+    projected_position_count: int,
+    projected_existing_tickers: set[str],
+    ticker: str,
+) -> tuple[int, set[str]]:
+    updated_existing = set(projected_existing_tickers)
+    if ticker in updated_existing:
+        return int(projected_position_count), updated_existing
+
+    updated_existing.add(ticker)
+    return int(projected_position_count) + 1, updated_existing
+
+
 def _resolve_momentum_exhaustion_for_daily(
     raw_config: Dict[str, object],
     args,
@@ -609,6 +655,24 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
     entry_filter = EntrySecondaryFilter.from_dict(entry_filter_raw)
 
     monitor_tickers = load_monitor_tickers(prod_cfg.monitor_list_file)
+    allow_held_position_buys = bool(
+        getattr(args, "allow_held_position_buys", False)
+    )
+    if allow_held_position_buys:
+        seen_monitor_tickers = set(monitor_tickers)
+        held_tickers_added = 0
+        for group in state.get_all_groups():
+            for position in group.positions:
+                if position.quantity <= 0 or position.ticker in seen_monitor_tickers:
+                    continue
+                monitor_tickers.append(position.ticker)
+                seen_monitor_tickers.add(position.ticker)
+                held_tickers_added += 1
+        if held_tickers_added:
+            print(
+                "  Held-position BUYs enabled: "
+                f"added {held_tickers_added} held tickers to signal evaluation"
+            )
 
     def _collect_latest_feature_dates(
         tickers: List[str],
@@ -980,13 +1044,18 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         available_cash: float,
         total_portfolio_value: float,
         max_position_pct: float,
+        existing_position_value: float = 0.0,
     ):
         lot_size = int(lot_sizes.get(ticker, default_lot_size) or default_lot_size)
         if current_price <= 0 or lot_size <= 0:
             return 0, 0.0, lot_size
 
         target_position_value = total_portfolio_value * max_position_pct
-        max_position_value = min(target_position_value, available_cash)
+        remaining_position_value = max(
+            0.0,
+            target_position_value - max(float(existing_position_value), 0.0),
+        )
+        max_position_value = min(remaining_position_value, available_cash)
         lot_value = current_price * lot_size
         lots = int(max_position_value // lot_value)
         qty = lots * lot_size
@@ -1246,11 +1315,15 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             )
         current_tickers = set(current_qty_by_ticker.keys())
         current_prices = _get_group_current_prices(group)
-        total_value = group.cash + sum(
-            pos.quantity * current_prices.get(pos.ticker, pos.entry_price)
-            for pos in group.positions
-            if pos.quantity > 0
-        )
+        current_position_values: Dict[str, float] = {}
+        for pos in group.positions:
+            if pos.quantity <= 0:
+                continue
+            current_position_values[pos.ticker] = current_position_values.get(
+                pos.ticker,
+                0.0,
+            ) + pos.quantity * current_prices.get(pos.ticker, pos.entry_price)
+        total_value = group.cash + sum(current_position_values.values())
         capacity_snapshot = None
         if capacity_mode != "off" and capacity_regime is not None:
             equity_history = _build_group_equity_history(group.id, signal_date)
@@ -1294,6 +1367,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         projected_sell_proceeds = 0.0
         projected_position_count = len(current_tickers)
         projected_sell_qty_by_ticker: Dict[str, int] = {}
+        projected_sell_value_by_ticker: Dict[str, float] = {}
         for position in group.positions:
             if position.quantity <= 0:
                 continue
@@ -1365,6 +1439,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     projected_sell_qty_by_ticker[ticker] = (
                         projected_sell_qty_by_ticker.get(ticker, 0)
                         + int(planned_sell_qty or 0)
+                    )
+                    projected_sell_value_by_ticker[ticker] = (
+                        projected_sell_value_by_ticker.get(ticker, 0.0)
+                        + float(planned_sell_value or 0.0)
                     )
                     projected_position_count -= 1
                     sell_count += 1
@@ -1592,6 +1670,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         projected_sell_qty_by_ticker.get(ticker, 0)
                         + int(planned_sell_qty or 0)
                     )
+                    projected_sell_value_by_ticker[ticker] = (
+                        projected_sell_value_by_ticker.get(ticker, 0.0)
+                        + float(planned_sell_value or 0.0)
+                    )
                     if (planned_sell_qty or 0) >= position.quantity:
                         projected_position_count -= 1
                     sell_count += 1
@@ -1618,7 +1700,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         )
 
         for ticker, eval_obj in comprehensive_evals.items():
-            if ticker in current_tickers:
+            is_add_on_buy = ticker in current_tickers
+            if is_add_on_buy and not allow_held_position_buys:
                 continue
             entry_eval_key = group_entry_eval_keys.get(group.id, entry_strategy_name)
             strategy_eval = eval_obj.evaluations.get(entry_eval_key)
@@ -1640,6 +1723,8 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             signal_metadata.setdefault("ATR", atr_value)
             if close_price > 0 and atr_value > 0:
                 signal_metadata.setdefault("ATR_Ratio", atr_value / close_price)
+            if is_add_on_buy:
+                signal_metadata["is_add_on_buy"] = True
 
             signal = Signal(
                 group_id=group.id,
@@ -1675,12 +1760,17 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             "group": group,
             "overlay_decision": overlay_decision,
             "projected_sell_proceeds": projected_sell_proceeds,
+            "projected_sell_tickers": set(projected_sell_qty_by_ticker.keys()),
+            "projected_sell_value_by_ticker": projected_sell_value_by_ticker,
             "projected_position_count": projected_position_count,
             "projected_existing_tickers": projected_existing_tickers,
+            "current_tickers": current_tickers,
+            "current_position_values": current_position_values,
             "invested_value": invested_value,
             "total_value": total_value,
             "max_new_positions": max_new_positions,
             "capacity_snapshot": capacity_snapshot,
+            "cancelled_sell_tickers": set(),
             "capacity_blocked_buys": 0,
             "capacity_liquidity_blocked_buys": 0,
             "capacity_trimmed_buys": 0,
@@ -1786,6 +1876,12 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
         max_new_positions = ctx["max_new_positions"]
         projected_position_count = ctx["projected_position_count"]
         capacity_snapshot = ctx.get("capacity_snapshot")
+        projected_existing_tickers = set(ctx.get("projected_existing_tickers", []))
+        projected_sell_tickers = set(ctx.get("projected_sell_tickers", set()))
+        projected_sell_value_by_ticker = ctx.get("projected_sell_value_by_ticker", {})
+        current_tickers = set(ctx.get("current_tickers", set()))
+        current_position_values = ctx.get("current_position_values", {})
+        cancelled_sell_tickers = ctx["cancelled_sell_tickers"]
 
         planning_cash = float(group.cash) + projected_sell_proceeds
         planning_invested_value = max(0.0, invested_value - projected_sell_proceeds)
@@ -1820,6 +1916,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             [sig.ticker for sig in industry_candidate_buys],
             industry_filter_config,
             existing_position_tickers=ctx.get("projected_existing_tickers", []),
+            add_on_tickers=[
+                sig.ticker
+                for sig in industry_candidate_buys
+                if bool((getattr(sig, "signal_metadata", {}) or {}).get("is_add_on_buy"))
+            ],
         )
         industry_filtered_count = 0
         industry_shadowed_count = 0
@@ -1840,6 +1941,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             )
 
         for sig in group_buys:
+            sig_metadata = dict(getattr(sig, "signal_metadata", {}) or {})
+            is_add_on_buy = bool(sig_metadata.get("is_add_on_buy")) and (
+                sig.ticker in current_tickers
+            )
             if capacity_snapshot is not None:
                 _apply_capacity_fields(sig, capacity_snapshot, None)
 
@@ -1859,7 +1964,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             if bool(getattr(sig, "industry_filter_filtered", False)):
                 continue
 
-            if position_sizing_mode != "atr":
+            if position_sizing_mode != "atr" and not is_add_on_buy:
                 execution_max_positions = int(prod_cfg.max_positions_per_group)
                 if capacity_snapshot is not None and capacity_mode == "enforce":
                     execution_max_positions = capacity_snapshot.max_positions
@@ -1877,7 +1982,11 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                         ctx["capacity_blocked_buys"] += 1
                     continue
 
-            if max_new_positions is not None and new_positions_opened >= max_new_positions:
+            if (
+                max_new_positions is not None
+                and not is_add_on_buy
+                and new_positions_opened >= max_new_positions
+            ):
                 sig.reason = f"{sig.reason}; Skipped: max new positions ({max_new_positions}) reached"
                 continue
 
@@ -1891,11 +2000,65 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             if overlay_decision and overlay_decision.position_scale is not None:
                 signal_buy_scale *= overlay_decision.position_scale
 
-            available_cash = planning_cash
+            has_same_ticker_projected_sell = (
+                is_add_on_buy and sig.ticker in projected_sell_tickers
+            )
+            same_ticker_projected_sell_value = (
+                float(projected_sell_value_by_ticker.get(sig.ticker, 0.0))
+                if has_same_ticker_projected_sell
+                else 0.0
+            )
+            signal_planning_cash, signal_planning_invested_value = (
+                _exclude_same_ticker_sell_proceeds_for_add_on(
+                    planning_cash=planning_cash,
+                    planning_invested_value=planning_invested_value,
+                    same_ticker_projected_sell_value=same_ticker_projected_sell_value,
+                    is_add_on_buy=is_add_on_buy,
+                )
+            )
+
+            existing_position_value = (
+                float(current_position_values.get(sig.ticker, 0.0))
+                if is_add_on_buy
+                else 0.0
+            )
+            add_on_order_value_cap = None
+            if is_add_on_buy:
+                base_max_position_pct = float(prod_cfg.max_position_pct)
+                if capacity_snapshot is not None and capacity_mode == "enforce":
+                    base_max_position_pct = float(capacity_snapshot.max_position_pct)
+                target_position_value = (
+                    max(float(total_value), 0.0)
+                    * max(base_max_position_pct, 0.0)
+                    * max(signal_buy_scale, 0.0)
+                )
+                add_on_order_value_cap = _calculate_add_on_order_value_cap(
+                    total_portfolio_value=float(total_value),
+                    max_position_pct=base_max_position_pct,
+                    signal_buy_scale=signal_buy_scale,
+                    existing_position_value=existing_position_value,
+                )
+                sig.signal_metadata = sig_metadata
+                sig.signal_metadata.update(
+                    {
+                        "is_add_on_buy": True,
+                        "existing_position_value_jpy": existing_position_value,
+                        "add_on_target_position_value_jpy": target_position_value,
+                        "add_on_order_value_cap_jpy": add_on_order_value_cap,
+                    }
+                )
+                if add_on_order_value_cap <= 0.0:
+                    sig.reason = f"{sig.reason}; SuggestedQty=0: no add-on headroom"
+                    continue
+
+            available_cash = signal_planning_cash
             available_exposure = None
             if overlay_decision and overlay_decision.target_exposure is not None:
                 max_invested = total_value * overlay_decision.target_exposure
-                available_exposure = max(0.0, max_invested - planning_invested_value)
+                available_exposure = max(
+                    0.0,
+                    max_invested - signal_planning_invested_value,
+                )
                 available_cash = min(available_cash, available_exposure)
 
             capacity_decision = None
@@ -1903,7 +2066,7 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 capacity_decision = compute_order_capacity(
                     tier=capacity_snapshot,
                     turnover_jpy=_extract_turnover_value(sig.ticker, signal_date),
-                    available_cash_jpy=planning_cash,
+                    available_cash_jpy=signal_planning_cash,
                     available_exposure_jpy=available_exposure,
                     signal_scale=signal_buy_scale,
                 )
@@ -1932,6 +2095,12 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                 atr_ratio = float(atr_ratio_raw) if atr_ratio_raw is not None else None
                 lot_size = int(lot_sizes.get(sig.ticker, default_lot_size) or default_lot_size)
                 order_value_cap = available_exposure
+                if add_on_order_value_cap is not None:
+                    order_value_cap = (
+                        add_on_order_value_cap
+                        if order_value_cap is None
+                        else min(order_value_cap, add_on_order_value_cap)
+                    )
                 if (
                     capacity_snapshot is not None
                     and capacity_mode == "enforce"
@@ -1939,12 +2108,17 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     and capacity_order_cap_applies_to_sizing(position_sizing_mode)
                 ):
                     order_value_cap = capacity_decision.order_cap_jpy
+                    if add_on_order_value_cap is not None:
+                        order_value_cap = min(
+                            order_value_cap,
+                            add_on_order_value_cap,
+                        )
                 sizing_result = calculate_atr_position_size(
                     AtrSizingInput(
                         ticker=sig.ticker,
                         planning_price=float(sig.current_price),
                         portfolio_value_jpy=total_value,
-                        available_cash_jpy=planning_cash,
+                        available_cash_jpy=signal_planning_cash,
                         atr_jpy=atr_value,
                         lot_size=lot_size,
                         config=prod_cfg.atr_position_sizing,
@@ -1965,7 +2139,10 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
             elif capacity_snapshot is not None and capacity_mode == "enforce" and capacity_decision is not None:
                 lot_size = int(lot_sizes.get(sig.ticker, default_lot_size) or default_lot_size)
                 lot_value = float(sig.current_price) * lot_size
-                lots = int(capacity_decision.order_cap_jpy // lot_value) if lot_value > 0 else 0
+                order_cap_jpy = capacity_decision.order_cap_jpy
+                if add_on_order_value_cap is not None:
+                    order_cap_jpy = min(order_cap_jpy, add_on_order_value_cap)
+                lots = int(order_cap_jpy // lot_value) if lot_value > 0 else 0
                 suggested_qty = lots * lot_size
                 required_capital = suggested_qty * float(sig.current_price)
             else:
@@ -1979,12 +2156,35 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     available_cash=available_cash,
                     total_portfolio_value=total_value,
                     max_position_pct=max_position_pct,
+                    existing_position_value=existing_position_value,
                 )
 
             if suggested_qty > 0:
                 sig.suggested_qty = suggested_qty
                 sig.required_capital = required_capital
-                new_positions_opened += 1
+                if is_add_on_buy:
+                    if has_same_ticker_projected_sell:
+                        cancelled_sell_tickers.add(sig.ticker)
+                        (
+                            projected_position_count,
+                            projected_existing_tickers,
+                        ) = _restore_projected_position_count_for_cancelled_add_on_sell(
+                            projected_position_count=projected_position_count,
+                            projected_existing_tickers=projected_existing_tickers,
+                            ticker=sig.ticker,
+                        )
+                        if same_ticker_projected_sell_value > 0.0:
+                            planning_cash = max(
+                                0.0,
+                                planning_cash - same_ticker_projected_sell_value,
+                            )
+                            planning_invested_value += same_ticker_projected_sell_value
+                    sig.signal_metadata = dict(sig.signal_metadata or {})
+                    sig.signal_metadata["cancelled_same_ticker_sell"] = (
+                        has_same_ticker_projected_sell
+                    )
+                else:
+                    new_positions_opened += 1
                 planning_cash = max(0.0, planning_cash - required_capital)
                 planning_invested_value += required_capital
             else:
@@ -2038,6 +2238,26 @@ def run_daily_workflow(args, prod_cfg, state) -> None:
                     "trimmed_buys": int(ctx.get("capacity_trimmed_buys", 0)),
                 }
             )
+
+    cancelled_sell_keys = {
+        (group_id, ticker)
+        for group_id, ctx in _group_buy_contexts.items()
+        for ticker in ctx.get("cancelled_sell_tickers", set())
+    }
+    if cancelled_sell_keys:
+        before_count = len(all_signals)
+        all_signals = [
+            signal
+            for signal in all_signals
+            if not (
+                signal.signal_type == "SELL"
+                and (signal.group_id, signal.ticker) in cancelled_sell_keys
+            )
+        ]
+        print(
+            "  Held-position BUY conflict resolution: "
+            f"cancelled {before_count - len(all_signals)} same-ticker SELL signals"
+        )
 
     if _sync_position_risk_state_to_base(effective_state, state):
         state.save()

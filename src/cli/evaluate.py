@@ -204,6 +204,7 @@ _OUTPUT_SIGNATURE_FIELDS = (
     "max_buy_per_industry_per_day",
     "max_total_positions_per_industry",
     "industry_reference_file",
+    "allow_held_position_buys",
     "universe_file",
 )
 
@@ -415,6 +416,9 @@ def _build_run_metadata(
             None,
         ),
         "industry_reference_file": getattr(args, "industry_reference_file", None),
+        "allow_held_position_buys": bool(
+            getattr(args, "allow_held_position_buys", False)
+        ),
         "universe_name": str(context_metadata.get("universe_name") or ""),
         "universe_file": str(
             context_metadata.get("universe_file") or monitor_list_file or ""
@@ -980,6 +984,9 @@ def _build_evaluator(
                 industry_filter_config.max_total_positions_per_industry
             ),
             "industry_reference_file": industry_filter_config.reference_file,
+            "allow_held_position_buys": bool(
+                getattr(args, "allow_held_position_buys", False)
+            ),
         }
     )
 
@@ -1004,6 +1011,9 @@ def _build_evaluator(
         ranking_strategies=ranking_strategies,
         momentum_exhaustion_config=momentum_exhaustion_config,
         industry_filter_config=industry_filter_config,
+        allow_held_position_buys=bool(
+            getattr(args, "allow_held_position_buys", False)
+        ),
         run_metadata=effective_run_metadata,
     )
 

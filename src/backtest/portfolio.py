@@ -205,6 +205,59 @@ class Portfolio:
         self.positions[position.ticker] = position
         return True
 
+    def increase_position(self, position: Position) -> bool:
+        """
+        Add shares to an existing holding using a merged single-position model.
+
+        Execution and signal entry prices are updated by traded value weighted
+        average. The original entry date is retained because this portfolio model
+        tracks one position per ticker.
+        """
+        existing = self.positions.get(position.ticker)
+        if existing is None:
+            return False
+
+        if position.quantity <= 0:
+            return False
+
+        cost = position.quantity * position.entry_price
+        if cost > self.cash:
+            return False
+
+        old_quantity = int(existing.quantity)
+        new_quantity = int(position.quantity)
+        combined_quantity = old_quantity + new_quantity
+        if combined_quantity <= 0:
+            return False
+
+        old_execution_value = old_quantity * existing.entry_price
+        new_execution_value = new_quantity * position.entry_price
+        old_signal_price = existing.signal_entry_price or existing.entry_price
+        new_signal_price = position.signal_entry_price or position.entry_price
+        old_signal_value = old_quantity * old_signal_price
+        new_signal_value = new_quantity * new_signal_price
+
+        self.cash -= cost
+        existing.quantity = combined_quantity
+        existing.entry_price = (
+            old_execution_value + new_execution_value
+        ) / combined_quantity
+        existing.signal_entry_price = (
+            old_signal_value + new_signal_value
+        ) / combined_quantity
+        existing.peak_price_since_entry = max(
+            existing.peak_price_since_entry or 0.0,
+            new_signal_price,
+        )
+        existing.entry_signal = position.entry_signal
+        if position.entry_atr is not None:
+            existing.entry_atr = position.entry_atr
+        if position.initial_stop_price is not None:
+            existing.initial_stop_price = position.initial_stop_price
+        if position.locked_stop_price is not None:
+            existing.locked_stop_price = position.locked_stop_price
+        return True
+
     def restore_position(self, position: Position) -> bool:
         """Restore an existing holding without consuming cash again."""
         if self.has_position(position.ticker):
