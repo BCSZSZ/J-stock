@@ -1,6 +1,6 @@
 ---
 name: evaluation-result-summary
-description: 'Use when: aggregating completed J-stock evaluation output directories into markdown summary reports under G:/My Drive/AI-Stock-Sync/summary without rerunning backtests.'
+description: 'Use when: aggregating completed J-stock evaluation output directories into markdown summary reports under G:/My Drive/AI-Stock-Sync/summary without rerunning backtests, including global MDD-Win re-scoring via tools/score_evaluation_outputs.py when worker-local PRS is not comparable.'
 argument-hint: 'Provide completed output directories, a runner summary.json path, or a run_dir, plus whether you want merge-surface or compare-jobs output'
 ---
 
@@ -15,10 +15,11 @@ This skill is post-run analysis. It does not execute backtests, generate manifes
 The workflow is always:
 
 1. Resolve the exact completed output directories to analyze.
-2. Decide the summary mode: `merge-surface`, `compare-jobs`, or `mesh-deep-dive`.
-3. Read the completed result files needed for the requested summary.
-4. Generate a markdown summary file under `G:/My Drive/AI-Stock-Sync/summary/<YYYY-MM-DD>/`.
-5. Return the summary file path plus concise findings in chat.
+2. Run the global scoring pass when the inputs are a batch/mesh/comparison with more than one completed output directory.
+3. Decide the summary mode: `merge-surface`, `compare-jobs`, or `mesh-deep-dive`.
+4. Read the completed result files needed for the requested summary.
+5. Generate a markdown summary file under `G:/My Drive/AI-Stock-Sync/summary/<YYYY-MM-DD>/`.
+6. Return the summary file path plus concise findings in chat.
 
 ## Hard Rules
 
@@ -27,6 +28,8 @@ The workflow is always:
 - Do not modify source code, configs, or git state while using this skill unless the user separately asks for code changes.
 - Prefer explicit completed output directories, a local runner `summary.json`, or a local runner `run_dir` over broad filesystem discovery.
 - If the current session already established the exact completed run, you may reuse that run's `summary.json` or output directories without re-discovering them.
+- For batch/mesh/comparison summaries with multiple completed output directories, run `tools/score_evaluation_outputs.py` before drawing ranking conclusions.
+- Do not use worker-local `prs_train_score` for cross-worker ranking when each worker/job has only one candidate, because local normalization collapses to neutral scores.
 - Prefer explicit per-output parameter sidecars when present: `*_parameters_*.json` from `evaluate` and `evaluation_batch_job_*.json` from the batch runner.
 - Read `*_raw_*.csv` and `*_prs_train_rank_*.csv` as the primary tabular sources.
 - Read `*_exit_urgency_contribution_*.csv` only when the user asks for exit-mix diagnostics or when reporting the champion exit mix materially helps the conclusion.
@@ -129,6 +132,40 @@ Accept one of these inputs, in descending priority:
 
 If a runner `summary.json` is provided, prefer it as the source of truth for completed worker output directories.
 
+## Global Scoring Pass
+
+Run this pass for any completed batch with multiple output directories, especially one-worker-per-cell meshes. It is read-only with respect to evaluation outputs and writes only score artifacts under `tmp/evaluation_global_scores` unless the user specifies another output directory.
+
+Preferred command when a runner summary exists:
+
+```powershell
+uv run python tools/score_evaluation_outputs.py `
+  --summary-json <local-run-dir>/summary.json `
+  --out-dir tmp/evaluation_global_scores `
+  --output-prefix <short-run-slug> `
+  --top-n 20
+```
+
+When only explicit output directories are available, pass each one:
+
+```powershell
+uv run python tools/score_evaluation_outputs.py `
+  --output-dir "<completed-output-dir-1>" `
+  --output-dir "<completed-output-dir-2>" `
+  --out-dir tmp/evaluation_global_scores `
+  --output-prefix <short-run-slug> `
+  --top-n 20
+```
+
+Use `--recent-period <period>` only when the user explicitly wants a fixed recent period; otherwise let the tool use each candidate's latest period.
+
+Global scoring formula:
+
+- `mdd_win_score = 0.25*mean_return + 0.15*recent_return + 0.25*avg_mdd_inverse + 0.10*worst_mdd_inverse + 0.20*mean_win_rate + 0.05*mean_sharpe`
+- Normalization is robust 10%-90% winsorized normalization across the merged candidate pool.
+
+Use the generated CSV/Markdown from `tools/score_evaluation_outputs.py` as the default ranking source for cross-output conclusions. Include both paths in the final markdown Provenance section when available.
+
 ## Summary Artifact Rules
 
 Default summary root:
@@ -219,9 +256,10 @@ Primary join rule:
 
 Default ranking rule:
 
-1. `prs_train_score` descending
-2. `return_pct` descending
-3. `max_drawdown_pct` ascending
+1. Cross-output global `mdd_win_score` descending when a batch has multiple completed output directories.
+2. Worker-local `prs_train_score` descending only when the score was computed over multiple candidates in the same output.
+3. `return_pct` descending.
+4. `max_drawdown_pct` ascending.
 
 ## Default Report Shapes
 

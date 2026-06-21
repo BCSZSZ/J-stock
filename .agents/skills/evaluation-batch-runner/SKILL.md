@@ -48,6 +48,8 @@ Use this skill as the scheduler, not as a replacement for the lower-level contra
 
 - Use `evaluation-result-summary` only after completed output directories or a runner `summary.json` exist.
 - Prefer the executor's local `summary.json` or exact completed output directories as the source of truth.
+- For multi-output batches, require the summary phase to run `tools/score_evaluation_outputs.py` through `evaluation-result-summary` before interpreting cross-worker rankings.
+- Treat the generated global `mdd_win_score` as the default cross-worker ranking source; do not rank one-candidate workers by their local `prs_train_score`.
 - Generate the markdown summary artifact under `G:/My Drive/AI-Stock-Sync/summary`.
 - Do not rerun evaluations, generate manifests, or change source code during this phase.
 
@@ -77,5 +79,5 @@ Do not include generator instructions, summary instructions, or expected perform
 - State the active phase and why it is active.
 - After Generation, return the manifest approval request from `evaluation-batch-generator`.
 - After Execution, return the executor's run status and output locations.
-- After Summary, return the markdown summary path plus concise findings.
+- After Summary, return the markdown summary path, any global score CSV/Markdown paths, plus concise findings.
 - `evaluation-progress-monitor` is legacy-only. New flows keep monitoring inside `evaluation-batch-executor`.

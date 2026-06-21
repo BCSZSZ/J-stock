@@ -29,6 +29,7 @@ After approval, hand execution to `evaluation-batch-executor`.
 - The generator owns worker planning. Split jobs by worker here, not in the runner or executor.
 - Emit worker-ready jobs. Each manifest `jobs[]` entry must already be one executable worker unit.
 - Do not rely on executor or runner to reinterpret `num_workers`, repartition `exit_strategies`, or rebalance jobs.
+- For multi-year `evaluate` parameter sweeps with many exit strategy variants, prefer slim workers: one `exit_strategy` per manifest job. Do not bundle dozens of exits into one long-running worker. Bundling up to 3-5 exits is allowed only when the user explicitly asks for coarser jobs or when a small pilot proves the worker completes quickly and writes output safely.
 - Include top-level `max_workers` when the requested batch is large or concurrency matters. The runner default is 8 concurrent workers when omitted.
 - When presenting a manifest for approval, always report both worker-job counts and underlying evaluation-point counts. If one worker bundles multiple `exit_strategies`, state that explicitly instead of conflating job count with point count.
 - Overlay defaults to OFF. Never add `--enable-overlay` unless the user explicitly asks for overlay. If the user wants overlay comparison, show both off/on commands and get approval.
@@ -80,8 +81,8 @@ WebUI vs direct CLI mismatch notes:
 Current workspace concrete defaults to remember:
 
 - Production entry default: `MACDHist2BarAnySignMaxBiasPct10Entry` from `G:/My Drive/AI-Stock-Sync/config.json` `production.strategy_groups[id=group_main].entry_strategy`.
-- Production exit default: `MVXWL_N3_R0p75_T1p0_D10_B20p0_I1p2` from `G:/My Drive/AI-Stock-Sync/config.json` `production.strategy_groups[id=group_main].exit_strategy`.
-- Evaluation fallback entry default in the same file is different: `evaluation.default_entry_strategies = MACDPreCross3BarEntry`. Do not silently substitute this when the task clearly intends production/WebUI defaults.
+- Production exit default: `MVXWL_N3_R0p54_T1p0_D14_B20p0_I0p55` from `G:/My Drive/AI-Stock-Sync/config.json` `production.strategy_groups[id=group_main].exit_strategy`.
+- Evaluation fallback defaults in the same file are aligned to the production champion entry/exit and default position profile `atr_risk1p08_s0p60`.
 - Effective WebUI ranking strategy default is currently `momentum`.
 - Output root default is `G:/My Drive/AI-Stock-Sync/strategy_evaluation` and the CLI auto-creates the dated detailed run directory beneath it.
 
@@ -120,6 +121,7 @@ Rules:
 - `max_workers` is optional but recommended for large manifests. Use `8` unless the user asks for a different concurrency limit.
 - Assume the runner will be launched with the current working directory at the J-stock repo root. Do not hardcode a checkout path such as `c:\code\J-stock` into manifest jobs.
 - Each `jobs[]` entry must already be the final worker slice. The runner will execute jobs exactly as provided.
+- For annual 5-year sweeps, a good default worker unit is one complete strategy combination across the selected years, so each worker finishes and writes CSVs after about `len(years)` evaluation points instead of accumulating hundreds of points in memory. This preserves partial results if the machine restarts and avoids single-process slowdown from retained trades, run snapshots, and daily snapshots.
 - The runtime job shape should include at least `worker_id`, `job_name`, `command`, `base_args`, and `exit_strategies`.
 - `base_args` must contain only `main.py <command>` arguments. Do not include wrapper tokens such as `uv`, `run`, `python`, `main.py`, or `--exit-strategies` there.
 - For `walk-forward-evaluate`, include `--years` if the user provided years; ask if missing and needed.

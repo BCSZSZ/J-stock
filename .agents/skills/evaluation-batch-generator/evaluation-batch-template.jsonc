@@ -58,8 +58,8 @@
 
         // ATR sizing runtime overrides
         "--position-sizing-mode", "atr",       // Pin when the study is about ATR sizing
-        "--risk-per-trade-pct", "0.0073",      // Used only when position-sizing-mode=atr
-        "--atr-stop-multiple", "1.2",          // S in the research framing
+        "--risk-per-trade-pct", "0.0108",      // Used only when position-sizing-mode=atr
+        "--atr-stop-multiple", "0.6",          // Current production/evaluation champion
 
         // pos-evaluation only
         // "--position-file", "evaluation-position.json",
@@ -74,15 +74,15 @@
       ],
 
       // Exact strategy slice for this worker. Runner must not split this again.
+      // For multi-year parameter sweeps, prefer one exit strategy per worker.
+      // Do not bundle dozens of exits into one long-running worker unless explicitly approved.
       "exit_strategies": [
-        "MVXWL_N3_R0p45_T1p0_D10_B20p0_I1p2",
-        "MVXWL_N3_R0p6_T1p0_D10_B20p0_I1p2",
-        "MVXWL_N3_R0p75_T1p0_D10_B20p0_I1p2"
+        "MVXWL_N3_R0p54_T1p0_D14_B20p0_I0p55"
       ],
 
       // Optional informational fields. Runner can surface them in summary but should not reinterpret them.
       "expected_output_root": "G:/My Drive/AI-Stock-Sync/strategy_evaluation",
-      "notes": "Keep I=S=1.2 fixed; this worker covers the low-R slice at T=1.0"
+      "notes": "Current champion entry/exit and ATR sizing defaults; this slim worker covers one exit strategy across the requested years."
     }
   ]
 }

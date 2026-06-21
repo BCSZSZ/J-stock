@@ -2579,26 +2579,35 @@ def _format_walk_forward_prs_view(final_prs_df: pd.DataFrame) -> pd.DataFrame:
         [
             "entry_filter",
             "final_prs_score",
+            "mean_oos_return",
+            "recent_oos_return",
+            "mean_oos_win_rate",
+            "avg_oos_mdd",
+            "worst_oos_mdd",
+            "mean_oos_sharpe",
             "mean_oos_alpha",
             "oos_positive_alpha_ratio",
-            "avg_oos_mdd",
-            "worst_oos_year_alpha",
-            "train_oos_alpha_gap",
-            "recent_oos_health",
         ]
     )
     prs_view = final_prs_df[prs_cols].head(10).copy()
-    for col in ["mean_oos_alpha", "avg_oos_mdd", "worst_oos_year_alpha"]:
+    for col in [
+        "mean_oos_return",
+        "recent_oos_return",
+        "mean_oos_win_rate",
+        "avg_oos_mdd",
+        "worst_oos_mdd",
+        "mean_oos_alpha",
+    ]:
         prs_view[col] = pd.to_numeric(prs_view[col], errors="coerce").map(
             lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
         )
     prs_view["final_prs_score"] = pd.to_numeric(
         prs_view["final_prs_score"], errors="coerce"
     ).map(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
-    prs_view["train_oos_alpha_gap"] = pd.to_numeric(
-        prs_view["train_oos_alpha_gap"], errors="coerce"
-    ).map(lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A")
-    for col in ["oos_positive_alpha_ratio", "recent_oos_health"]:
+    prs_view["mean_oos_sharpe"] = pd.to_numeric(
+        prs_view["mean_oos_sharpe"], errors="coerce"
+    ).map(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
+    for col in ["oos_positive_alpha_ratio"]:
         prs_view[col] = pd.to_numeric(prs_view[col], errors="coerce").map(
             lambda v: f"{v:.1%}" if pd.notna(v) else "N/A"
         )
@@ -2913,40 +2922,10 @@ def _write_walk_forward_report(
         ])
 
     if not final_prs_df.empty:
-        prs_cols = ["rank", "entry_strategy", "exit_strategy"]
-        if "ranking_strategy" in final_prs_df.columns:
-            prs_cols.append("ranking_strategy")
-        prs_cols.extend(
-            [
-                "entry_filter",
-                "final_prs_score",
-                "mean_oos_alpha",
-                "oos_positive_alpha_ratio",
-                "avg_oos_mdd",
-                "worst_oos_year_alpha",
-                "train_oos_alpha_gap",
-                "recent_oos_health",
-            ]
-        )
-        prs_view = final_prs_df[prs_cols].head(10).copy()
-        for col in ["mean_oos_alpha", "avg_oos_mdd", "worst_oos_year_alpha"]:
-            prs_view[col] = pd.to_numeric(prs_view[col], errors="coerce").map(
-                lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A"
-            )
-        prs_view["final_prs_score"] = pd.to_numeric(
-            prs_view["final_prs_score"], errors="coerce"
-        ).map(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
-        prs_view["train_oos_alpha_gap"] = pd.to_numeric(
-            prs_view["train_oos_alpha_gap"], errors="coerce"
-        ).map(lambda v: f"{v:.2f}%" if pd.notna(v) else "N/A")
-        for col in ["oos_positive_alpha_ratio", "recent_oos_health"]:
-            prs_view[col] = pd.to_numeric(prs_view[col], errors="coerce").map(
-                lambda v: f"{v:.1%}" if pd.notna(v) else "N/A"
-            )
         lines.extend([
             "## Final PRS Ranking",
             "",
-            _df_to_markdown(prs_view),
+            _df_to_markdown(_format_walk_forward_prs_view(final_prs_df)),
             "",
         ])
 
