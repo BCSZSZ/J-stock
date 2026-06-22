@@ -6,6 +6,7 @@ export interface SignalRecord {
   confidence?: number | null;
   score?: number | null;
   current_price?: number | null;
+  close_price?: number | null;
   planned_price?: number | null;
   suggested_qty?: number | null;
   required_capital?: number | null;
@@ -55,9 +56,31 @@ export interface SignalRecord {
   is_executable_sell?: boolean | null;
   rank?: number | null;
   rank_score?: number | null;
+  signal_metadata?: Record<string, unknown> | null;
+  tp_preview_available?: boolean | null;
+  tp_reference_price?: number | null;
+  tp_assumed_entry_price?: number | null;
+  tp_r_multiple?: number | null;
+  tp_r_value?: number | null;
+  tp1_price?: number | null;
+  tp2_price?: number | null;
+  tp1_gain_pct?: number | null;
+  tp2_gain_pct?: number | null;
+  tp_exit_strategy?: string | null;
 }
 
 export type SignalTone = "sell" | "buy" | "filteredBuy" | "neutral";
+
+export interface TakeProfitPreview {
+  referencePrice: number;
+  assumedEntryPrice: number;
+  percentBasisPrice: number;
+  usesActualEntryPrice: boolean;
+  tp1Price: number;
+  tp2Price: number;
+  tp1GainPct: number;
+  tp2GainPct: number;
+}
 
 const BUY_BLOCK_REASON_MARKERS = [
   "Filtered:",
@@ -100,6 +123,58 @@ function formatOrderPrice(value: number | null): string | null {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+export function formatTakeProfitPrice(value: number): string {
+  return `¥${value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+export function formatTakeProfitPct(value: number): string {
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+}
+
+export function getTakeProfitPreview(
+  signal: SignalRecord,
+  actualEntryPrice?: number | null,
+): TakeProfitPreview | null {
+  if (!isBuySignal(signal)) {
+    return null;
+  }
+
+  const referencePrice = asNumber(signal.tp_reference_price);
+  const assumedEntryPrice = asNumber(signal.tp_assumed_entry_price);
+  const tp1Price = asNumber(signal.tp1_price);
+  const tp2Price = asNumber(signal.tp2_price);
+
+  if (
+    referencePrice === null ||
+    assumedEntryPrice === null ||
+    tp1Price === null ||
+    tp2Price === null
+  ) {
+    return null;
+  }
+
+  const parsedActualEntryPrice = asNumber(actualEntryPrice);
+  const percentBasisPrice =
+    parsedActualEntryPrice !== null && parsedActualEntryPrice > 0
+      ? parsedActualEntryPrice
+      : assumedEntryPrice;
+
+  return {
+    referencePrice,
+    assumedEntryPrice,
+    percentBasisPrice,
+    usesActualEntryPrice: parsedActualEntryPrice !== null && parsedActualEntryPrice > 0,
+    tp1Price,
+    tp2Price,
+    tp1GainPct: ((tp1Price - percentBasisPrice) / percentBasisPrice) * 100,
+    tp2GainPct: ((tp2Price - percentBasisPrice) / percentBasisPrice) * 100,
+  };
 }
 
 export function isBuySignal(signal: SignalRecord): boolean {

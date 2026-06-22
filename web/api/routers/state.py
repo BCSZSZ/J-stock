@@ -9,11 +9,14 @@ from datetime import date, timedelta
 import json
 from pathlib import Path
 from statistics import median
+from typing import Mapping
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
+from src.analysis.strategies.exit.multiview_grid_exit import parse_mvx_exit_strategy_name
 from src.production import CashHistoryManager, ProductionState, StrategyGroupState, TradeHistoryManager
+from src.production.config_manager import ProductionConfig
 from src.production.state_manager import CashFlowEvent, Trade, build_state_as_of
 from web.api.dependencies import get_production_config, get_project_root
 from web.api.schemas import PortfolioHistoryPoint, PortfolioHistoryResponse, PortfolioResponse, SectorAttributionOut, SectorAttributionResponse, SectorPeriodOut, SectorPeriodPnLOut, StrategyGroupOut, PositionOut
@@ -66,6 +69,153 @@ def _load_json(path: str | Path) -> object:
     if not p.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {p.name}")
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _positive_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(parsed) or parsed <= 0:
+        return None
+    return parsed
+
+
+def _first_positive_float(*values: object) -> float | None:
+    for value in values:
+        parsed = _positive_float(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _mapping_or_empty(value: object) -> Mapping[str, object]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _production_exit_strategy_by_group(
+    cfg: ProductionConfig,
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for group in cfg.strategy_groups or []:
+        if not isinstance(group, dict):
+            continue
+        group_id = str(group.get("id") or "").strip()
+        exit_strategy = str(group.get("exit_strategy") or "").strip()
+        if group_id and exit_strategy:
+            result[group_id] = exit_strategy
+    return result
+
+
+def _signal_exit_strategy_name(
+    signal: Mapping[str, object],
+    cfg: ProductionConfig,
+    exit_strategy_by_group: Mapping[str, str],
+) -> str | None:
+    metadata = _mapping_or_empty(signal.get("signal_metadata"))
+    bound_exit_strategy = str(metadata.get("bound_exit_strategy_name") or "").strip()
+    if bound_exit_strategy:
+        return bound_exit_strategy
+
+    group_id = str(signal.get("group_id") or "").strip()
+    group_exit_strategy = exit_strategy_by_group.get(group_id)
+    if group_exit_strategy:
+        return group_exit_strategy
+
+    default_exit_strategy = str(getattr(cfg, "default_exit_strategy", "") or "").strip()
+    return default_exit_strategy or None
+
+
+def _mvx_r_multiple(strategy_name: str | None) -> float | None:
+    if not strategy_name:
+        return None
+    spec = parse_mvx_exit_strategy_name(strategy_name)
+    if spec is None:
+        return None
+    return _positive_float(spec.r)
+
+
+def _enrich_signal_take_profit_preview(
+    signal: Mapping[str, object],
+    cfg: ProductionConfig,
+    exit_strategy_by_group: Mapping[str, str],
+) -> dict[str, object]:
+    enriched = dict(signal)
+    if str(signal.get("signal_type") or "").upper() != "BUY":
+        return enriched
+
+    metadata = _mapping_or_empty(signal.get("signal_metadata"))
+    reference_price = _first_positive_float(
+        signal.get("close_price"),
+        metadata.get("close"),
+        signal.get("current_price"),
+        signal.get("planned_price"),
+    )
+    assumed_entry_price = _first_positive_float(
+        signal.get("planned_price"),
+        signal.get("current_price"),
+        reference_price,
+    )
+    atr_value = _first_positive_float(
+        metadata.get("ATR"),
+        metadata.get("atr_jpy"),
+    )
+    atr_ratio = _first_positive_float(
+        metadata.get("ATR_Ratio"),
+        metadata.get("atr_ratio"),
+    )
+    if atr_value is None and reference_price is not None and atr_ratio is not None:
+        atr_value = reference_price * atr_ratio
+
+    exit_strategy = _signal_exit_strategy_name(signal, cfg, exit_strategy_by_group)
+    r_multiple = _mvx_r_multiple(exit_strategy)
+    if (
+        reference_price is None
+        or assumed_entry_price is None
+        or atr_value is None
+        or r_multiple is None
+    ):
+        enriched["tp_preview_available"] = False
+        return enriched
+
+    r_value = r_multiple * atr_value
+    tp1_price = reference_price + r_value
+    tp2_price = reference_price + (2.0 * r_value)
+    enriched.update(
+        {
+            "tp_preview_available": True,
+            "tp_reference_price": reference_price,
+            "tp_assumed_entry_price": assumed_entry_price,
+            "tp_r_multiple": r_multiple,
+            "tp_r_value": r_value,
+            "tp1_price": tp1_price,
+            "tp2_price": tp2_price,
+            "tp1_gain_pct": ((tp1_price - assumed_entry_price) / assumed_entry_price)
+            * 100.0,
+            "tp2_gain_pct": ((tp2_price - assumed_entry_price) / assumed_entry_price)
+            * 100.0,
+            "tp_exit_strategy": exit_strategy,
+        }
+    )
+    return enriched
+
+
+def _enrich_signals_take_profit_preview(
+    signals: object,
+    cfg: ProductionConfig,
+) -> list[dict[str, object]]:
+    if not isinstance(signals, list):
+        return []
+    exit_strategy_by_group = _production_exit_strategy_by_group(cfg)
+    return [
+        _enrich_signal_take_profit_preview(signal, cfg, exit_strategy_by_group)
+        for signal in signals
+        if isinstance(signal, dict)
+    ]
 
 
 def _load_state_data(path: str | Path) -> dict[str, object]:
@@ -1258,8 +1408,10 @@ def get_signals(date: str) -> list[dict[str, object]]:
     path = cfg.signal_file_pattern.replace("{date}", date)
     data = _load_json(path)
     if isinstance(data, list):
-        return data
-    return data.get("signals", [])
+        return _enrich_signals_take_profit_preview(data, cfg)
+    if isinstance(data, dict):
+        return _enrich_signals_take_profit_preview(data.get("signals", []), cfg)
+    return []
 
 
 @router.get("/reports")

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import {
   compareSignalsForDisplay,
+  formatTakeProfitPct,
+  formatTakeProfitPrice,
   getBuyBlockReason,
   getDisplayAction,
   getExecutionLabel,
@@ -15,14 +17,39 @@ import {
   getSellPlanLabel,
   getSellTriggerLabel,
   getSignalTone,
+  getTakeProfitPreview,
 } from "../signalSemantics";
 import { useTickerNames } from "../hooks/useTickerNames";
+
+const ACTUAL_BUY_PRICES_STORAGE_KEY = "jstock.signals.actualBuyPrices";
+
+type ActualBuyPricesByDate = Record<string, Record<string, string>>;
+
+function loadActualBuyPrices(): ActualBuyPricesByDate {
+  try {
+    const raw = window.localStorage.getItem(ACTUAL_BUY_PRICES_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function parsePositiveInput(value: string): number | null {
+  const parsed = Number(value.replace(/,/g, "").trim());
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 export default function Signals() {
   const dates = useQuery({ queryKey: ["signal-dates"], queryFn: api.signalDates });
   const [searchParams] = useSearchParams();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewReport, setViewReport] = useState(searchParams.get("view") === "report");
+  const [actualBuyPricesByDate, setActualBuyPricesByDate] =
+    useState<ActualBuyPricesByDate>(loadActualBuyPrices);
   const names = useTickerNames();
 
   const signals = useQuery({
@@ -43,7 +70,41 @@ export default function Signals() {
     setSelectedDate(dates.data[0]);
   }
 
+  useEffect(() => {
+    window.localStorage.setItem(
+      ACTUAL_BUY_PRICES_STORAGE_KEY,
+      JSON.stringify(actualBuyPricesByDate),
+    );
+  }, [actualBuyPricesByDate]);
+
+  function handleActualBuyPriceChange(ticker: string, value: string) {
+    if (!effectiveDate) {
+      return;
+    }
+
+    setActualBuyPricesByDate((previous) => {
+      const nextForDate = { ...(previous[effectiveDate] ?? {}) };
+      const trimmedValue = value.trim();
+      if (trimmedValue) {
+        nextForDate[ticker] = trimmedValue;
+      } else {
+        delete nextForDate[ticker];
+      }
+
+      const next = { ...previous };
+      if (Object.keys(nextForDate).length > 0) {
+        next[effectiveDate] = nextForDate;
+      } else {
+        delete next[effectiveDate];
+      }
+      return next;
+    });
+  }
+
   const sortedSignals = [...(signals.data ?? [])].sort(compareSignalsForDisplay);
+  const actualBuyPrices = effectiveDate
+    ? actualBuyPricesByDate[effectiveDate] ?? {}
+    : {};
 
   return (
     <div className="space-y-6">
@@ -76,7 +137,7 @@ export default function Signals() {
       {/* Signals table */}
       {!viewReport && signals.data && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1600px] text-sm">
+          <table className="w-full min-w-[1780px] text-sm">
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-800">
                 <th className="py-2 px-3">Ticker</th>
@@ -86,6 +147,7 @@ export default function Signals() {
                 <th className="py-2 px-3">Execution</th>
                 <th className="py-2 px-3">Momentum</th>
                 <th className="py-2 px-3">Price</th>
+                <th className="py-2 px-3 w-[250px]">TP Plan</th>
                 <th className="py-2 px-3">Intent</th>
                 <th className="py-2 px-3">Order</th>
                 <th className="py-2 px-3 w-[180px]">Plan</th>
@@ -96,6 +158,7 @@ export default function Signals() {
             </thead>
             <tbody>
               {sortedSignals.map((s, i) => {
+                const ticker = String(s.ticker ?? "");
                 const signalTone = getSignalTone(s);
                 const momentumRank = getMomentumRank(s);
                 const momentumValue = getMomentumValue(s);
@@ -104,6 +167,11 @@ export default function Signals() {
                 const sellPlan = getSellPlanLabel(s);
                 const sellTrigger = getSellTriggerLabel(s);
                 const sellPeriod = getSellPeriodLabel(s);
+                const actualBuyPriceText = actualBuyPrices[ticker] ?? "";
+                const takeProfit = getTakeProfitPreview(
+                  s,
+                  parsePositiveInput(actualBuyPriceText),
+                );
                 const reasonText =
                   signalTone === "filteredBuy"
                     ? getBuyBlockReason(s)
@@ -128,7 +196,7 @@ export default function Signals() {
                       to={`/stock/${s.ticker}`}
                       className="text-blue-400 hover:underline"
                     >
-                      {(s.ticker as string) ?? ""}
+                      {ticker}
                     </Link>
                   </td>
                   <td className="py-2 px-3 text-gray-400 text-xs">
@@ -176,6 +244,48 @@ export default function Signals() {
                     {s.current_price
                       ? `¥${Number(s.current_price).toLocaleString()}`
                       : "—"}
+                  </td>
+                  <td className="py-2 px-3 text-xs">
+                    {takeProfit ? (
+                      <div className="space-y-0.5 leading-snug">
+                        <div className="grid grid-cols-[34px_1fr_62px] gap-x-2">
+                          <span className="font-medium text-emerald-300">TP2</span>
+                          <span className="text-right text-gray-100">
+                            {formatTakeProfitPrice(takeProfit.tp2Price)}
+                          </span>
+                          <span className="text-right font-medium text-emerald-300">
+                            {formatTakeProfitPct(takeProfit.tp2GainPct)}
+                          </span>
+                          <span className="text-gray-500">TP1</span>
+                          <span className="text-right text-gray-400">
+                            {formatTakeProfitPrice(takeProfit.tp1Price)}
+                          </span>
+                          <span className="text-right text-gray-400">
+                            {formatTakeProfitPct(takeProfit.tp1GainPct)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-2 text-gray-500">
+                          <span>Ref {formatTakeProfitPrice(takeProfit.referencePrice)}</span>
+                          <span>
+                            {takeProfit.usesActualEntryPrice ? "Actual" : "Buy"}{" "}
+                            {formatTakeProfitPrice(takeProfit.percentBasisPrice)}
+                          </span>
+                        </div>
+                        <input
+                          aria-label={`Actual buy price for ${ticker}`}
+                          className="mt-1 w-full rounded border border-gray-700 bg-gray-950 px-2 py-1 text-right text-xs text-gray-200 placeholder:text-gray-600 focus:border-emerald-500 focus:outline-none"
+                          inputMode="decimal"
+                          placeholder={`Actual buy ${takeProfit.assumedEntryPrice.toFixed(2)}`}
+                          type="text"
+                          value={actualBuyPriceText}
+                          onChange={(event) =>
+                            handleActualBuyPriceChange(ticker, event.target.value)
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-gray-600">-</span>
+                    )}
                   </td>
                   <td className="py-2 px-3 text-xs text-gray-300">
                     {sellIntent}
