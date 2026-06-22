@@ -194,7 +194,7 @@
       {
         "id": "group_main",
         "name": "main",
-        "initial_capital": 9000000,
+        "initial_capital": 8000000,
         "entry_strategy": "MACDCrossoverStrategy",
         "exit_strategy": "MVX_N9_R3p4_T1p6_D18_B20p0"
       }

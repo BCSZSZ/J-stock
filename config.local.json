@@ -172,7 +172,7 @@
       {
         "id": "group_main",
         "name": "主策略组",
-        "initial_capital": 9000000,
+        "initial_capital": 8000000,
         "entry_strategy": "MACDHist2BarAnySignEntry",
         "exit_strategy": "MVXW_N3_R0p54_T1p3_D10_B20p0"
       }
