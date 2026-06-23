@@ -386,3 +386,85 @@ class InputTradeImportPreviewResponse(BaseModel):
     csv_only_count: int = 0
     signal_only_count: int = 0
     mode: str
+
+
+class IntradayOrderPlanCandidateRow(BaseModel):
+    ticker: str
+    group_id: str
+    ticker_name: str | None = None
+    industry_name: str | None = None
+    suggested_quantity: int
+    default_entry_price: float | None = None
+    reference_price: float | None = None
+    atr_value: float | None = None
+    exit_strategy: str | None = None
+    r_multiple: float | None = None
+    trail_multiple: float | None = None
+    initial_stop_multiple: float | None = None
+    rank: int | None = None
+    rank_score: float | None = None
+    reason: str | None = None
+    can_plan: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
+class IntradayOrderPlanCandidatesResponse(BaseModel):
+    signal_date: str
+    trade_date: str
+    rows: list[IntradayOrderPlanCandidateRow]
+
+
+class IntradayOrderPlanFill(BaseModel):
+    ticker: str
+    group_id: str = ""
+    quantity: int = Field(gt=0)
+    actual_entry_price: float = Field(gt=0)
+    high_since_buy: float | None = Field(default=None, gt=0)
+
+
+class IntradayOrderPlanPreviewRequest(BaseModel):
+    signal_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    fills: list[IntradayOrderPlanFill]
+
+
+class IntradayOrderPlanRow(BaseModel):
+    ticker: str
+    group_id: str
+    ticker_name: str | None = None
+    industry_name: str | None = None
+    quantity: int
+    suggested_quantity: int
+    actual_entry_price: float
+    high_since_buy: float
+    reference_price: float | None = None
+    atr_value: float
+    exit_strategy: str
+    r_multiple: float
+    r_value: float
+    tp1_r: float
+    tp2_r: float
+    tp1_price: float
+    tp2_price: float
+    tp1_gain_pct: float
+    tp2_gain_pct: float
+    tp1_quantity: int
+    remaining_quantity_after_tp1: int
+    initial_stop_multiple: float
+    trail_multiple: float
+    initial_stop_price: float
+    dynamic_trail_price: float
+    stop_trigger_price: float
+    stop_limit_price: float
+    stop_loss_pct: float
+    stop_limit_loss_pct: float
+    stop_limit_atr_buffer: float
+    stop_limit_buffer_jpy: float
+    formula_basis: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class IntradayOrderPlanPreviewResponse(BaseModel):
+    signal_date: str
+    trade_date: str
+    rows: list[IntradayOrderPlanRow]
+    warnings: list[str] = Field(default_factory=list)

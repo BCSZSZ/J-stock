@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: "/portfolio", label: "Portfolio", icon: "💼" },
   { to: "/trade-history", label: "Trade History", icon: "📋" },
   { to: "/signals", label: "Signals", icon: "📡" },
+  { to: "/intraday-order-plan", label: "Intraday Plan", icon: "🎯" },
   { to: "/stocks", label: "Stocks", icon: "🔍" },
   { to: "/strategies", label: "Strategies", icon: "🧠" },
 ];

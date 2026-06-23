@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 import json
 import subprocess
 import sys
@@ -18,6 +19,11 @@ from pydantic import BaseModel
 
 from src.aws.jpx_holidays import next_trading_day as _next_trading_day
 from src.cli.production_utils import find_latest_signal_file, parse_signal_payload
+from src.production.intraday_order_plan import (
+    IntradayOrderPlanInput,
+    build_intraday_order_plan,
+    build_intraday_signal_candidate,
+)
 from src.production.input_trade_import_preview import (
     AggregatedSbiTrade,
     aggregate_sbi_trades_for_date,
@@ -39,6 +45,11 @@ from src.utils.atr_position_sizing import (
 )
 from web.api.dependencies import get_config_manager, get_production_config, get_project_root
 from web.api.schemas import (
+    IntradayOrderPlanCandidatesResponse,
+    IntradayOrderPlanCandidateRow,
+    IntradayOrderPlanPreviewRequest,
+    IntradayOrderPlanPreviewResponse,
+    IntradayOrderPlanRow,
     InputTradeRequest,
     InputTradeImportPreviewResponse,
     InputTradeImportPreviewRow,
@@ -245,6 +256,50 @@ def _append_warning_once(warnings: list[str], message: str) -> None:
         warnings.append(message)
 
 
+def _production_exit_strategy_by_group(cfg) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for group in cfg.strategy_groups or []:
+        if not isinstance(group, dict):
+            continue
+        group_id = str(group.get("id") or "").strip()
+        exit_strategy = str(group.get("exit_strategy") or "").strip()
+        if group_id and exit_strategy:
+            result[group_id] = exit_strategy
+    return result
+
+
+def _load_intraday_order_plan_candidates(
+    signal_date: str,
+) -> tuple[str, list[IntradayOrderPlanCandidateRow]]:
+    cfg = get_production_config()
+    signal_path = find_latest_signal_file(cfg.signal_file_pattern, signal_date)
+    if not signal_path:
+        raise HTTPException(status_code=404, detail=f"Signal file not found for {signal_date}")
+
+    signals = parse_signal_payload(signal_path)
+    exit_strategy_by_group = _production_exit_strategy_by_group(cfg)
+    default_exit_strategy = str(getattr(cfg, "default_exit_strategy", "") or "").strip()
+    rows: list[IntradayOrderPlanCandidateRow] = []
+    for signal in signals:
+        candidate = build_intraday_signal_candidate(
+            signal,
+            exit_strategy_by_group=exit_strategy_by_group,
+            default_exit_strategy=default_exit_strategy,
+        )
+        if candidate is None:
+            continue
+        rows.append(
+            IntradayOrderPlanCandidateRow(
+                **{
+                    **asdict(candidate),
+                    "warnings": list(candidate.warnings),
+                }
+            )
+        )
+    rows.sort(key=lambda row: (row.rank if row.rank is not None else 999_999, row.ticker))
+    return _resolve_import_trade_date(signal_date), rows
+
+
 @router.get("/input-trades/import-preview", response_model=InputTradeImportPreviewResponse)
 def input_trade_import_preview(
     signal_date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
@@ -366,6 +421,99 @@ def input_trade_import_preview(
         csv_only_count=csv_only_count,
         signal_only_count=signal_only_count,
         mode="csv_authoritative",
+    )
+
+
+@router.get(
+    "/intraday-order-plan/candidates",
+    response_model=IntradayOrderPlanCandidatesResponse,
+)
+def intraday_order_plan_candidates(
+    signal_date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+) -> IntradayOrderPlanCandidatesResponse:
+    trade_date, rows = _load_intraday_order_plan_candidates(signal_date)
+    return IntradayOrderPlanCandidatesResponse(
+        signal_date=signal_date,
+        trade_date=trade_date,
+        rows=rows,
+    )
+
+
+@router.post(
+    "/intraday-order-plan/preview",
+    response_model=IntradayOrderPlanPreviewResponse,
+)
+def intraday_order_plan_preview(
+    req: IntradayOrderPlanPreviewRequest,
+) -> IntradayOrderPlanPreviewResponse:
+    trade_date, candidates = _load_intraday_order_plan_candidates(req.signal_date)
+    warnings: list[str] = []
+    rows: list[IntradayOrderPlanRow] = []
+
+    candidates_by_key = {(row.group_id, row.ticker): row for row in candidates}
+    candidates_by_ticker: dict[str, list[IntradayOrderPlanCandidateRow]] = {}
+    for candidate in candidates:
+        candidates_by_ticker.setdefault(candidate.ticker, []).append(candidate)
+
+    for fill in req.fills:
+        candidate = candidates_by_key.get((fill.group_id, fill.ticker))
+        if candidate is None and not fill.group_id:
+            ticker_candidates = candidates_by_ticker.get(fill.ticker, [])
+            if len(ticker_candidates) == 1:
+                candidate = ticker_candidates[0]
+
+        if candidate is None:
+            warnings.append(f"{fill.ticker}: executable BUY signal not found")
+            continue
+        if not candidate.can_plan:
+            warnings.append(
+                f"{candidate.ticker}: plan unavailable ({'; '.join(candidate.warnings)})"
+            )
+            continue
+        if (
+            candidate.atr_value is None
+            or candidate.r_multiple is None
+            or candidate.trail_multiple is None
+            or candidate.initial_stop_multiple is None
+            or candidate.exit_strategy is None
+        ):
+            warnings.append(f"{candidate.ticker}: plan parameters incomplete")
+            continue
+
+        plan = build_intraday_order_plan(
+            IntradayOrderPlanInput(
+                ticker=candidate.ticker,
+                quantity=fill.quantity,
+                actual_entry_price=fill.actual_entry_price,
+                high_since_buy=fill.high_since_buy,
+                atr_value=candidate.atr_value,
+                r_multiple=candidate.r_multiple,
+                trail_multiple=candidate.trail_multiple,
+                initial_stop_multiple=candidate.initial_stop_multiple,
+            )
+        )
+        row_warnings = list(candidate.warnings)
+        if fill.high_since_buy is not None and fill.high_since_buy < fill.actual_entry_price:
+            row_warnings.append("high_since_buy was below actual entry; actual entry was used")
+        rows.append(
+            IntradayOrderPlanRow(
+                **asdict(plan),
+                group_id=candidate.group_id,
+                ticker_name=candidate.ticker_name,
+                industry_name=candidate.industry_name,
+                suggested_quantity=candidate.suggested_quantity,
+                reference_price=candidate.reference_price,
+                exit_strategy=candidate.exit_strategy,
+                warnings=row_warnings,
+            )
+        )
+
+    rows.sort(key=lambda row: (row.group_id, row.ticker))
+    return IntradayOrderPlanPreviewResponse(
+        signal_date=req.signal_date,
+        trade_date=trade_date,
+        rows=rows,
+        warnings=warnings,
     )
 
 

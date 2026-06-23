@@ -9,6 +9,7 @@ import EntryExitValidation from "./pages/EntryExitValidation";
 import Portfolio from "./pages/Portfolio";
 import TradeHistory from "./pages/TradeHistory";
 import Signals from "./pages/Signals";
+import IntradayOrderPlan from "./pages/IntradayOrderPlan";
 import StockDetail from "./pages/StockDetail";
 import Strategies from "./pages/Strategies";
 import Stocks from "./pages/Stocks";
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/trade-history" element={<TradeHistory />} />
         <Route path="/signals" element={<Signals />} />
+        <Route path="/intraday-order-plan" element={<IntradayOrderPlan />} />
         <Route path="/stocks" element={<Stocks />} />
         <Route path="/stock/:ticker" element={<StockDetail />} />
         <Route path="/strategies" element={<Strategies />} />

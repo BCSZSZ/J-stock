@@ -391,6 +391,88 @@ export type InputTradeImportPreviewResponse = {
   mode: string;
 };
 
+export type IntradayOrderPlanCandidateRow = {
+  ticker: string;
+  group_id: string;
+  ticker_name: string | null;
+  industry_name: string | null;
+  suggested_quantity: number;
+  default_entry_price: number | null;
+  reference_price: number | null;
+  atr_value: number | null;
+  exit_strategy: string | null;
+  r_multiple: number | null;
+  trail_multiple: number | null;
+  initial_stop_multiple: number | null;
+  rank: number | null;
+  rank_score: number | null;
+  reason: string | null;
+  can_plan: boolean;
+  warnings: string[];
+};
+
+export type IntradayOrderPlanCandidatesResponse = {
+  signal_date: string;
+  trade_date: string;
+  rows: IntradayOrderPlanCandidateRow[];
+};
+
+export type IntradayOrderPlanFill = {
+  ticker: string;
+  group_id: string;
+  quantity: number;
+  actual_entry_price: number;
+  high_since_buy?: number | null;
+};
+
+export type IntradayOrderPlanPreviewRequest = {
+  signal_date: string;
+  fills: IntradayOrderPlanFill[];
+};
+
+export type IntradayOrderPlanRow = {
+  ticker: string;
+  group_id: string;
+  ticker_name: string | null;
+  industry_name: string | null;
+  quantity: number;
+  suggested_quantity: number;
+  actual_entry_price: number;
+  high_since_buy: number;
+  reference_price: number | null;
+  atr_value: number;
+  exit_strategy: string;
+  r_multiple: number;
+  r_value: number;
+  tp1_r: number;
+  tp2_r: number;
+  tp1_price: number;
+  tp2_price: number;
+  tp1_gain_pct: number;
+  tp2_gain_pct: number;
+  tp1_quantity: number;
+  remaining_quantity_after_tp1: number;
+  initial_stop_multiple: number;
+  trail_multiple: number;
+  initial_stop_price: number;
+  dynamic_trail_price: number;
+  stop_trigger_price: number;
+  stop_limit_price: number;
+  stop_loss_pct: number;
+  stop_limit_loss_pct: number;
+  stop_limit_atr_buffer: number;
+  stop_limit_buffer_jpy: number;
+  formula_basis: string;
+  warnings: string[];
+};
+
+export type IntradayOrderPlanPreviewResponse = {
+  signal_date: string;
+  trade_date: string;
+  rows: IntradayOrderPlanRow[];
+  warnings: string[];
+};
+
 export type MvxExitFamily = "MVX" | "MVXW" | "MVXWL";
 
 export type MvxExitStrategyResolveRequest = {
@@ -590,6 +672,19 @@ export const api = {
   inputTradeImportPreview: (signalDate: string) =>
     request<InputTradeImportPreviewResponse>(
       `/production/input-trades/import-preview?${new URLSearchParams({ signal_date: signalDate }).toString()}`,
+    ),
+  intradayOrderPlanCandidates: (signalDate: string) =>
+    request<IntradayOrderPlanCandidatesResponse>(
+      `/production/intraday-order-plan/candidates?${new URLSearchParams({ signal_date: signalDate }).toString()}`,
+    ),
+  intradayOrderPlanPreview: (payload: IntradayOrderPlanPreviewRequest) =>
+    request<IntradayOrderPlanPreviewResponse>(
+      "/production/intraday-order-plan/preview",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
     ),
 
   // Evaluation
