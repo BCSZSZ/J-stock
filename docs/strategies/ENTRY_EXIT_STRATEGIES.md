@@ -1,14 +1,18 @@
 # 入场/出场策略逻辑与数学公式（源码对齐）
 
-本文覆盖 `src/utils/strategy_loader.py` 注册的全部策略。
+本文覆盖 `src/utils/strategy_loader.py` 注册的代表策略与新增组合策略；实际全集以
+`strategy_loader.py` 为准。
 
 ## 1. 策略全集
 
-Entry（8）：
+Entry（代表）：
 
 - `SimpleScorerStrategy`
 - `EnhancedScorerStrategy`
 - `MACDCrossoverStrategy`
+- `CrossTrendMACDVolumeEntry`
+- `CrossTrendMACDVolumeLooseEntry`
+- `CrossReboundKDJRSIEntry`
 - `MACDKDJThreeStageEntry`
 - `MACDKDJThreeStageEntryA`
 - `MACDKDJThreeStageEntryB`
@@ -159,6 +163,39 @@ MACD_Hist\_{t-1}<0\land MACD_Hist_t>0
   \text{obv_slope}=\frac{OBV*t-OBV*{t-L}}{L}
   \]
   `obv_slope>0` 视为资金配合。
+
+## 3.6 Rule-based crossover entries
+
+这些 Entry 将趋势过滤、金叉触发、量能确认、风险/过热过滤收进策略自身，
+不依赖 `EntrySecondaryFilter`。评估时推荐显式使用 `--entry-filter-mode off`，
+让报告中的 `entry_filter=off`，并从 Entry metadata 查看每条规则的 pass/fail。
+
+### `CrossTrendMACDVolumeEntry`
+
+内置条件：
+
+- 趋势：\(Close_t>SMA60_t\)
+- 趋势排列：\(SMA20_t>SMA60_t\)
+- 触发：\(MACD_{t-1}\le Signal_{t-1}\land MACD_t>Signal_t\)
+- 位置：\(MACD_t>0\)
+- 量能：\(Volume_t \ge 1.2\cdot Volume\_SMA20_t\)
+
+若特征文件没有 `SMA_60`，策略会用 `Close` 在内存中 rolling 计算。
+
+### `CrossTrendMACDVolumeLooseEntry`
+
+与 `CrossTrendMACDVolumeEntry` 相同，但不强制 `MACD_t>0`，用于比较 0 轴过滤的影响。
+
+### `CrossReboundKDJRSIEntry`
+
+内置条件：
+
+- 反弹趋势：\(Close_t>SMA10_t\)
+- 触发：\(SMA5_{t-1}\le SMA10_{t-1}\land SMA5_t>SMA10_t\)
+- 确认：\(K_{t-1}\le D_{t-1}\land K_t>D_t\land K_t<50\)
+- 过热过滤：\(RSI9_t<70\)
+
+若特征文件没有 `SMA_5` 或 `SMA_10`，策略会用 `Close` 在内存中 rolling 计算。
 
 ---
 

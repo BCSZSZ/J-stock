@@ -62,6 +62,9 @@ ENTRY_STRATEGIES = {
     "MACDHistHysteresisEntry": "src.analysis.strategies.entry.macd_hysteresis_entry.MACDHistHysteresisEntry",
     "MACDHistHysteresisPreCrossEntry": "src.analysis.strategies.entry.macd_hysteresis_entry.MACDHistHysteresisPreCrossEntry",
     "MovingAverageCrossoverEntry": "src.analysis.strategies.entry.moving_average_crossover_entry.MovingAverageCrossoverEntry",
+    "CrossTrendMACDVolumeEntry": "src.analysis.strategies.entry.rule_based_crossover_entry.CrossTrendMACDVolumeEntry",
+    "CrossTrendMACDVolumeLooseEntry": "src.analysis.strategies.entry.rule_based_crossover_entry.CrossTrendMACDVolumeLooseEntry",
+    "CrossReboundKDJRSIEntry": "src.analysis.strategies.entry.rule_based_crossover_entry.CrossReboundKDJRSIEntry",
 }
 
 _PRE_CROSS_STRICT_FRESH_ENTRY_NAMES = (
@@ -166,6 +169,7 @@ def entry_strategy_uses_only_feature_data(
         return False
     return path.endswith("entry.macd_crossover.MACDCrossoverStrategy") or (
         "entry.macd_precross_momentum_entry" in path
+        or "entry.rule_based_crossover_entry" in path
     )
 
 

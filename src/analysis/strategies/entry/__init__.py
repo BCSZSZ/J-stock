@@ -20,6 +20,12 @@ from .macd_hysteresis_entry import (
     MACDHistHysteresisPreCrossEntry,
 )
 from .moving_average_crossover_entry import MovingAverageCrossoverEntry
+from .rule_based_crossover_entry import (
+    CrossReboundKDJRSIEntry,
+    CrossTrendMACDVolumeEntry,
+    CrossTrendMACDVolumeLooseEntry,
+    RuleBasedCrossoverEntry,
+)
 from .scorer_strategy import EnhancedScorerStrategy, SimpleScorerStrategy
 
 __all__ = [
@@ -37,4 +43,8 @@ __all__ = [
     "MACDHistHysteresisEntry",
     "MACDHistHysteresisPreCrossEntry",
     "MovingAverageCrossoverEntry",
+    "RuleBasedCrossoverEntry",
+    "CrossTrendMACDVolumeEntry",
+    "CrossTrendMACDVolumeLooseEntry",
+    "CrossReboundKDJRSIEntry",
 ]
