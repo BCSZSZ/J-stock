@@ -4,6 +4,7 @@ const BASE = "/api";
 
 export type MomentumExhaustionMode = "off" | "shadow" | "enforce";
 export type IndustryFilterMode = "off" | "shadow" | "enforce";
+export type EntrySignalAnalysisProfile = "legacy" | "priority15";
 
 export type TradeHistoryEvent = {
   date: string;
@@ -51,10 +52,12 @@ export type TradeHistoryResponse = {
 export type EntrySignalAnalysisOptions = {
   entry_strategies: string[];
   label_modes: string[];
+  analysis_profiles: EntrySignalAnalysisProfile[];
   entry_filter_modes: string[];
   defaults: {
     entry_strategies: string[];
     universe_files: string[];
+    analysis_profile: EntrySignalAnalysisProfile;
     horizons: number[];
     primary_horizon: number;
     primary_horizons?: number[];
@@ -76,6 +79,13 @@ export type EntrySignalAnalysisOptions = {
     max_buy_per_industry_per_day: number;
     max_total_positions_per_industry: number;
     industry_reference_file: string;
+    target_pcts: number[];
+    stop_pcts: number[];
+    target_stop_horizons: number[];
+    checkpoint_days: number[];
+    cooldown_days: number[];
+    late_entry_days: number[];
+    cost_bps: number[];
     data_root: string;
     output_dir: string;
   };
@@ -87,6 +97,7 @@ export type EntrySignalAnalysisRunRequest = {
   start?: string;
   end?: string;
   years?: number[];
+  analysis_profile?: EntrySignalAnalysisProfile;
   horizons: number[];
   primary_horizon: number;
   primary_horizons?: number[];
@@ -108,6 +119,13 @@ export type EntrySignalAnalysisRunRequest = {
   max_buy_per_industry_per_day?: number | null;
   max_total_positions_per_industry?: number | null;
   industry_reference_file?: string | null;
+  target_pcts?: number[];
+  stop_pcts?: number[];
+  target_stop_horizons?: number[];
+  checkpoint_days?: number[];
+  cooldown_days?: number[];
+  late_entry_days?: number[];
+  cost_bps?: number[];
   limit?: number | null;
   data_root: string;
   output_dir?: string;
@@ -123,6 +141,7 @@ export type EntrySignalAnalysisDatasetSummary = {
   start_date: string;
   end_date: string;
   horizons: number[];
+  analysis_profile?: EntrySignalAnalysisProfile;
   label_mode: string;
   ranking_strategy: string;
   output_dir: string;

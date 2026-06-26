@@ -16,6 +16,7 @@ def cmd_entry_signal_analysis(args: Any) -> None:
     print(f"  universe files: {', '.join(universe_files)}")
     print(f"  tickers: {len(request.tickers)}")
     print(f"  range: {request.start_date} -> {request.end_date}")
+    print(f"  analysis_profile: {request.analysis_profile}")
     print(f"  horizons: {', '.join(map(str, request.normalized_horizons))}")
     print(f"  label_mode: {request.label_mode}")
     print(f"  ranking_strategy: {request.ranking_strategy}")

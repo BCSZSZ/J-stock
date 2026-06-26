@@ -131,6 +131,7 @@ def _build_cli_args(req: EntrySignalAnalysisRunRequest) -> list[str]:
     args = ["entry-signal-analysis"]
     _append_multi_flag(args, "--entry-strategies", [value for value in entry_strategies if value])
     _append_multi_flag(args, "--universe-file", [value for value in universe_files if value])
+    args.extend(["--analysis-profile", req.analysis_profile])
 
     if req.years:
         _append_multi_flag(args, "--years", req.years)
@@ -177,6 +178,13 @@ def _build_cli_args(req: EntrySignalAnalysisRunRequest) -> list[str]:
         args.extend(["--tail-guard-max-rank", str(req.tail_guard_max_rank)])
     _append_momentum_exhaustion_flags(args, req)
     _append_industry_filter_flags(args, req)
+    _append_multi_flag(args, "--target-pcts", req.target_pcts)
+    _append_multi_flag(args, "--stop-pcts", req.stop_pcts)
+    _append_multi_flag(args, "--target-stop-horizons", req.target_stop_horizons)
+    _append_multi_flag(args, "--checkpoint-days", req.checkpoint_days)
+    _append_multi_flag(args, "--cooldown-days", req.cooldown_days)
+    _append_multi_flag(args, "--late-entry-days", req.late_entry_days)
+    _append_multi_flag(args, "--cost-bps", req.cost_bps)
     if req.limit is not None:
         args.extend(["--limit", str(req.limit)])
     args.extend(["--data-root", req.data_root])
@@ -242,6 +250,7 @@ def _manifest_summary(output_root: Path, manifest_path: Path) -> dict[str, objec
         "start_date": manifest.start_date,
         "end_date": manifest.end_date,
         "horizons": manifest.horizons,
+        "analysis_profile": manifest.analysis_profile,
         "label_mode": manifest.label_mode,
         "ranking_strategy": manifest.ranking_strategy,
         "output_dir": manifest.output_dir,
@@ -313,11 +322,13 @@ def get_options() -> dict[str, object]:
     return {
         "entry_strategies": strategies.get("entry", []),
         "label_modes": ["signal_close", "next_open"],
+        "analysis_profiles": ["legacy", "priority15"],
         "entry_filter_modes": ["auto", "off", "atr", "single", "grid"],
         "defaults": {
             "entry_strategies": [production_entry] if production_entry else [],
             "universe_files": [str(getattr(prod_cfg, "monitor_list_file", "") or "")],
-            "horizons": [1, 3, 5],
+            "analysis_profile": "priority15",
+            "horizons": [1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80],
             "primary_horizon": 5,
             "primary_horizons": [5],
             "label_mode": "next_open",
@@ -333,6 +344,13 @@ def get_options() -> dict[str, object]:
             "tail_guard_max_rank": int(tail_guard.get("max_rank", 12) or 12),
             **_resolve_momentum_exhaustion_defaults(raw_config),
             **_resolve_industry_filter_defaults(raw_config),
+            "target_pcts": [5, 8, 10, 15, 20],
+            "stop_pcts": [3, 5, 8, 10, 12],
+            "target_stop_horizons": [10, 20, 40, 60, 80],
+            "checkpoint_days": [10, 20, 40],
+            "cooldown_days": [5, 10, 20, 40],
+            "late_entry_days": [1, 2, 3, 5],
+            "cost_bps": [10, 20, 50, 100],
             "data_root": "data",
             "output_dir": _default_output_dir(),
         },

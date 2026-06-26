@@ -451,12 +451,17 @@ def _build_market_regime_summaries(
 
     merged = pd.merge_asof(
         dated.sort_values("signal_date_ts"),
-        lookup.rename(columns={"Date": "benchmark_date"}).sort_values("benchmark_date"),
+        lookup.rename(
+            columns={
+                "Date": "benchmark_date",
+                "market_regime": "benchmark_market_regime",
+            }
+        ).sort_values("benchmark_date"),
         left_on="signal_date_ts",
         right_on="benchmark_date",
         direction="backward",
     )
-    merged = merged[merged["market_regime"].notna()].copy()
+    merged = merged[merged["benchmark_market_regime"].notna()].copy()
     if merged.empty:
         return [], "no_matching_benchmark_dates", definition
 
@@ -467,7 +472,11 @@ def _build_market_regime_summaries(
             group_label=_stringify_group_value(regime),
             stats=_build_primary_stats_from_series(group["primary_return_pct"]),
         )
-        for regime, group in merged.groupby("market_regime", sort=False, dropna=False)
+        for regime, group in merged.groupby(
+            "benchmark_market_regime",
+            sort=False,
+            dropna=False,
+        )
     ]
     summaries.sort(key=lambda item: order.get(item.group_key, 99))
     return summaries, status, definition

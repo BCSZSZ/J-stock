@@ -247,7 +247,10 @@ class EntrySignalAnalysisRunRequest(BaseModel):
     start: str | None = None
     end: str | None = None
     years: list[int] | None = None
-    horizons: list[int] = Field(default_factory=lambda: [1, 3, 5])
+    analysis_profile: Literal["legacy", "priority15"] = "priority15"
+    horizons: list[int] = Field(
+        default_factory=lambda: [1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80]
+    )
     primary_horizon: int = 5
     primary_horizons: list[int] | None = None
     label_mode: Literal["signal_close", "next_open"] = "next_open"
@@ -268,6 +271,13 @@ class EntrySignalAnalysisRunRequest(BaseModel):
     max_buy_per_industry_per_day: int | None = Field(default=None, ge=1)
     max_total_positions_per_industry: int | None = Field(default=None, ge=1)
     industry_reference_file: str | None = None
+    target_pcts: list[float] = Field(default_factory=lambda: [5.0, 8.0, 10.0, 15.0, 20.0])
+    stop_pcts: list[float] = Field(default_factory=lambda: [3.0, 5.0, 8.0, 10.0, 12.0])
+    target_stop_horizons: list[int] = Field(default_factory=lambda: [10, 20, 40, 60, 80])
+    checkpoint_days: list[int] = Field(default_factory=lambda: [10, 20, 40])
+    cooldown_days: list[int] = Field(default_factory=lambda: [5, 10, 20, 40])
+    late_entry_days: list[int] = Field(default_factory=lambda: [1, 2, 3, 5])
+    cost_bps: list[float] = Field(default_factory=lambda: [10.0, 20.0, 50.0, 100.0])
     limit: int | None = None
     data_root: str = "data"
     output_dir: str | None = None

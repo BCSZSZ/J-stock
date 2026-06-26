@@ -227,7 +227,8 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         or getattr(prod_cfg, "position_sizing_mode", "atr")
         or "atr"
     )
-    horizons = [int(value) for value in (getattr(args, "horizons", None) or [1, 3, 5])]
+    default_horizons = [1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80]
+    horizons = [int(value) for value in (getattr(args, "horizons", None) or default_horizons)]
     parsed_primary_horizons = [
         int(value) for value in (getattr(args, "primary_horizons", None) or [])
     ]
@@ -252,6 +253,7 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         tickers=tickers,
         start_date=start_date,
         end_date=end_date,
+        analysis_profile=str(getattr(args, "analysis_profile", None) or "priority15"),
         horizons=horizons,
         primary_horizon=fallback_primary_horizon,
         primary_horizons=parsed_primary_horizons,
@@ -280,6 +282,16 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
             None,
         ),
         industry_reference_file=getattr(args, "industry_reference_file", None),
+        target_pcts=[float(value) for value in (getattr(args, "target_pcts", None) or [5, 8, 10, 15, 20])],
+        stop_pcts=[float(value) for value in (getattr(args, "stop_pcts", None) or [3, 5, 8, 10, 12])],
+        target_stop_horizons=[
+            int(value)
+            for value in (getattr(args, "target_stop_horizons", None) or [10, 20, 40, 60, 80])
+        ],
+        checkpoint_days=[int(value) for value in (getattr(args, "checkpoint_days", None) or [10, 20, 40])],
+        cooldown_days=[int(value) for value in (getattr(args, "cooldown_days", None) or [5, 10, 20, 40])],
+        late_entry_days=[int(value) for value in (getattr(args, "late_entry_days", None) or [1, 2, 3, 5])],
+        cost_bps=[float(value) for value in (getattr(args, "cost_bps", None) or [10, 20, 50, 100])],
         data_root=str(getattr(args, "data_root", None) or "data"),
         output_dir=resolve_output_dir(args, raw_config),
     )

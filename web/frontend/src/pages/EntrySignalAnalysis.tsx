@@ -6,6 +6,7 @@ import {
   type EntrySignalAnalysisDatasetSummary,
   type EntrySignalAnalysisHorizonStats,
   type EntrySignalAnalysisOptions,
+  type EntrySignalAnalysisProfile,
   type EntrySignalAnalysisPrimaryHorizonValidation,
   type EntrySignalAnalysisPrimaryStrategyTailRobustnessRanking,
   type EntrySignalAnalysisPrimaryValidationSlice,
@@ -29,6 +30,15 @@ function parseIntegerList(value: string): number[] {
     .filter(Boolean)
     .map((item) => Number.parseInt(item, 10))
     .filter((item) => Number.isFinite(item) && item > 0);
+}
+
+function parseNumberList(value: string): number[] {
+  return value
+    .split(/[\n,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => Number.parseFloat(item))
+    .filter((item) => Number.isFinite(item) && item >= 0);
 }
 
 function parseStringList(value: string): string[] {
@@ -202,6 +212,8 @@ export default function EntrySignalAnalysis() {
   const [years, setYears] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [analysisProfile, setAnalysisProfile] =
+    useState<EntrySignalAnalysisProfile>("priority15");
   const [horizons, setHorizons] = useState("1,3,5");
   const [primaryHorizons, setPrimaryHorizons] = useState("5");
   const [labelMode, setLabelMode] = useState<"signal_close" | "next_open">("next_open");
@@ -226,6 +238,13 @@ export default function EntrySignalAnalysis() {
     useState("3");
   const [industryReferenceFile, setIndustryReferenceFile] =
     useState("data/jpx_final_list.csv");
+  const [targetPcts, setTargetPcts] = useState("5,8,10,15,20");
+  const [stopPcts, setStopPcts] = useState("3,5,8,10,12");
+  const [targetStopHorizons, setTargetStopHorizons] = useState("10,20,40,60,80");
+  const [checkpointDays, setCheckpointDays] = useState("10,20,40");
+  const [cooldownDays, setCooldownDays] = useState("5,10,20,40");
+  const [lateEntryDays, setLateEntryDays] = useState("1,2,3,5");
+  const [costBps, setCostBps] = useState("10,20,50,100");
   const [limit, setLimit] = useState("");
   const [dataRoot, setDataRoot] = useState("data");
   const [outputDir, setOutputDir] = useState("");
@@ -250,7 +269,8 @@ export default function EntrySignalAnalysis() {
     const defaults = options.data.defaults;
     setSelectedEntry(defaults.entry_strategies ?? []);
     setUniverseFiles((defaults.universe_files ?? []).join("\n"));
-    setHorizons((defaults.horizons ?? [1, 3, 5]).join(","));
+    setAnalysisProfile(defaults.analysis_profile ?? "priority15");
+    setHorizons((defaults.horizons ?? [1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80]).join(","));
     setPrimaryHorizons(
       (defaults.primary_horizons && defaults.primary_horizons.length > 0
         ? defaults.primary_horizons
@@ -285,6 +305,13 @@ export default function EntrySignalAnalysis() {
     setIndustryReferenceFile(
       defaults.industry_reference_file ?? "data/jpx_final_list.csv",
     );
+    setTargetPcts((defaults.target_pcts ?? [5, 8, 10, 15, 20]).join(","));
+    setStopPcts((defaults.stop_pcts ?? [3, 5, 8, 10, 12]).join(","));
+    setTargetStopHorizons((defaults.target_stop_horizons ?? [10, 20, 40, 60, 80]).join(","));
+    setCheckpointDays((defaults.checkpoint_days ?? [10, 20, 40]).join(","));
+    setCooldownDays((defaults.cooldown_days ?? [5, 10, 20, 40]).join(","));
+    setLateEntryDays((defaults.late_entry_days ?? [1, 2, 3, 5]).join(","));
+    setCostBps((defaults.cost_bps ?? [10, 20, 50, 100]).join(","));
     setDataRoot(defaults.data_root ?? "data");
     setOutputDir(defaults.output_dir ?? "entry_signal_analysis");
     setInitialized(true);
@@ -350,6 +377,7 @@ export default function EntrySignalAnalysis() {
       years: parsedYears.length > 0 ? parsedYears : undefined,
       start: parsedYears.length > 0 ? undefined : start.trim() || undefined,
       end: parsedYears.length > 0 ? undefined : end.trim() || undefined,
+      analysis_profile: analysisProfile,
       horizons: parsedHorizons,
       primary_horizons: parsedPrimaryHorizons,
       primary_horizon: parsedPrimaryHorizons[0] ?? parsedHorizons[0] ?? 5,
@@ -373,6 +401,13 @@ export default function EntrySignalAnalysis() {
         maxTotalPositionsPerIndustry,
       ),
       industry_reference_file: industryReferenceFile.trim() || undefined,
+      target_pcts: parseNumberList(targetPcts),
+      stop_pcts: parseNumberList(stopPcts),
+      target_stop_horizons: parseIntegerList(targetStopHorizons),
+      checkpoint_days: parseIntegerList(checkpointDays),
+      cooldown_days: parseIntegerList(cooldownDays),
+      late_entry_days: parseIntegerList(lateEntryDays),
+      cost_bps: parseNumberList(costBps),
       limit: parseOptionalNumber(limit),
       data_root: dataRoot.trim() || "data",
       output_dir: outputDir.trim() || undefined,
@@ -445,8 +480,19 @@ export default function EntrySignalAnalysis() {
             </div>
           </div>
           <div className={cardClassName}>
-            <label className={labelClassName}>Label / Ranking</label>
+            <label className={labelClassName}>Profile / Label / Ranking</label>
             <div className="space-y-2">
+              <select
+                value={analysisProfile}
+                onChange={(e) => setAnalysisProfile(e.target.value as EntrySignalAnalysisProfile)}
+                className={inputClassName}
+              >
+                {(options.data?.analysis_profiles ?? ["legacy", "priority15"]).map((profile) => (
+                  <option key={profile} value={profile}>
+                    {profile}
+                  </option>
+                ))}
+              </select>
               <select
                 value={labelMode}
                 onChange={(e) => setLabelMode(e.target.value as "signal_close" | "next_open")}
@@ -578,7 +624,29 @@ export default function EntrySignalAnalysis() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className={cardClassName}>
+            <label className={labelClassName}>Target / Stop</label>
+            <div className="space-y-2">
+              <input value={targetPcts} onChange={(e) => setTargetPcts(e.target.value)} className={inputClassName} />
+              <input value={stopPcts} onChange={(e) => setStopPcts(e.target.value)} className={inputClassName} />
+              <input value={targetStopHorizons} onChange={(e) => setTargetStopHorizons(e.target.value)} className={inputClassName} />
+            </div>
+          </div>
+          <div className={cardClassName}>
+            <label className={labelClassName}>Checkpoint / Cooldown</label>
+            <div className="space-y-2">
+              <input value={checkpointDays} onChange={(e) => setCheckpointDays(e.target.value)} className={inputClassName} />
+              <input value={cooldownDays} onChange={(e) => setCooldownDays(e.target.value)} className={inputClassName} />
+            </div>
+          </div>
+          <div className={cardClassName}>
+            <label className={labelClassName}>Delay / Cost</label>
+            <div className="space-y-2">
+              <input value={lateEntryDays} onChange={(e) => setLateEntryDays(e.target.value)} className={inputClassName} />
+              <input value={costBps} onChange={(e) => setCostBps(e.target.value)} className={inputClassName} />
+            </div>
+          </div>
           <div className={cardClassName}>
             <label className={labelClassName}>Position Sizing</label>
             <select

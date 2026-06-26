@@ -51,6 +51,7 @@ def test_run_entry_signal_analysis_writes_artifacts(tmp_path, monkeypatch) -> No
     manifest_path = Path(summary.artifacts.manifest_json)
     summary_path = Path(summary.artifacts.summary_json)
     report_path = Path(summary.artifacts.report_md)
+    performance_path = Path(summary.artifacts.performance_json or "")
     assert summary.candidate_count == 2
     assert summary.selected_count == 1
     assert summary.effective_entry_filter_mode == "off"
@@ -61,12 +62,24 @@ def test_run_entry_signal_analysis_writes_artifacts(tmp_path, monkeypatch) -> No
     assert manifest_path.exists()
     assert summary_path.exists()
     assert report_path.exists()
+    assert performance_path.exists()
+    assert summary.performance["row_counts"]["selected"] == 1
+    assert summary.performance["artifact_sizes_bytes"]["candidates_csv"] > 0
+    assert any(
+        item["name"] == "scan_entry_signal_candidates"
+        for item in summary.performance["stages"]
+    )
     assert summary.primary_horizon_validation.primary_horizon == 5
     assert summary.primary_horizon_validation.overall.count == 1
     assert [item.primary_horizon for item in summary.primary_horizon_validations] == [5]
     assert [item.primary_horizon for item in summary.top_daily_windows_by_horizon] == [5]
     assert summary.top_daily_windows_by_horizon[0].windows == summary.top_daily_windows
-    assert "FakeEntry" in manifest_path.read_text(encoding="utf-8")
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    report_text = report_path.read_text(encoding="utf-8")
+    assert "FakeEntry" in manifest_text
+    assert "over" + "lap_matrix_csv" not in manifest_text
+    assert "incremental" + "_lift_csv" not in manifest_text
+    assert "#" + "12" not in report_text
 
 
 def test_run_entry_signal_analysis_handles_empty_candidate_results(tmp_path, monkeypatch) -> None:

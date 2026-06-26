@@ -1073,11 +1073,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="年份列表；指定后覆盖 --start/--end，例如 2024 2025",
     )
     entry_signal_analysis_parser.add_argument(
+        "--analysis-profile",
+        choices=["legacy", "priority15"],
+        default="priority15",
+        help="分析配置：legacy=旧候选/汇总输出，priority15=生成15条优先级分析artifact（默认: priority15）",
+    )
+    entry_signal_analysis_parser.add_argument(
         "--horizons",
         nargs="+",
         type=int,
-        default=[1, 3, 5],
-        help="前向收益交易日窗口（默认: 1 3 5）",
+        default=[1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80],
+        help="前向收益交易日窗口（默认: 1 2 3 5 7 10 15 20 30 40 60 80）",
     )
     entry_signal_analysis_parser.add_argument(
         "--primary-horizon",
@@ -1118,6 +1124,55 @@ def build_parser() -> argparse.ArgumentParser:
     _add_atr_runtime_override_arguments(entry_signal_analysis_parser)
     _add_momentum_exhaustion_arguments(entry_signal_analysis_parser)
     _add_industry_filter_arguments(entry_signal_analysis_parser)
+    entry_signal_analysis_parser.add_argument(
+        "--target-pcts",
+        nargs="+",
+        type=float,
+        default=[5, 8, 10, 15, 20],
+        help="priority15 target-before-stop 目标收益百分比（默认: 5 8 10 15 20）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--stop-pcts",
+        nargs="+",
+        type=float,
+        default=[3, 5, 8, 10, 12],
+        help="priority15 target-before-stop 止损百分比（默认: 3 5 8 10 12）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--target-stop-horizons",
+        nargs="+",
+        type=int,
+        default=[10, 20, 40, 60, 80],
+        help="priority15 target/stop 观察窗口（默认: 10 20 40 60 80）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--checkpoint-days",
+        nargs="+",
+        type=int,
+        default=[10, 20, 40],
+        help="priority15 checkpoint 日（默认: 10 20 40）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--cooldown-days",
+        nargs="+",
+        type=int,
+        default=[5, 10, 20, 40],
+        help="priority15 cooldown 去重天数（默认: 5 10 20 40）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--late-entry-days",
+        nargs="+",
+        type=int,
+        default=[1, 2, 3, 5],
+        help="priority15 延迟入场天数（默认: 1 2 3 5）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--cost-bps",
+        nargs="+",
+        type=float,
+        default=[10, 20, 50, 100],
+        help="priority15 执行成本 bps（单边，默认: 10 20 50 100）",
+    )
     entry_signal_analysis_parser.add_argument(
         "--tail-guard-enabled",
         action=argparse.BooleanOptionalAction,

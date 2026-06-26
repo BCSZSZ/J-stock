@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
 import pandas as pd
 
 from src.analysis.filters import EntrySecondaryFilter
-from src.analysis.signals import MarketData, SignalAction
+from src.analysis.signals import MarketData, SignalAction, TradingSignal
 from src.backtest.data_cache import BacktestDataCache
 from src.entry_signal_analysis.models import EntrySignalAnalysisRequest
 from src.entry_signal_analysis.runtime import (
@@ -19,6 +20,27 @@ from src.entry_signal_analysis.selector import DailyEntryCandidate, select_daily
 from src.signal_generator import generate_signal_v2
 from src.utils.forward_returns import compute_forward_returns
 from src.utils.strategy_loader import load_entry_strategy
+
+
+@dataclass(frozen=True)
+class EntrySignalEventContext:
+    ticker: str
+    entry_strategy: str
+    entry_filter_name: str
+    signal_date: str
+    signal_pos: int
+    entry_pos: int
+    signal: TradingSignal
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class EntrySignalScanResult:
+    candidates: pd.DataFrame
+    event_contexts: list[EntrySignalEventContext]
+    cache: BacktestDataCache
+    trading_dates: list[pd.Timestamp]
+    scanner_metrics: dict[str, int] = field(default_factory=dict)
 
 
 def _normalize_feature_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -75,6 +97,62 @@ def _preload_end_date(end_date: pd.Timestamp, horizons: list[int]) -> str:
     return (end_date + timedelta(days=extra_days)).date().isoformat()
 
 
+def _entry_pos_for_label_mode(request: EntrySignalAnalysisRequest, signal_pos: int) -> int:
+    if request.label_mode == "next_open":
+        return signal_pos + 1
+    return signal_pos
+
+
+def _build_daily_entry_candidate(
+    *,
+    request: EntrySignalAnalysisRequest,
+    strategy_name: str,
+    filter_name: str,
+    ticker: str,
+    current_date: pd.Timestamp,
+    signal: TradingSignal,
+    market_data: MarketData,
+    forward_values: dict[str, Any],
+) -> DailyEntryCandidate:
+    signal_metadata = dict(signal.metadata or {})
+    signal_date = current_date.date().isoformat()
+    signal_metadata.setdefault("signal_date", signal_date)
+    signal_metadata.setdefault("entry_signal_date", signal_date)
+    entry_price = forward_values.get("label_entry_price")
+    payload: dict[str, Any] = {
+        "event_id": f"{strategy_name}::{filter_name}::{ticker}::{signal_date}",
+        "entry_strategy": strategy_name,
+        "entry_filter_name": filter_name,
+        "ticker": ticker,
+        "signal_date": signal_date,
+        "entry_date": forward_values.get("label_entry_date"),
+        "entry_price": entry_price,
+        "confidence": float(signal.confidence),
+        "score": signal_metadata.get("score"),
+        "reasons": list(signal.reasons or []),
+        "signal_metadata": signal_metadata,
+        "label_entry_date": forward_values.get("label_entry_date"),
+        "label_entry_price": entry_price,
+    }
+    payload.update(forward_values)
+    for horizon in request.normalized_horizons:
+        target_price = forward_values.get(f"forward_price_{horizon}d")
+        payload[f"forward_diff_{horizon}d"] = (
+            float(target_price) - float(entry_price)
+            if entry_price not in (None, 0) and target_price is not None
+            else None
+        )
+
+    return DailyEntryCandidate(
+        ticker=ticker,
+        entry_strategy=strategy_name,
+        signal_date=signal_date,
+        signal=signal,
+        market_data=market_data,
+        payload=payload,
+    )
+
+
 def _collect_trading_dates(
     cache: BacktestDataCache,
     tickers: list[str],
@@ -95,14 +173,14 @@ def _collect_trading_dates(
     return sorted(trading_dates)
 
 
-def scan_entry_signal_candidates(request: EntrySignalAnalysisRequest) -> pd.DataFrame:
+def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignalScanResult:
     cache = BacktestDataCache(data_root=request.data_root)
     start = pd.Timestamp(request.start_date).normalize()
     end = pd.Timestamp(request.end_date).normalize()
     cache.preload_tickers(
         request.tickers,
         start_date=start.date().isoformat(),
-        end_date=_preload_end_date(end, request.normalized_horizons),
+        end_date=_preload_end_date(end, request.required_analysis_horizons),
         include_trades=True,
         include_financials=True,
         include_metadata=True,
@@ -112,39 +190,61 @@ def scan_entry_signal_candidates(request: EntrySignalAnalysisRequest) -> pd.Data
     tail_guard_config = resolve_tail_guard_for_request(request)
     momentum_exhaustion_config = resolve_momentum_exhaustion_for_request(request)
     industry_filter_config = resolve_industry_filter_for_request(request)
+    strategies = {
+        strategy_name: load_entry_strategy(strategy_name)
+        for strategy_name in request.entry_strategies
+    }
+    for strategy_name in strategies:
+        print(f"[entry-signal-analysis] scanning strategy={strategy_name}")
 
     records: list[dict[str, Any]] = []
+    contexts: list[EntrySignalEventContext] = []
+    scanner_metrics: dict[str, int] = {
+        "market_data_build_count": 0,
+        "filter_pass_count": 0,
+        "strategy_eval_count": 0,
+        "buy_signal_count": 0,
+        "annotated_event_count": 0,
+        "selected_event_count": 0,
+    }
     total_days = len(trading_dates)
-    for strategy_name in request.entry_strategies:
-        strategy = load_entry_strategy(strategy_name)
-        print(f"[entry-signal-analysis] scanning strategy={strategy_name}")
-        for filter_name, filter_config in filter_variants:
-            entry_filter = EntrySecondaryFilter.from_dict(filter_config)
-            print(
-                f"[entry-signal-analysis] filter={filter_name} trading_days={total_days}"
-            )
-            for day_index, current_date in enumerate(trading_dates, start=1):
-                daily_candidates: list[DailyEntryCandidate] = []
-                for ticker in request.tickers:
-                    features = cache.get_features(ticker)
-                    if features is None or features.empty:
-                        continue
-                    row_pos = cache.get_date_pos_map(ticker).get(current_date)
-                    if row_pos is None:
-                        continue
+    for filter_name, filter_config in filter_variants:
+        entry_filter = EntrySecondaryFilter.from_dict(filter_config)
+        print(
+            f"[entry-signal-analysis] filter={filter_name} trading_days={total_days}"
+        )
+        for day_index, current_date in enumerate(trading_dates, start=1):
+            daily_candidates_by_strategy: dict[str, list[DailyEntryCandidate]] = {
+                strategy_name: [] for strategy_name in strategies
+            }
+            candidate_by_strategy_ticker: dict[tuple[str, str], DailyEntryCandidate] = {}
+            row_pos_by_ticker: dict[str, int] = {}
+            for ticker in request.tickers:
+                features = cache.get_features(ticker)
+                if features is None or features.empty:
+                    continue
+                row_pos = cache.get_date_pos_map(ticker).get(current_date)
+                if row_pos is None:
+                    continue
 
-                    market_data = _build_market_data(
-                        ticker=ticker,
-                        current_date=current_date,
-                        features=features,
-                        row_pos=row_pos,
-                        trades=cache.get_trades(ticker),
-                        financials=cache.get_financials(ticker),
-                        metadata=cache.get_metadata(ticker),
-                    )
-                    if not entry_filter.passes(market_data):
-                        continue
+                market_data = _build_market_data(
+                    ticker=ticker,
+                    current_date=current_date,
+                    features=features,
+                    row_pos=row_pos,
+                    trades=cache.get_trades(ticker),
+                    financials=cache.get_financials(ticker),
+                    metadata=cache.get_metadata(ticker),
+                )
+                scanner_metrics["market_data_build_count"] += 1
+                if not entry_filter.passes(market_data):
+                    continue
+                scanner_metrics["filter_pass_count"] += 1
+                row_pos_by_ticker[ticker] = row_pos
+                forward_values: dict[str, Any] | None = None
 
+                for strategy_name, strategy in strategies.items():
+                    scanner_metrics["strategy_eval_count"] += 1
                     try:
                         signal = generate_signal_v2(
                             market_data=market_data,
@@ -159,65 +259,74 @@ def scan_entry_signal_candidates(request: EntrySignalAnalysisRequest) -> pd.Data
                     if signal.action != SignalAction.BUY:
                         continue
 
-                    signal_metadata = dict(signal.metadata or {})
-                    signal_date = current_date.date().isoformat()
-                    signal_metadata.setdefault("signal_date", signal_date)
-                    signal_metadata.setdefault("entry_signal_date", signal_date)
-                    forward_values = compute_forward_returns(
-                        features=features,
-                        signal_pos=row_pos,
-                        horizons=request.normalized_horizons,
-                        label_mode=request.label_mode,
-                    )
-                    entry_price = forward_values.get("label_entry_price")
-                    payload: dict[str, Any] = {
-                        "entry_strategy": strategy_name,
-                        "entry_filter_name": filter_name,
-                        "ticker": ticker,
-                        "signal_date": signal_date,
-                        "confidence": float(signal.confidence),
-                        "score": signal_metadata.get("score"),
-                        "label_entry_date": forward_values.get("label_entry_date"),
-                        "label_entry_price": entry_price,
-                    }
-                    payload.update(forward_values)
-                    for horizon in request.normalized_horizons:
-                        target_price = forward_values.get(f"forward_price_{horizon}d")
-                        payload[f"forward_diff_{horizon}d"] = (
-                            float(target_price) - float(entry_price)
-                            if entry_price not in (None, 0) and target_price is not None
-                            else None
+                    scanner_metrics["buy_signal_count"] += 1
+                    if forward_values is None:
+                        forward_values = compute_forward_returns(
+                            features=features,
+                            signal_pos=row_pos,
+                            horizons=request.normalized_horizons,
+                            label_mode=request.label_mode,
                         )
+                    candidate = _build_daily_entry_candidate(
+                        request=request,
+                        strategy_name=strategy_name,
+                        filter_name=filter_name,
+                        ticker=ticker,
+                        current_date=current_date,
+                        signal=signal,
+                        market_data=market_data,
+                        forward_values=forward_values,
+                    )
+                    daily_candidates_by_strategy[strategy_name].append(candidate)
+                    candidate_by_strategy_ticker[(strategy_name, ticker)] = candidate
 
-                    daily_candidates.append(
-                        DailyEntryCandidate(
+            for strategy_name, daily_candidates in daily_candidates_by_strategy.items():
+                if not daily_candidates:
+                    continue
+                selected_records = select_daily_candidates(
+                    daily_candidates,
+                    ranking_strategy_name=request.ranking_strategy,
+                    tail_guard_config=tail_guard_config,
+                    momentum_exhaustion_config=momentum_exhaustion_config,
+                    industry_filter_config=industry_filter_config,
+                )
+                records.extend(selected_records)
+                scanner_metrics["annotated_event_count"] += len(selected_records)
+                scanner_metrics["selected_event_count"] += sum(
+                    1 for record in selected_records if bool(record.get("selected"))
+                )
+                for record in selected_records:
+                    ticker = str(record.get("ticker"))
+                    candidate = candidate_by_strategy_ticker.get((strategy_name, ticker))
+                    if candidate is None:
+                        continue
+                    signal_pos = row_pos_by_ticker[ticker]
+                    contexts.append(
+                        EntrySignalEventContext(
                             ticker=ticker,
                             entry_strategy=strategy_name,
-                            signal_date=signal_date,
-                            signal=signal,
-                            market_data=market_data,
-                            payload=payload,
+                            entry_filter_name=filter_name,
+                            signal_date=str(record.get("signal_date")),
+                            signal_pos=signal_pos,
+                            entry_pos=_entry_pos_for_label_mode(request, signal_pos),
+                            signal=candidate.signal,
+                            payload=dict(record),
                         )
                     )
 
-                if daily_candidates:
-                    records.extend(
-                        select_daily_candidates(
-                            daily_candidates,
-                            ranking_strategy_name=request.ranking_strategy,
-                            tail_guard_config=tail_guard_config,
-                            momentum_exhaustion_config=momentum_exhaustion_config,
-                            industry_filter_config=industry_filter_config,
-                        )
-                    )
-
-                if day_index % 50 == 0:
-                    print(
-                        f"[entry-signal-analysis] {strategy_name}/{filter_name}: processed {day_index}/{total_days} days, candidates={len(records)}"
-                    )
+            if day_index % 50 == 0:
+                print(
+                    f"[entry-signal-analysis] {filter_name}: processed {day_index}/{total_days} days, candidates={len(records)}"
+                )
 
     if not records:
-        return pd.DataFrame()
+        return EntrySignalScanResult(
+            candidates=pd.DataFrame(),
+            event_contexts=[],
+            cache=cache,
+            trading_dates=trading_dates,
+            scanner_metrics=scanner_metrics,
+        )
 
     frame = pd.DataFrame(records)
     sort_columns = [
@@ -227,4 +336,15 @@ def scan_entry_signal_candidates(request: EntrySignalAnalysisRequest) -> pd.Data
         "rank",
         "ticker",
     ]
-    return frame.sort_values(sort_columns, na_position="last").reset_index(drop=True)
+    frame = frame.sort_values(sort_columns, na_position="last").reset_index(drop=True)
+    return EntrySignalScanResult(
+        candidates=frame,
+        event_contexts=contexts,
+        cache=cache,
+        trading_dates=trading_dates,
+        scanner_metrics=scanner_metrics,
+    )
+
+
+def scan_entry_signal_candidates(request: EntrySignalAnalysisRequest) -> pd.DataFrame:
+    return scan_entry_signal_events(request).candidates

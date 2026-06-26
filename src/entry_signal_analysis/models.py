@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 EntrySignalLabelMode = Literal["signal_close", "next_open"]
 EntrySignalEntryFilterMode = Literal["auto", "off", "atr", "single", "grid"]
+EntrySignalAnalysisProfile = Literal["legacy", "priority15"]
 PositionSizingMode = Literal["fixed", "atr"]
 TailGuardRankLimitMode = Literal["max", "min"]
 SignalStrengthMetric = Literal["rank_score", "score", "confidence"]
@@ -21,7 +22,10 @@ class EntrySignalAnalysisRequest(BaseModel):
     tickers: list[str]
     start_date: date
     end_date: date
-    horizons: list[int] = Field(default_factory=lambda: [1, 3, 5])
+    analysis_profile: EntrySignalAnalysisProfile = "priority15"
+    horizons: list[int] = Field(
+        default_factory=lambda: [1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80]
+    )
     primary_horizon: int = 5
     primary_horizons: list[int] = Field(default_factory=list)
     label_mode: EntrySignalLabelMode = "next_open"
@@ -43,6 +47,13 @@ class EntrySignalAnalysisRequest(BaseModel):
     max_buy_per_industry_per_day: int | None = None
     max_total_positions_per_industry: int | None = None
     industry_reference_file: str | None = None
+    target_pcts: list[float] = Field(default_factory=lambda: [5.0, 8.0, 10.0, 15.0, 20.0])
+    stop_pcts: list[float] = Field(default_factory=lambda: [3.0, 5.0, 8.0, 10.0, 12.0])
+    target_stop_horizons: list[int] = Field(default_factory=lambda: [10, 20, 40, 60, 80])
+    checkpoint_days: list[int] = Field(default_factory=lambda: [10, 20, 40])
+    cooldown_days: list[int] = Field(default_factory=lambda: [5, 10, 20, 40])
+    late_entry_days: list[int] = Field(default_factory=lambda: [1, 2, 3, 5])
+    cost_bps: list[float] = Field(default_factory=lambda: [10.0, 20.0, 50.0, 100.0])
     data_root: str = "data"
     output_dir: str = "entry_signal_analysis"
 
@@ -62,6 +73,52 @@ class EntrySignalAnalysisRequest(BaseModel):
             normalized.append(parsed)
         return normalized or [int(self.primary_horizon)]
 
+    @property
+    def normalized_target_pcts(self) -> list[float]:
+        return sorted({float(value) for value in self.target_pcts if float(value) > 0})
+
+    @property
+    def normalized_stop_pcts(self) -> list[float]:
+        return sorted({float(value) for value in self.stop_pcts if float(value) > 0})
+
+    @property
+    def normalized_target_stop_horizons(self) -> list[int]:
+        return sorted({int(value) for value in self.target_stop_horizons if int(value) > 0})
+
+    @property
+    def normalized_checkpoint_days(self) -> list[int]:
+        return sorted({int(value) for value in self.checkpoint_days if int(value) > 0})
+
+    @property
+    def normalized_cooldown_days(self) -> list[int]:
+        return sorted({int(value) for value in self.cooldown_days if int(value) > 0})
+
+    @property
+    def normalized_late_entry_days(self) -> list[int]:
+        return sorted({int(value) for value in self.late_entry_days if int(value) > 0})
+
+    @property
+    def normalized_cost_bps(self) -> list[float]:
+        return sorted({float(value) for value in self.cost_bps if float(value) >= 0})
+
+    @property
+    def required_analysis_horizons(self) -> list[int]:
+        fixed_exit_horizons = [20, 40, 60, 80]
+        late_extension = [
+            horizon + late_day
+            for horizon in self.normalized_horizons
+            for late_day in self.normalized_late_entry_days
+        ]
+        return sorted(
+            {
+                *self.normalized_horizons,
+                *self.normalized_target_stop_horizons,
+                *self.normalized_checkpoint_days,
+                *fixed_exit_horizons,
+                *late_extension,
+            }
+        )
+
     @model_validator(mode="after")
     def validate_horizons(self) -> "EntrySignalAnalysisRequest":
         if not self.normalized_horizons:
@@ -77,6 +134,13 @@ class EntrySignalAnalysisRequest(BaseModel):
             self.primary_horizon = requested_primary_horizons[0]
         self.primary_horizons = requested_primary_horizons
         self.primary_horizon = self.primary_horizons[0]
+        self.target_pcts = self.normalized_target_pcts
+        self.stop_pcts = self.normalized_stop_pcts
+        self.target_stop_horizons = self.normalized_target_stop_horizons
+        self.checkpoint_days = self.normalized_checkpoint_days
+        self.cooldown_days = self.normalized_cooldown_days
+        self.late_entry_days = self.normalized_late_entry_days
+        self.cost_bps = self.normalized_cost_bps
         return self
 
 
@@ -89,6 +153,22 @@ class EntrySignalAnalysisArtifacts(BaseModel):
     summary_json: str
     report_md: str
     manifest_json: str
+    performance_json: str | None = None
+    event_metrics_csv: str | None = None
+    path_summary_csv: str | None = None
+    target_stop_events_csv: str | None = None
+    target_stop_summary_csv: str | None = None
+    checkpoint_events_csv: str | None = None
+    checkpoint_summary_csv: str | None = None
+    trend_feature_summary_csv: str | None = None
+    cooldown_summary_csv: str | None = None
+    alpha_summary_csv: str | None = None
+    regime_summary_csv: str | None = None
+    stability_summary_csv: str | None = None
+    signal_decay_summary_csv: str | None = None
+    execution_summary_csv: str | None = None
+    exit_rule_summary_csv: str | None = None
+    walk_forward_summary_csv: str | None = None
 
 
 class EntrySignalAnalysisDatasetManifest(BaseModel):
@@ -101,11 +181,13 @@ class EntrySignalAnalysisDatasetManifest(BaseModel):
     strategy_summary_csv: str
     summary_json: str
     report_md: str
+    performance_json: str | None = None
     entry_strategies: list[str]
     universe_size: int
     start_date: str
     end_date: str
     horizons: list[int]
+    analysis_profile: EntrySignalAnalysisProfile = "legacy"
     primary_horizon: int
     primary_horizons: list[int] = Field(default_factory=list)
     label_mode: EntrySignalLabelMode
@@ -117,6 +199,21 @@ class EntrySignalAnalysisDatasetManifest(BaseModel):
     candidate_count: int
     selected_count: int
     request: dict[str, object]
+    event_metrics_csv: str | None = None
+    path_summary_csv: str | None = None
+    target_stop_events_csv: str | None = None
+    target_stop_summary_csv: str | None = None
+    checkpoint_events_csv: str | None = None
+    checkpoint_summary_csv: str | None = None
+    trend_feature_summary_csv: str | None = None
+    cooldown_summary_csv: str | None = None
+    alpha_summary_csv: str | None = None
+    regime_summary_csv: str | None = None
+    stability_summary_csv: str | None = None
+    signal_decay_summary_csv: str | None = None
+    execution_summary_csv: str | None = None
+    exit_rule_summary_csv: str | None = None
+    walk_forward_summary_csv: str | None = None
 
 
 class EntrySignalAnalysisPrimaryStats(BaseModel):
@@ -240,6 +337,9 @@ class EntrySignalAnalysisRunSummary(BaseModel):
     strategy_count: int
     effective_entry_filter_mode: EntrySignalEntryFilterMode | None = None
     effective_entry_filter_names: list[str] = Field(default_factory=list)
+    analysis_profile: EntrySignalAnalysisProfile = "legacy"
+    priority15_warnings: list[str] = Field(default_factory=list)
+    performance: dict[str, object] = Field(default_factory=dict)
     overall: dict[str, object]
     primary_horizon_validation: EntrySignalAnalysisPrimaryHorizonValidation
     primary_horizon_validations: list[EntrySignalAnalysisPrimaryHorizonValidation] = Field(default_factory=list)
