@@ -22,7 +22,7 @@ from src.entry_signal_analysis.scanner import (
 )
 from src.entry_signal_analysis.selector import DailyEntryCandidate, select_daily_candidates
 from src.signal_generator import generate_signal_v2
-from src.utils.strategy_loader import load_strategy_pair
+from src.utils.strategy_loader import load_ranking_strategy, load_strategy_pair
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,7 @@ def scan_entry_exit_candidates(
     momentum_exhaustion_config = resolve_momentum_exhaustion_for_request(request)
     industry_filter_config = resolve_industry_filter_for_request(request)
     label_mode = request.execution_mode
+    ranker = load_ranking_strategy(request.ranking_strategy)
 
     contexts: list[EntryExitCandidateContext] = []
     total_days = len(trading_dates)
@@ -171,7 +172,7 @@ def scan_entry_exit_candidates(
                     if daily_candidates:
                         selected_records = select_daily_candidates(
                             daily_candidates,
-                            ranking_strategy_name=request.ranking_strategy,
+                            ranker=ranker,
                             tail_guard_config=tail_guard_config,
                             momentum_exhaustion_config=momentum_exhaustion_config,
                             industry_filter_config=industry_filter_config,

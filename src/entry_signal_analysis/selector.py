@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.analysis.signals import MarketData, TradingSignal
-from src.utils.strategy_loader import load_ranking_strategy
+from src.backtest.base_signal_ranker import BaseSignalRanker
 from src.utils.tail_guard import (
     count_positive_priority_scores,
     resolve_tail_guard_rank_limit,
@@ -50,7 +50,7 @@ def _build_ranking_inputs(
 
 def select_daily_candidates(
     candidates: Sequence[DailyEntryCandidate],
-    ranking_strategy_name: str,
+    ranker: BaseSignalRanker,
     tail_guard_config: Mapping[str, object] | None,
     momentum_exhaustion_config: MomentumExhaustionConfig | Mapping[str, object] | None = None,
     industry_filter_config: IndustryFilterConfig | Mapping[str, object] | None = None,
@@ -59,7 +59,6 @@ def select_daily_candidates(
         return []
 
     signals, market_data_dict = _build_ranking_inputs(candidates)
-    ranker = load_ranking_strategy(ranking_strategy_name or "default")
     ranked = ranker.rank_buy_signals(signals, market_data_dict)
     positive_rank_score_count = count_positive_priority_scores(ranked)
     tail_guard_limit = resolve_tail_guard_rank_limit(
@@ -77,7 +76,7 @@ def select_daily_candidates(
     )
 
     annotated: list[dict[str, Any]] = []
-    ranking_name = str(ranking_strategy_name or "default")
+    ranking_name = str(ranker.name)
     for candidate in candidates:
         rank, rank_score = rank_map.get(candidate.ticker, (None, None))
         exhaustion_decision = evaluate_momentum_exhaustion(

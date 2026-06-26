@@ -19,7 +19,7 @@ from src.entry_signal_analysis.runtime import (
 from src.entry_signal_analysis.selector import DailyEntryCandidate, select_daily_candidates
 from src.signal_generator import generate_signal_v2
 from src.utils.forward_returns import compute_forward_returns
-from src.utils.strategy_loader import load_entry_strategy
+from src.utils.strategy_loader import load_entry_strategy, load_ranking_strategy
 
 
 @dataclass(frozen=True)
@@ -111,7 +111,7 @@ def _build_daily_entry_candidate(
     ticker: str,
     current_date: pd.Timestamp,
     signal: TradingSignal,
-    market_data: MarketData,
+    market_data: MarketData | None,
     forward_values: dict[str, Any],
 ) -> DailyEntryCandidate:
     signal_metadata = dict(signal.metadata or {})
@@ -151,6 +151,37 @@ def _build_daily_entry_candidate(
         market_data=market_data,
         payload=payload,
     )
+
+
+def _precompute_strategy_signals(
+    *,
+    strategies: dict[str, object],
+    features_by_ticker: dict[str, pd.DataFrame],
+    scanner_metrics: dict[str, int],
+) -> dict[tuple[str, str], dict[int, TradingSignal]]:
+    precomputed: dict[tuple[str, str], dict[int, TradingSignal]] = {}
+    for strategy_name, strategy in strategies.items():
+        precompute = getattr(strategy, "precompute_entry_signals", None)
+        if not callable(precompute):
+            continue
+        for ticker, features in features_by_ticker.items():
+            scanner_metrics["strategy_precompute_count"] += 1
+            try:
+                signals_by_pos = precompute(ticker=ticker, features=features)
+            except Exception as exc:
+                scanner_metrics["strategy_precompute_failure_count"] += 1
+                print(
+                    f"[entry-signal-analysis] warning: {strategy_name} {ticker} precompute failed: {exc}"
+                )
+                continue
+            buy_signals = {
+                int(row_pos): signal
+                for row_pos, signal in signals_by_pos.items()
+                if signal.action == SignalAction.BUY
+            }
+            scanner_metrics["strategy_precomputed_buy_signal_count"] += len(buy_signals)
+            precomputed[(strategy_name, ticker)] = buy_signals
+    return precomputed
 
 
 def _collect_trading_dates(
@@ -194,8 +225,25 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
         strategy_name: load_entry_strategy(strategy_name)
         for strategy_name in request.entry_strategies
     }
+    ranker = load_ranking_strategy(request.ranking_strategy)
+    ranker_requires_market_data = bool(ranker.requires_market_data())
     for strategy_name in strategies:
         print(f"[entry-signal-analysis] scanning strategy={strategy_name}")
+
+    features_by_ticker: dict[str, pd.DataFrame] = {}
+    date_pos_by_ticker: dict[str, dict[pd.Timestamp, int]] = {}
+    trades_by_ticker: dict[str, pd.DataFrame] = {}
+    financials_by_ticker: dict[str, pd.DataFrame] = {}
+    metadata_by_ticker: dict[str, Any] = {}
+    for ticker in request.tickers:
+        features = cache.get_features(ticker)
+        if features is None or features.empty:
+            continue
+        features_by_ticker[ticker] = features
+        date_pos_by_ticker[ticker] = cache.get_date_pos_map(ticker)
+        trades_by_ticker[ticker] = cache.get_trades(ticker)
+        financials_by_ticker[ticker] = cache.get_financials(ticker)
+        metadata_by_ticker[ticker] = cache.get_metadata(ticker)
 
     records: list[dict[str, Any]] = []
     contexts: list[EntrySignalEventContext] = []
@@ -203,10 +251,20 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
         "market_data_build_count": 0,
         "filter_pass_count": 0,
         "strategy_eval_count": 0,
+        "strategy_fast_eval_count": 0,
+        "strategy_fallback_eval_count": 0,
+        "strategy_precompute_count": 0,
+        "strategy_precompute_failure_count": 0,
+        "strategy_precomputed_buy_signal_count": 0,
         "buy_signal_count": 0,
         "annotated_event_count": 0,
         "selected_event_count": 0,
     }
+    precomputed_signals = _precompute_strategy_signals(
+        strategies=strategies,
+        features_by_ticker=features_by_ticker,
+        scanner_metrics=scanner_metrics,
+    )
     total_days = len(trading_dates)
     for filter_name, filter_config in filter_variants:
         entry_filter = EntrySecondaryFilter.from_dict(filter_config)
@@ -220,41 +278,55 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
             candidate_by_strategy_ticker: dict[tuple[str, str], DailyEntryCandidate] = {}
             row_pos_by_ticker: dict[str, int] = {}
             for ticker in request.tickers:
-                features = cache.get_features(ticker)
-                if features is None or features.empty:
+                features = features_by_ticker.get(ticker)
+                if features is None:
                     continue
-                row_pos = cache.get_date_pos_map(ticker).get(current_date)
+                row_pos = date_pos_by_ticker.get(ticker, {}).get(current_date)
                 if row_pos is None:
                     continue
 
-                market_data = _build_market_data(
-                    ticker=ticker,
-                    current_date=current_date,
-                    features=features,
-                    row_pos=row_pos,
-                    trades=cache.get_trades(ticker),
-                    financials=cache.get_financials(ticker),
-                    metadata=cache.get_metadata(ticker),
-                )
-                scanner_metrics["market_data_build_count"] += 1
-                if not entry_filter.passes(market_data):
+                if not entry_filter.passes_latest(features.iloc[row_pos]):
                     continue
                 scanner_metrics["filter_pass_count"] += 1
                 row_pos_by_ticker[ticker] = row_pos
                 forward_values: dict[str, Any] | None = None
+                market_data: MarketData | None = None
+
+                def get_market_data() -> MarketData:
+                    nonlocal market_data
+                    if market_data is None:
+                        market_data = _build_market_data(
+                            ticker=ticker,
+                            current_date=current_date,
+                            features=features,
+                            row_pos=row_pos,
+                            trades=trades_by_ticker.get(ticker, pd.DataFrame()),
+                            financials=financials_by_ticker.get(ticker, pd.DataFrame()),
+                            metadata=metadata_by_ticker.get(ticker, {}),
+                        )
+                        scanner_metrics["market_data_build_count"] += 1
+                    return market_data
 
                 for strategy_name, strategy in strategies.items():
                     scanner_metrics["strategy_eval_count"] += 1
-                    try:
-                        signal = generate_signal_v2(
-                            market_data=market_data,
-                            entry_strategy=strategy,
-                        )
-                    except Exception as exc:
-                        print(
-                            f"[entry-signal-analysis] warning: {strategy_name} {ticker} {current_date.date()} failed: {exc}"
-                        )
-                        continue
+                    strategy_signals = precomputed_signals.get((strategy_name, ticker))
+                    if strategy_signals is not None:
+                        scanner_metrics["strategy_fast_eval_count"] += 1
+                        signal = strategy_signals.get(row_pos)
+                        if signal is None:
+                            continue
+                    else:
+                        scanner_metrics["strategy_fallback_eval_count"] += 1
+                        try:
+                            signal = generate_signal_v2(
+                                market_data=get_market_data(),
+                                entry_strategy=strategy,
+                            )
+                        except Exception as exc:
+                            print(
+                                f"[entry-signal-analysis] warning: {strategy_name} {ticker} {current_date.date()} failed: {exc}"
+                            )
+                            continue
 
                     if signal.action != SignalAction.BUY:
                         continue
@@ -267,6 +339,9 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
                             horizons=request.normalized_horizons,
                             label_mode=request.label_mode,
                         )
+                    candidate_market_data = (
+                        get_market_data() if ranker_requires_market_data else None
+                    )
                     candidate = _build_daily_entry_candidate(
                         request=request,
                         strategy_name=strategy_name,
@@ -274,7 +349,7 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
                         ticker=ticker,
                         current_date=current_date,
                         signal=signal,
-                        market_data=market_data,
+                        market_data=candidate_market_data,
                         forward_values=forward_values,
                     )
                     daily_candidates_by_strategy[strategy_name].append(candidate)
@@ -285,7 +360,7 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
                     continue
                 selected_records = select_daily_candidates(
                     daily_candidates,
-                    ranking_strategy_name=request.ranking_strategy,
+                    ranker=ranker,
                     tail_guard_config=tail_guard_config,
                     momentum_exhaustion_config=momentum_exhaustion_config,
                     industry_filter_config=industry_filter_config,

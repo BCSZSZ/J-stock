@@ -42,6 +42,7 @@ def test_run_entry_signal_analysis_writes_artifacts(tmp_path, monkeypatch) -> No
         tickers=["7203", "6758"],
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 31),
+        analysis_profile="legacy",
         horizons=[1, 3, 5],
         output_dir=str(tmp_path),
     )
@@ -97,6 +98,7 @@ def test_run_entry_signal_analysis_handles_empty_candidate_results(tmp_path, mon
         tickers=["7203"],
         start_date=date(2026, 1, 1),
         end_date=date(2026, 1, 31),
+        analysis_profile="legacy",
         horizons=[1, 3, 5],
         output_dir=str(tmp_path),
     )
@@ -114,6 +116,65 @@ def test_run_entry_signal_analysis_handles_empty_candidate_results(tmp_path, mon
     assert summary.top_daily_windows_by_horizon[0].windows == []
     assert Path(summary.artifacts.summary_json).exists()
     assert Path(summary.artifacts.manifest_json).exists()
+
+
+def test_run_entry_signal_analysis_priority15_compacts_core_outputs(tmp_path, monkeypatch) -> None:
+    import src.entry_signal_analysis.runner as runner
+
+    candidates = pd.DataFrame(
+        {
+            "entry_strategy": ["FakeEntry", "FakeEntry"],
+            "entry_filter_name": ["production", "production"],
+            "signal_date": ["2026-01-05", "2026-01-06"],
+            "entry_date": ["2026-01-06", "2026-01-07"],
+            "entry_price": [100.0, 110.0],
+            "ticker": ["7203", "6758"],
+            "selected": [True, True],
+            "rank": [1, 1],
+            "rank_score": [2.0, 1.0],
+            "positive_rank_score": [True, True],
+            "tail_guard_limit": [12, 12],
+            "forward_return_5d_pct": [2.0, -1.0],
+            "forward_diff_5d": [2.0, -1.0],
+            "very_wide_priority15_only_column": ["x" * 100, "y" * 100],
+        }
+    )
+    monkeypatch.setattr(runner, "scan_entry_signal_candidates", lambda _request: candidates)
+    monkeypatch.setattr(
+        runner,
+        "resolve_effective_entry_filter_for_request",
+        lambda _request: ("off", ["production"]),
+    )
+    monkeypatch.setattr(runner, "_load_topix_benchmark_frame", lambda _data_root: None)
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["FakeEntry"],
+        tickers=["7203", "6758"],
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        horizons=[5],
+        primary_horizon=5,
+        output_dir=str(tmp_path),
+    )
+
+    summary = run_entry_signal_analysis(request)
+
+    candidates_text = Path(summary.artifacts.candidates_csv).read_text(encoding="utf-8-sig")
+    selected_text = Path(summary.artifacts.selected_csv).read_text(encoding="utf-8-sig")
+    assert "very_wide_priority15_only_column" not in candidates_text
+    assert "very_wide_priority15_only_column" not in selected_text
+    assert "forward_return_5d_pct" in candidates_text
+    assert summary.performance["row_counts"]["daily_summary"] == 0
+    assert summary.performance["row_counts"]["strategy_summary"] == 1
+    assert "5d" in summary.overall
+    assert any(
+        item["name"] == "build_legacy_summaries" and item["behavior"] == "priority15_minimal"
+        for item in summary.performance["stages"]
+    )
+    assert any(
+        item["name"] == "write_core_csv" and item["behavior"] == "priority15_compact"
+        for item in summary.performance["stages"]
+    )
 
 
 def test_run_entry_signal_analysis_includes_primary_horizon_validation(tmp_path, monkeypatch) -> None:

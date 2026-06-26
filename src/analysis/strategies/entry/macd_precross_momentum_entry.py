@@ -536,63 +536,14 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
                 exit_strategy.__class__.__name__,
             )
 
-    def generate_entry_signal(self, market_data: MarketData) -> TradingSignal:
-        df = market_data.df_features
-        min_rows = max(self.hist_rise_days, self.price_rise_days)
-
-        if len(df) < min_rows:
-            return TradingSignal(
-                action=SignalAction.HOLD,
-                confidence=0.0,
-                reasons=["Insufficient data"],
-                strategy_name=self.strategy_name,
-            )
-
-        if "Close" not in df.columns or "MACD_Hist" not in df.columns:
-            return TradingSignal(
-                action=SignalAction.HOLD,
-                confidence=0.0,
-                reasons=["Missing required indicators"],
-                strategy_name=self.strategy_name,
-            )
-
-        previous_state = self._latest_flag_state_by_ticker.get(market_data.ticker)
-        previous_raw_signal = None
-        previous_streak_days = None
-        if previous_state is not None:
-            previous_len = int(previous_state.get("row_count", 0))
-            previous_date = previous_state.get("last_date")
-            if previous_len == len(df) - 1 and len(df) >= 2 and previous_date == df.index[-2]:
-                previous_raw_signal = bool(previous_state.get("raw_entry_signal", False))
-                previous_streak_days = int(previous_state.get("buy_signal_streak_days", 0))
-            else:
-                self._latest_flag_state_by_ticker.pop(market_data.ticker, None)
-
-        latest_flags = _latest_precross_momentum_flags(
-            df,
-            hist_rise_days=self.hist_rise_days,
-            price_rise_days=self.price_rise_days,
-            require_price_rising=self.require_price_rising,
-            require_hist_below_zero=self.require_hist_below_zero,
-            max_hist_abs_norm=self.max_hist_abs_norm,
-            min_hist_delta_norm=self.min_hist_delta_norm,
-            require_above_ema200=self.require_above_ema200,
-            require_peak_at_window_start=self.require_peak_at_window_start,
-            max_gap_above_ema20_pct=self.max_gap_above_ema20_pct,
-            max_return_5d=self.max_return_5d,
-            min_adx_14=self.min_adx_14,
-            max_bias_pct=self.max_bias_pct,
-            max_buy_signal_streak_days=self.max_buy_signal_streak_days,
-            previous_raw_signal=previous_raw_signal,
-            previous_streak_days=previous_streak_days,
-        )
-        self._latest_flag_state_by_ticker[market_data.ticker] = {
-            "row_count": len(df),
-            "last_date": df.index[-1],
-            "raw_entry_signal": bool(latest_flags.get("raw_entry_signal", False)),
-            "buy_signal_streak_days": int(latest_flags.get("buy_signal_streak_days", 0)),
-        }
-        latest = df.iloc[-1]
+    def _build_signal_from_flags(
+        self,
+        df: pd.DataFrame,
+        row_pos: int,
+        latest_flags,
+    ) -> TradingSignal:
+        latest = df.iloc[row_pos]
+        previous = df.iloc[row_pos - 1] if row_pos > 0 else latest
 
         entry_stage = "NONE"
         if bool(latest_flags["signal"]):
@@ -624,11 +575,11 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             "is_fresh_buy_signal": bool(latest_flags.get("is_fresh_buy_signal", False)),
             "stale_buy_signal": bool(latest_flags.get("stale_buy_signal", False)),
             "macd_hist": float(pd.to_numeric(latest.get("MACD_Hist"), errors="coerce")),
-            "macd_hist_prev": float(pd.to_numeric(df.iloc[-2].get("MACD_Hist"), errors="coerce")),
+            "macd_hist_prev": float(pd.to_numeric(previous.get("MACD_Hist"), errors="coerce")),
             "macd": float(pd.to_numeric(latest.get("MACD"), errors="coerce")),
             "macd_signal": float(pd.to_numeric(latest.get("MACD_Signal"), errors="coerce")),
             "close": float(pd.to_numeric(latest.get("Close"), errors="coerce")),
-            "close_prev": float(pd.to_numeric(df.iloc[-2].get("Close"), errors="coerce")),
+            "close_prev": float(pd.to_numeric(previous.get("Close"), errors="coerce")),
             "hist_abs_norm": float(pd.to_numeric(latest_flags.get("hist_abs_norm"), errors="coerce")),
             "hist_delta_norm": float(pd.to_numeric(latest_flags.get("hist_delta_norm"), errors="coerce")),
             "above_ema200": bool(latest_flags.get("above_ema200", False)),
@@ -737,6 +688,110 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
             metadata=metadata,
             strategy_name=self.strategy_name,
         )
+
+    def precompute_entry_signals(
+        self,
+        *,
+        ticker: str,
+        features: pd.DataFrame,
+    ) -> dict[int, TradingSignal]:
+        min_rows = max(self.hist_rise_days, self.price_rise_days)
+        if len(features) < min_rows:
+            return {}
+        if "Close" not in features.columns or "MACD_Hist" not in features.columns:
+            return {}
+
+        flags = build_precross_momentum_flags(
+            features,
+            hist_rise_days=self.hist_rise_days,
+            price_rise_days=self.price_rise_days,
+            require_price_rising=self.require_price_rising,
+            require_hist_below_zero=self.require_hist_below_zero,
+            max_hist_abs_norm=self.max_hist_abs_norm,
+            min_hist_delta_norm=self.min_hist_delta_norm,
+            require_above_ema200=self.require_above_ema200,
+            require_peak_at_window_start=self.require_peak_at_window_start,
+            max_gap_above_ema20_pct=self.max_gap_above_ema20_pct,
+            max_return_5d=self.max_return_5d,
+            min_adx_14=self.min_adx_14,
+            max_bias_pct=self.max_bias_pct,
+            max_buy_signal_streak_days=self.max_buy_signal_streak_days,
+        )
+        if "SMA_25" in features.columns:
+            bias_reference = "SMA_25"
+        elif "SMA_20" in features.columns:
+            bias_reference = "SMA_20"
+        else:
+            bias_reference = None
+        signal_mask = flags["signal"].fillna(False).to_numpy(dtype=bool)
+        signals: dict[int, TradingSignal] = {}
+        for row_pos in np.flatnonzero(signal_mask):
+            if row_pos < min_rows - 1:
+                continue
+            latest_flags = flags.iloc[int(row_pos)].copy()
+            latest_flags["bias_reference"] = bias_reference
+            signal = self._build_signal_from_flags(features, int(row_pos), latest_flags)
+            if signal.action == SignalAction.BUY:
+                signals[int(row_pos)] = signal
+        return signals
+
+    def generate_entry_signal(self, market_data: MarketData) -> TradingSignal:
+        df = market_data.df_features
+        min_rows = max(self.hist_rise_days, self.price_rise_days)
+
+        if len(df) < min_rows:
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Insufficient data"],
+                strategy_name=self.strategy_name,
+            )
+
+        if "Close" not in df.columns or "MACD_Hist" not in df.columns:
+            return TradingSignal(
+                action=SignalAction.HOLD,
+                confidence=0.0,
+                reasons=["Missing required indicators"],
+                strategy_name=self.strategy_name,
+            )
+
+        previous_state = self._latest_flag_state_by_ticker.get(market_data.ticker)
+        previous_raw_signal = None
+        previous_streak_days = None
+        if previous_state is not None:
+            previous_len = int(previous_state.get("row_count", 0))
+            previous_date = previous_state.get("last_date")
+            if previous_len == len(df) - 1 and len(df) >= 2 and previous_date == df.index[-2]:
+                previous_raw_signal = bool(previous_state.get("raw_entry_signal", False))
+                previous_streak_days = int(previous_state.get("buy_signal_streak_days", 0))
+            else:
+                self._latest_flag_state_by_ticker.pop(market_data.ticker, None)
+
+        latest_flags = _latest_precross_momentum_flags(
+            df,
+            hist_rise_days=self.hist_rise_days,
+            price_rise_days=self.price_rise_days,
+            require_price_rising=self.require_price_rising,
+            require_hist_below_zero=self.require_hist_below_zero,
+            max_hist_abs_norm=self.max_hist_abs_norm,
+            min_hist_delta_norm=self.min_hist_delta_norm,
+            require_above_ema200=self.require_above_ema200,
+            require_peak_at_window_start=self.require_peak_at_window_start,
+            max_gap_above_ema20_pct=self.max_gap_above_ema20_pct,
+            max_return_5d=self.max_return_5d,
+            min_adx_14=self.min_adx_14,
+            max_bias_pct=self.max_bias_pct,
+            max_buy_signal_streak_days=self.max_buy_signal_streak_days,
+            previous_raw_signal=previous_raw_signal,
+            previous_streak_days=previous_streak_days,
+        )
+        self._latest_flag_state_by_ticker[market_data.ticker] = {
+            "row_count": len(df),
+            "last_date": df.index[-1],
+            "raw_entry_signal": bool(latest_flags.get("raw_entry_signal", False)),
+            "buy_signal_streak_days": int(latest_flags.get("buy_signal_streak_days", 0)),
+        }
+        return self._build_signal_from_flags(df, len(df) - 1, latest_flags)
 
 
 class MACDPreCross2BarEntry(MACDPreCrossMomentumEntry):

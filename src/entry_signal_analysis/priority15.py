@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 from src.entry_signal_analysis.models import EntrySignalAnalysisRequest
@@ -17,7 +18,6 @@ from src.entry_signal_analysis.summary import (
     _build_market_regime_lookup,
     _build_primary_stats_from_series,
 )
-from src.utils.forward_returns import compute_forward_returns
 from src.utils.industry_filter import (
     DEFAULT_INDUSTRY_REFERENCE_FILE,
     get_industry_name,
@@ -67,6 +67,84 @@ def _json_dumps(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
+@dataclass(frozen=True)
+class _FeatureView:
+    frame: pd.DataFrame
+    date_labels: tuple[str, ...]
+    numeric_columns: dict[str, np.ndarray]
+
+    @classmethod
+    def from_frame(cls, frame: pd.DataFrame) -> "_FeatureView":
+        numeric_columns: dict[str, np.ndarray] = {}
+        for column in frame.columns:
+            series = pd.to_numeric(frame[column], errors="coerce")
+            if series.notna().any():
+                numeric_columns[str(column)] = series.to_numpy(dtype="float64")
+        return cls(
+            frame=frame,
+            date_labels=tuple(pd.Timestamp(value).date().isoformat() for value in frame.index),
+            numeric_columns=numeric_columns,
+        )
+
+    def __len__(self) -> int:
+        return len(self.frame)
+
+    def has_column(self, column: str) -> bool:
+        return column in self.numeric_columns
+
+    def price_at(self, row_pos: int, column: str) -> float | None:
+        if row_pos < 0 or row_pos >= len(self):
+            return None
+        values = self.numeric_columns.get(column)
+        if values is None:
+            return None
+        value = float(values[row_pos])
+        return value if math.isfinite(value) else None
+
+    def date_at(self, row_pos: int) -> str | None:
+        if row_pos < 0 or row_pos >= len(self.date_labels):
+            return None
+        return self.date_labels[row_pos]
+
+    def nanmean(self, column: str, start_pos: int, end_pos: int) -> float | None:
+        values = self.numeric_columns.get(column)
+        if values is None:
+            return None
+        start = max(0, start_pos)
+        end = min(len(values) - 1, end_pos)
+        if start > end:
+            return None
+        subset = values[start : end + 1]
+        if np.isnan(subset).all():
+            return None
+        value = float(np.nanmean(subset))
+        return value if math.isfinite(value) else None
+
+    def window(self, column: str, start_pos: int, end_pos: int) -> np.ndarray:
+        values = self.numeric_columns.get(column)
+        if values is None:
+            return np.array([], dtype="float64")
+        start = max(0, start_pos)
+        end = min(len(values) - 1, end_pos)
+        if start > end:
+            return np.array([], dtype="float64")
+        return values[start : end + 1]
+
+    def forward_return_pct(
+        self,
+        *,
+        signal_pos: int,
+        horizon: int,
+        label_mode: str,
+    ) -> float | None:
+        if label_mode == "next_open":
+            entry_price = self.price_at(signal_pos + 1, "Open")
+        else:
+            entry_price = self.price_at(signal_pos, "Close")
+        target_price = self.price_at(signal_pos + int(horizon), "Close")
+        return _return_pct(target_price, entry_price)
+
+
 def _log_priority15_stage(name: str, started_at: float, rows: int | None = None) -> None:
     rows_text = "" if rows is None else f" rows={rows}"
     print(
@@ -106,13 +184,27 @@ def _numeric_median(frame: pd.DataFrame, column: str) -> float | None:
     return _to_float(pd.to_numeric(frame[column], errors="coerce").median())
 
 
-def _price_at(frame: pd.DataFrame, row_pos: int, column: str) -> float | None:
+def _frame_len(frame: pd.DataFrame | _FeatureView) -> int:
+    return len(frame)
+
+
+def _has_column(frame: pd.DataFrame | _FeatureView, column: str) -> bool:
+    if isinstance(frame, _FeatureView):
+        return frame.has_column(column)
+    return column in frame.columns
+
+
+def _price_at(frame: pd.DataFrame | _FeatureView, row_pos: int, column: str) -> float | None:
+    if isinstance(frame, _FeatureView):
+        return frame.price_at(row_pos, column)
     if row_pos < 0 or row_pos >= len(frame) or column not in frame.columns:
         return None
     return _to_float(frame.iloc[row_pos].get(column))
 
 
-def _date_at(frame: pd.DataFrame, row_pos: int) -> str | None:
+def _date_at(frame: pd.DataFrame | _FeatureView, row_pos: int) -> str | None:
+    if isinstance(frame, _FeatureView):
+        return frame.date_at(row_pos)
     if row_pos < 0 or row_pos >= len(frame):
         return None
     return pd.Timestamp(frame.index[row_pos]).date().isoformat()
@@ -174,8 +266,8 @@ def _context_maps(
     return by_event_id, by_key
 
 
-def _find_context(
-    row: pd.Series,
+def _find_context_from_values(
+    row: dict[str, object],
     by_event_id: dict[str, EntrySignalEventContext],
     by_key: dict[tuple[str, str, str, str], EntrySignalEventContext],
 ) -> EntrySignalEventContext | None:
@@ -199,24 +291,29 @@ def _latest_existing_column(frame: pd.DataFrame, names: Iterable[str]) -> str | 
     return None
 
 
-def _snapshot_row(frame: pd.DataFrame, row_pos: int) -> pd.Series | None:
+def _snapshot_row(frame: pd.DataFrame | _FeatureView, row_pos: int) -> pd.Series | None:
+    if isinstance(frame, _FeatureView):
+        frame = frame.frame
     if row_pos < 0 or row_pos >= len(frame):
         return None
     return frame.iloc[row_pos]
 
 
-def _volume_ratio(frame: pd.DataFrame, row_pos: int) -> float | None:
+def _volume_ratio(frame: pd.DataFrame | _FeatureView, row_pos: int) -> float | None:
     volume = _price_at(frame, row_pos, "Volume")
     average = _price_at(frame, row_pos, "Volume_SMA_20")
-    if average is None and "Volume" in frame.columns and row_pos >= 0:
+    if average is None and _has_column(frame, "Volume") and row_pos >= 0:
         start = max(0, row_pos - 19)
-        average = _to_float(pd.to_numeric(frame["Volume"].iloc[start : row_pos + 1], errors="coerce").mean())
+        if isinstance(frame, _FeatureView):
+            average = frame.nanmean("Volume", start, row_pos)
+        else:
+            average = _to_float(pd.to_numeric(frame["Volume"].iloc[start : row_pos + 1], errors="coerce").mean())
     if volume is None or average is None or average <= 0:
         return None
     return volume / average
 
 
-def _turnover(frame: pd.DataFrame, row_pos: int) -> float | None:
+def _turnover(frame: pd.DataFrame | _FeatureView, row_pos: int) -> float | None:
     turnover = _price_at(frame, row_pos, "Turnover_Median_20")
     if turnover is not None:
         return turnover
@@ -230,7 +327,7 @@ def _turnover(frame: pd.DataFrame, row_pos: int) -> float | None:
     return close * volume
 
 
-def _ma_slope(frame: pd.DataFrame, row_pos: int, column: str, lookback: int = 5) -> float | None:
+def _ma_slope(frame: pd.DataFrame | _FeatureView, row_pos: int, column: str, lookback: int = 5) -> float | None:
     current = _price_at(frame, row_pos, column)
     prior = _price_at(frame, row_pos - lookback, column)
     if current is None or prior is None or prior == 0:
@@ -241,23 +338,22 @@ def _ma_slope(frame: pd.DataFrame, row_pos: int, column: str, lookback: int = 5)
 def _append_trend_snapshot(
     values: dict[str, object],
     *,
-    frame: pd.DataFrame,
+    frame: pd.DataFrame | _FeatureView,
     row_pos: int,
     prefix: str,
     entry_price: float | None,
     entry_bb_width: float | None,
 ) -> None:
-    snapshot = _snapshot_row(frame, row_pos)
-    if snapshot is None:
+    if row_pos < 0 or row_pos >= _frame_len(frame):
         values[f"{prefix}_feature_available"] = False
         return
 
     values[f"{prefix}_feature_available"] = True
-    close = _to_float(snapshot.get("Close"))
+    close = _price_at(frame, row_pos, "Close")
     values[f"{prefix}_close"] = close
     for period in (20, 50, 200):
         column = f"EMA_{period}"
-        ma_value = _to_float(snapshot.get(column))
+        ma_value = _price_at(frame, row_pos, column)
         values[f"{prefix}_close_above_ma{period}"] = (
             None if close is None or ma_value is None else close > ma_value
         )
@@ -266,22 +362,22 @@ def _append_trend_snapshot(
         )
         values[f"{prefix}_ma{period}_slope_5d_pct"] = _ma_slope(frame, row_pos, column)
 
-    ema20 = _to_float(snapshot.get("EMA_20"))
-    ema50 = _to_float(snapshot.get("EMA_50"))
-    ema200 = _to_float(snapshot.get("EMA_200"))
+    ema20 = _price_at(frame, row_pos, "EMA_20")
+    ema50 = _price_at(frame, row_pos, "EMA_50")
+    ema200 = _price_at(frame, row_pos, "EMA_200")
     values[f"{prefix}_ma_bull_stack"] = (
         None
         if close is None or ema20 is None or ema50 is None or ema200 is None
         else close > ema20 > ema50 > ema200
     )
     values[f"{prefix}_volume_ratio"] = _volume_ratio(frame, row_pos)
-    values[f"{prefix}_atr_ratio"] = _to_float(snapshot.get("ATR_Ratio"))
-    values[f"{prefix}_rsi"] = _to_float(snapshot.get("RSI"))
-    values[f"{prefix}_adx_14"] = _to_float(snapshot.get("ADX_14"))
+    values[f"{prefix}_atr_ratio"] = _price_at(frame, row_pos, "ATR_Ratio")
+    values[f"{prefix}_rsi"] = _price_at(frame, row_pos, "RSI")
+    values[f"{prefix}_adx_14"] = _price_at(frame, row_pos, "ADX_14")
 
-    span_a = _to_float(snapshot.get("Ichi_SpanA"))
-    span_b = _to_float(snapshot.get("Ichi_SpanB"))
-    kijun = _to_float(snapshot.get("Ichi_Kijun"))
+    span_a = _price_at(frame, row_pos, "Ichi_SpanA")
+    span_b = _price_at(frame, row_pos, "Ichi_SpanB")
+    kijun = _price_at(frame, row_pos, "Ichi_Kijun")
     cloud_top = max(span_a, span_b) if span_a is not None and span_b is not None else None
     values[f"{prefix}_ichimoku_above_cloud"] = (
         None if close is None or cloud_top is None else close > cloud_top
@@ -293,7 +389,7 @@ def _append_trend_snapshot(
         None if close is None or kijun in (None, 0) else (close / kijun - 1.0) * 100.0
     )
 
-    bb_width = _to_float(snapshot.get("BB_Width"))
+    bb_width = _price_at(frame, row_pos, "BB_Width")
     values[f"{prefix}_bb_width"] = bb_width
     values[f"{prefix}_bb_expansion_from_entry_pct"] = (
         None
@@ -304,7 +400,7 @@ def _append_trend_snapshot(
 
 
 def _path_metrics_for_horizon(
-    frame: pd.DataFrame,
+    frame: pd.DataFrame | _FeatureView,
     *,
     signal_pos: int,
     entry_pos: int,
@@ -335,6 +431,58 @@ def _path_metrics_for_horizon(
             f"days_underwater_{prefix}": None,
             f"profit_giveback_{prefix}_pct": None,
             f"MFE_capture_ratio_{prefix}": None,
+        }
+
+    if isinstance(frame, _FeatureView):
+        high_values = frame.window("High", start_pos, end_pos)
+        low_values = frame.window("Low", start_pos, end_pos)
+        close_values = frame.window("Close", start_pos, end_pos)
+        if high_values.size == 0:
+            high_values = close_values
+        if low_values.size == 0:
+            low_values = close_values
+        if high_values.size == 0 and low_values.size == 0:
+            return {
+                f"MFE_{prefix}_pct": None,
+                f"MAE_{prefix}_pct": None,
+                f"time_to_MFE_{prefix}": None,
+                f"time_to_MAE_{prefix}": None,
+                f"days_underwater_{prefix}": None,
+                f"profit_giveback_{prefix}_pct": None,
+                f"MFE_capture_ratio_{prefix}": None,
+            }
+        mfe_values = (high_values / entry_price - 1.0) * 100.0
+        mae_values = (low_values / entry_price - 1.0) * 100.0
+        mfe = None if mfe_values.size == 0 or np.isnan(mfe_values).all() else float(np.nanmax(mfe_values))
+        mae = None if mae_values.size == 0 or np.isnan(mae_values).all() else float(np.nanmin(mae_values))
+        forward_return = _return_pct(frame.price_at(signal_pos + int(horizon), "Close"), entry_price)
+        days_underwater = (
+            None
+            if close_values.size == 0 or np.isnan(close_values).all()
+            else int(np.nansum(close_values < entry_price))
+        )
+        return {
+            f"MFE_{prefix}_pct": mfe,
+            f"MAE_{prefix}_pct": mae,
+            f"time_to_MFE_{prefix}": (
+                int(np.nanargmax(mfe_values) + 1)
+                if mfe is not None and mfe_values.size > 0
+                else None
+            ),
+            f"time_to_MAE_{prefix}": (
+                int(np.nanargmin(mae_values) + 1)
+                if mae is not None and mae_values.size > 0
+                else None
+            ),
+            f"days_underwater_{prefix}": days_underwater,
+            f"profit_giveback_{prefix}_pct": (
+                None if mfe is None or forward_return is None else mfe - forward_return
+            ),
+            f"MFE_capture_ratio_{prefix}": (
+                None
+                if mfe is None or mfe <= 0 or forward_return is None
+                else forward_return / mfe
+            ),
         }
 
     window = frame.iloc[start_pos : end_pos + 1]
@@ -485,10 +633,11 @@ def _universe_forward_medians(
     medians: dict[tuple[str, int], float | None] = {}
     unique_dates = sorted({str(value) for value in signal_dates})
     total_dates = len(unique_dates)
-    feature_by_ticker = {
-        ticker: scan_result.cache.get_features(ticker)
-        for ticker in request.tickers
-    }
+    feature_by_ticker = {}
+    for ticker in request.tickers:
+        features = scan_result.cache.get_features(ticker)
+        if features is not None and not features.empty:
+            feature_by_ticker[ticker] = _FeatureView.from_frame(features)
     date_pos_by_ticker = {
         ticker: scan_result.cache.get_date_pos_map(ticker)
         for ticker in request.tickers
@@ -497,20 +646,18 @@ def _universe_forward_medians(
         ts = pd.Timestamp(signal_date).normalize()
         values_by_horizon: dict[int, list[float]] = {h: [] for h in request.normalized_horizons}
         for ticker in request.tickers:
-            features = feature_by_ticker.get(ticker)
-            if features is None or features.empty:
+            feature_view = feature_by_ticker.get(ticker)
+            if feature_view is None:
                 continue
             signal_pos = date_pos_by_ticker.get(ticker, {}).get(ts)
             if signal_pos is None:
                 continue
-            forward = compute_forward_returns(
-                features=features,
-                signal_pos=signal_pos,
-                horizons=request.normalized_horizons,
-                label_mode=request.label_mode,
-            )
             for horizon in request.normalized_horizons:
-                value = _to_float(forward.get(f"forward_return_{horizon}d_pct"))
+                value = feature_view.forward_return_pct(
+                    signal_pos=signal_pos,
+                    horizon=horizon,
+                    label_mode=request.label_mode,
+                )
                 if value is not None:
                     values_by_horizon[horizon].append(value)
         for horizon, values in values_by_horizon.items():
@@ -558,19 +705,21 @@ def _build_event_metrics(
 
     by_event_id, by_key = _context_maps(scan_result.event_contexts)
     reference_file = request.industry_reference_file or DEFAULT_INDUSTRY_REFERENCE_FILE
-    feature_by_ticker = {
-        context.ticker: scan_result.cache.get_features(context.ticker)
-        for context in scan_result.event_contexts
-    }
+    feature_by_ticker: dict[str, _FeatureView] = {}
+    for context in scan_result.event_contexts:
+        if context.ticker in feature_by_ticker:
+            continue
+        features = scan_result.cache.get_features(context.ticker)
+        if features is not None and not features.empty:
+            feature_by_ticker[context.ticker] = _FeatureView.from_frame(features)
     sector_by_ticker: dict[str, object] = {}
     enriched_rows: list[dict[str, object]] = []
     total_events = int(len(event_metrics))
 
-    for row_index, (_, row) in enumerate(event_metrics.iterrows(), start=1):
-        values = row.to_dict()
+    for row_index, values in enumerate(event_metrics.to_dict(orient="records"), start=1):
         values["reasons_json"] = _json_dumps(values.get("reasons", []))
         values["signal_metadata_json"] = _json_dumps(values.get("signal_metadata", {}))
-        context = _find_context(row, by_event_id, by_key)
+        context = _find_context_from_values(values, by_event_id, by_key)
         if context is None:
             enriched_rows.append(values)
             if row_index % 5000 == 0 or row_index == total_events:
@@ -578,7 +727,7 @@ def _build_event_metrics(
             continue
 
         features = feature_by_ticker.get(context.ticker)
-        if features is None or features.empty:
+        if features is None:
             warnings.append(f"missing features for event {values.get('event_id')}")
             enriched_rows.append(values)
             if row_index % 5000 == 0 or row_index == total_events:

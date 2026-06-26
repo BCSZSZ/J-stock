@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.analysis.signals import MarketData, SignalAction, TradingSignal
 from src.entry_signal_analysis.selector import DailyEntryCandidate, select_daily_candidates
+from src.utils.strategy_loader import load_ranking_strategy
 
 
 def _market_data(closes: list[float]) -> MarketData:
@@ -54,7 +55,7 @@ def test_select_daily_candidates_uses_tail_guard_base_rank_limit() -> None:
 
     result = select_daily_candidates(
         candidates,
-        ranking_strategy_name="score_only",
+        ranker=load_ranking_strategy("score_only"),
         tail_guard_config={"enabled": True, "max_rank": 2},
     )
 
@@ -76,7 +77,7 @@ def test_select_daily_candidates_extends_limit_for_positive_rank_scores() -> Non
 
     result = select_daily_candidates(
         candidates,
-        ranking_strategy_name="score_only",
+        ranker=load_ranking_strategy("score_only"),
         tail_guard_config={"enabled": True, "max_rank": 1},
     )
 
@@ -93,7 +94,7 @@ def test_select_daily_candidates_supports_momentum_ranking() -> None:
 
     result = select_daily_candidates(
         candidates,
-        ranking_strategy_name="momentum",
+        ranker=load_ranking_strategy("momentum"),
         tail_guard_config={"enabled": True, "max_rank": 1},
     )
 
@@ -111,7 +112,7 @@ def test_select_daily_candidates_supports_min_tail_guard_rank_limit() -> None:
 
     result = select_daily_candidates(
         candidates,
-        ranking_strategy_name="score_only",
+        ranker=load_ranking_strategy("score_only"),
         tail_guard_config={"enabled": True, "max_rank": 2, "rank_limit_mode": "min"},
     )
 
@@ -133,7 +134,7 @@ def test_select_daily_candidates_enforces_momentum_exhaustion_filter() -> None:
 
     result = select_daily_candidates(
         candidates,
-        ranking_strategy_name="score_only",
+        ranker=load_ranking_strategy("score_only"),
         tail_guard_config={"enabled": False},
         momentum_exhaustion_config={"mode": "enforce", "max_score": 4.0},
     )
@@ -154,7 +155,7 @@ def test_select_daily_candidates_shadows_momentum_exhaustion_filter() -> None:
 
     result = select_daily_candidates(
         candidates,
-        ranking_strategy_name="score_only",
+        ranker=load_ranking_strategy("score_only"),
         tail_guard_config={"enabled": False},
         momentum_exhaustion_config={"mode": "shadow", "max_score": 4.0},
     )
@@ -186,7 +187,7 @@ def test_select_daily_candidates_enforces_industry_filter(tmp_path) -> None:
 
     result = select_daily_candidates(
         candidates,
-        ranking_strategy_name="score_only",
+        ranker=load_ranking_strategy("score_only"),
         tail_guard_config={"enabled": False},
         industry_filter_config={
             "mode": "enforce",
@@ -223,7 +224,7 @@ def test_select_daily_candidates_shadows_industry_filter(tmp_path) -> None:
 
     result = select_daily_candidates(
         candidates,
-        ranking_strategy_name="score_only",
+        ranker=load_ranking_strategy("score_only"),
         tail_guard_config={"enabled": False},
         industry_filter_config={
             "mode": "shadow",

@@ -683,6 +683,36 @@ def test_min_hist_delta_norm_allows_meaningful_histogram_rise():
     assert "Histogram rise >= 0.0005" in sig.reasons
 
 
+def test_precomputed_signals_match_incremental_generate_buy_rows():
+    df = pd.DataFrame(
+        {
+            "Close": [100.0, 102.0, 104.0, 103.0, 105.0],
+            "MACD_Hist": [-0.50, -0.20, -0.08, -0.12, -0.04],
+            "MACD": [-0.60, -0.35, -0.18, -0.20, -0.10],
+            "MACD_Signal": [-0.55, -0.32, -0.16, -0.18, -0.08],
+        },
+        index=pd.bdate_range("2026-01-05", periods=5),
+    )
+    incremental = MACDPreCross2BarMinHistDeltaNorm0005Entry()
+    generated: dict[int, object] = {}
+    for row_pos in range(len(df)):
+        signal = incremental.generate_entry_signal(_mk_market_data(df.iloc[: row_pos + 1]))
+        if signal.action == SignalAction.BUY:
+            generated[row_pos] = signal
+
+    batch = MACDPreCross2BarMinHistDeltaNorm0005Entry()
+    precomputed = batch.precompute_entry_signals(ticker="0000", features=df)
+
+    assert set(precomputed) == set(generated)
+    for row_pos, signal in generated.items():
+        batch_signal = precomputed[row_pos]
+        assert batch_signal.confidence == signal.confidence
+        assert batch_signal.reasons == signal.reasons
+        assert batch_signal.metadata["entry_stage"] == signal.metadata["entry_stage"]
+        assert batch_signal.metadata["buy_signal_streak_days"] == signal.metadata["buy_signal_streak_days"]
+        assert batch_signal.metadata["hist_delta_norm"] == signal.metadata["hist_delta_norm"]
+
+
 def test_latest_precross_flags_match_batch_flags_for_latest_row():
     df = pd.DataFrame(
         {

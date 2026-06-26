@@ -184,6 +184,53 @@ def _record_artifact_sizes(
     performance["artifact_sizes_bytes"] = artifact_sizes
 
 
+def _minimal_overall_summary(frame: pd.DataFrame) -> dict[str, object]:
+    selected = frame[frame["selected"] == True] if not frame.empty and "selected" in frame.columns else frame  # noqa: E712
+    return {
+        "candidate_count": int(len(frame)),
+        "selected_count": int(len(selected)),
+        "trading_day_count": int(frame["signal_date"].nunique()) if not frame.empty and "signal_date" in frame.columns else 0,
+    }
+
+
+def _compact_core_csv_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    stable_columns = [
+        "event_id",
+        "entry_strategy",
+        "entry_filter_name",
+        "ticker",
+        "signal_date",
+        "entry_date",
+        "entry_price",
+        "selected",
+        "rank",
+        "rank_score",
+        "confidence",
+        "score",
+        "positive_rank_score",
+        "positive_rank_score_count",
+        "tail_guard_limit",
+        "ranking_strategy",
+        "sector",
+        "market_regime",
+    ]
+    dynamic_prefixes = (
+        "forward_return_",
+        "forward_diff_",
+        "forward_missing_",
+        "forward_date_",
+        "forward_price_",
+    )
+    columns = [
+        column
+        for column in frame.columns
+        if column in stable_columns or any(str(column).startswith(prefix) for prefix in dynamic_prefixes)
+    ]
+    return frame.loc[:, columns].copy()
+
+
 def _write_performance_json(path: Path, performance: dict[str, object]) -> None:
     path.write_text(
         json.dumps(performance, ensure_ascii=False, indent=2, default=str),
@@ -652,10 +699,24 @@ def run_entry_signal_analysis(
 
     stage_started_at = time.perf_counter()
     selected = candidates[candidates["selected"] == True].copy() if not candidates.empty else pd.DataFrame()  # noqa: E712
-    daily_summary = build_daily_summary(candidates, request.normalized_horizons)
-    strategy_summary = build_strategy_summary(candidates, request.normalized_horizons)
-    overall = build_overall_summary(candidates, request.normalized_horizons)
-    _record_stage(performance, "build_legacy_summaries", stage_started_at)
+    if request.analysis_profile == "legacy":
+        legacy_horizons = request.normalized_horizons
+        daily_summary = build_daily_summary(candidates, legacy_horizons)
+        strategy_summary = build_strategy_summary(candidates, legacy_horizons)
+        overall = build_overall_summary(candidates, legacy_horizons)
+        legacy_summary_behavior = "legacy_full"
+    elif not candidates.empty:
+        legacy_horizons = request.normalized_primary_horizons
+        daily_summary = pd.DataFrame()
+        strategy_summary = build_strategy_summary(candidates, legacy_horizons)
+        overall = build_overall_summary(candidates, legacy_horizons)
+        legacy_summary_behavior = "priority15_minimal"
+    else:
+        daily_summary = pd.DataFrame()
+        strategy_summary = pd.DataFrame()
+        overall = _minimal_overall_summary(candidates)
+        legacy_summary_behavior = "priority15_minimal"
+    _record_stage(performance, "build_legacy_summaries", stage_started_at, behavior=legacy_summary_behavior)
     _set_row_count(performance, "selected", selected)
     _set_row_count(performance, "daily_summary", daily_summary)
     _set_row_count(performance, "strategy_summary", strategy_summary)
@@ -720,11 +781,18 @@ def run_entry_signal_analysis(
     _record_stage(performance, "prepare_output_dir", stage_started_at)
 
     stage_started_at = time.perf_counter()
-    candidates.to_csv(candidates_path, index=False, encoding="utf-8-sig")
-    selected.to_csv(selected_path, index=False, encoding="utf-8-sig")
+    core_csv_behavior = "priority15_compact" if request.analysis_profile == "priority15" else "legacy_full"
+    if core_csv_behavior == "priority15_compact":
+        candidates_to_write = _compact_core_csv_frame(candidates)
+        selected_to_write = _compact_core_csv_frame(selected)
+    else:
+        candidates_to_write = candidates
+        selected_to_write = selected
+    candidates_to_write.to_csv(candidates_path, index=False, encoding="utf-8-sig")
+    selected_to_write.to_csv(selected_path, index=False, encoding="utf-8-sig")
     daily_summary.to_csv(daily_summary_path, index=False, encoding="utf-8-sig")
     strategy_summary.to_csv(strategy_summary_path, index=False, encoding="utf-8-sig")
-    _record_stage(performance, "write_core_csv", stage_started_at)
+    _record_stage(performance, "write_core_csv", stage_started_at, behavior=core_csv_behavior)
 
     if priority15_outputs is not None:
         stage_started_at = time.perf_counter()
