@@ -154,14 +154,17 @@ def test_priority15_outputs_cover_core_event_derived_artifacts() -> None:
     assert not hasattr(outputs, "over" + "lap_matrix")
     assert not hasattr(outputs, "incremental" + "_lift")
     first_event = outputs.event_metrics.iloc[0]
+    assert first_event["event_row"] == 1
     assert first_event["MFE_10d_pct"] >= 8.0
     assert first_event["MAE_10d_pct"] <= -5.0
     assert "marginal_return_5d_to_10d_pct" in outputs.event_metrics.columns
     assert "net_return_after_10bps_20d_pct" in outputs.event_metrics.columns
     assert "decay_1d_20d_pct" in outputs.event_metrics.columns
 
+    assert "event_id" not in outputs.target_stop_events.columns
+    assert "entry_strategy" not in outputs.target_stop_events.columns
     first_target_stop = outputs.target_stop_events[
-        outputs.target_stop_events["event_id"] == first_event["event_id"]
+        outputs.target_stop_events["event_row"] == first_event["event_row"]
     ].iloc[0]
     assert first_target_stop["hit_type"] == "stop_first"
     assert first_target_stop["rule_return_pct"] == -3

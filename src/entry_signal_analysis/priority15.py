@@ -879,6 +879,9 @@ def _build_event_metrics(
         event_metrics[f"alpha_{horizon}d_vs_sector_pct"] = gross_returns - sector_medians
         event_metrics[f"alpha_{horizon}d_vs_topix_pct"] = gross_returns - pd.to_numeric(topix_values, errors="coerce")
 
+    if "event_row" in event_metrics.columns:
+        event_metrics = event_metrics.drop(columns=["event_row"])
+    event_metrics.insert(0, "event_row", range(1, len(event_metrics) + 1))
     return event_metrics
 
 
@@ -969,11 +972,7 @@ def _first_hit_offset(values: Iterable[object], threshold: float, *, hit_above: 
 
 
 TARGET_STOP_EVENT_COLUMNS = [
-    "event_id",
-    "entry_strategy",
-    "entry_filter_name",
-    "ticker",
-    "signal_date",
+    "event_row",
     "target_pct",
     "stop_pct",
     "horizon",
@@ -991,7 +990,7 @@ def _empty_target_stop_buffers() -> dict[str, list[object]]:
 def _append_target_stop_row(
     rows: dict[str, list[object]],
     *,
-    context: EntrySignalEventContext,
+    event_row: int,
     target_pct: float,
     stop_pct: float,
     horizon: int,
@@ -1000,11 +999,7 @@ def _append_target_stop_row(
     days_to_stop: int | None,
     rule_return: float | None,
 ) -> None:
-    rows["event_id"].append(context.payload.get("event_id"))
-    rows["entry_strategy"].append(context.entry_strategy)
-    rows["entry_filter_name"].append(context.entry_filter_name)
-    rows["ticker"].append(context.ticker)
-    rows["signal_date"].append(context.signal_date)
+    rows["event_row"].append(event_row)
     rows["target_pct"].append(target_pct)
     rows["stop_pct"].append(stop_pct)
     rows["horizon"].append(horizon)
@@ -1017,6 +1012,7 @@ def _append_target_stop_row(
 def _append_target_stop_for_event(
     rows: dict[str, list[object]],
     context: EntrySignalEventContext,
+    event_row: int,
     frame: pd.DataFrame,
     request: EntrySignalAnalysisRequest,
 ) -> int:
@@ -1090,7 +1086,7 @@ def _append_target_stop_for_event(
                     rule_return = target_pct
                 _append_target_stop_row(
                     rows,
-                    context=context,
+                    event_row=event_row,
                     target_pct=target_pct,
                     stop_pct=stop_pct,
                     horizon=horizon,
@@ -1108,12 +1104,24 @@ def _build_target_stop(
     event_metrics: pd.DataFrame,
     request: EntrySignalAnalysisRequest,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    selected_ids = set(_selected_frame(event_metrics).get("event_id", pd.Series(dtype=object)).astype(str))
+    selected = _selected_frame(event_metrics)
+    selected_ids = set(selected.get("event_id", pd.Series(dtype=object)).astype(str))
+    event_row_by_id: dict[str, int] = {}
+    if "event_id" in selected.columns and "event_row" in selected.columns:
+        event_row_by_id = {
+            str(row.get("event_id")): int(row.get("event_row"))
+            for row in selected[["event_id", "event_row"]].to_dict(orient="records")
+            if row.get("event_id") is not None and row.get("event_row") is not None
+        }
     rows = _empty_target_stop_buffers()
     processed_selected = 0
     total_selected = len(selected_ids)
     for context in scan_result.event_contexts:
-        if str(context.payload.get("event_id")) not in selected_ids:
+        event_id = str(context.payload.get("event_id"))
+        if event_id not in selected_ids:
+            continue
+        event_row = event_row_by_id.get(event_id)
+        if event_row is None:
             continue
         processed_selected += 1
         features = scan_result.cache.get_features(context.ticker)
@@ -1121,16 +1129,18 @@ def _build_target_stop(
             if processed_selected % 5000 == 0 or processed_selected == total_selected:
                 _log_priority15_progress("target_stop", processed_selected, total_selected)
             continue
-        _append_target_stop_for_event(rows, context, features, request)
+        _append_target_stop_for_event(rows, context, event_row, features, request)
         if processed_selected % 5000 == 0 or processed_selected == total_selected:
             _log_priority15_progress("target_stop", processed_selected, total_selected)
     events = pd.DataFrame(rows, columns=TARGET_STOP_EVENT_COLUMNS)
     if events.empty:
         return events, pd.DataFrame()
 
+    event_context = event_metrics[["event_row", "entry_strategy", "entry_filter_name"]].drop_duplicates("event_row")
+    summary_events = events.merge(event_context, on="event_row", how="left")
     summary_rows: list[dict[str, object]] = []
     group_cols = ["entry_strategy", "entry_filter_name", "target_pct", "stop_pct", "horizon"]
-    for keys, group in events.groupby(group_cols, dropna=False):
+    for keys, group in summary_events.groupby(group_cols, dropna=False):
         row = {column: value for column, value in zip(group_cols, keys)}
         count = int(len(group))
         row["event_count"] = count
