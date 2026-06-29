@@ -77,6 +77,7 @@ def test_build_cli_args_includes_entry_reference_mode(monkeypatch) -> None:
 
     entry_reference_index = args.index("--entry-reference-mode")
     assert args[entry_reference_index + 1] == "buffered_fill"
+    assert args[args.index("--large-artifact-format") + 1] == "parquet"
 
 
 def test_build_cli_args_explicitly_disables_continuous_for_evaluate(monkeypatch) -> None:

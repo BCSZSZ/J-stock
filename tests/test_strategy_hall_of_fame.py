@@ -21,6 +21,16 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
+def _convert_raw_csvs_to_parquet_only(results_dir: Path) -> None:
+    for pattern in (
+        "strategy_evaluation_raw_*.csv",
+        "strategy_evaluation_continuous_raw_*.csv",
+    ):
+        for csv_path in results_dir.glob(pattern):
+            pd.read_csv(csv_path).to_parquet(csv_path.with_suffix(".parquet"), index=False)
+            csv_path.unlink()
+
+
 def _write_sample_results(results_dir: Path) -> None:
     _write_csv(
         results_dir / "strategy_evaluation_raw_20260409_131306.csv",
@@ -195,6 +205,36 @@ def test_find_latest_results_bundle_picks_latest_matching_files(tmp_path: Path) 
     assert (
         bundle.ranking_file.name
         == "strategy_evaluation_continuous_stability_rank_20260409_133712.csv"
+    )
+
+
+def test_build_reference_record_reads_parquet_only_raw_outputs(tmp_path: Path) -> None:
+    _write_sample_results(tmp_path)
+    _convert_raw_csvs_to_parquet_only(tmp_path)
+
+    bundle = find_latest_results_bundle(tmp_path)
+    assert bundle.segmented_raw_file.name == "strategy_evaluation_raw_20260409_131306.parquet"
+    assert (
+        bundle.continuous_raw_file.name
+        == "strategy_evaluation_continuous_raw_20260409_133658.parquet"
+    )
+
+    record = build_reference_record(
+        HallOfFameReferenceInput(
+            reference_id="baseline_champion",
+            display_name="Baseline Champion",
+            results_dir=tmp_path,
+            entry_strategy="MACDCrossoverStrategy",
+            exit_strategy="MVX_N3_R3p85_T2p0_D21_B20p0",
+            tags=("baseline", "champion", "benchmark"),
+        )
+    )
+
+    assert record["comparison_summary"]["continuous_return_pct"] == pytest.approx(
+        349.9233356170654
+    )
+    assert record["annual_period_metrics"]["2025"]["return_pct"] == pytest.approx(
+        111.80737487792966
     )
 
 

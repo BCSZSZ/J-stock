@@ -3,9 +3,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.artifacts.tabular import read_table_auto
 from src.evaluation.trade_indicator_enrichment import (
     DEFAULT_INDICATOR_COLUMNS,
     enrich_trades_with_indicators,
+    write_enriched_trades_sidecar,
 )
 
 
@@ -92,3 +94,33 @@ def test_enrich_trades_with_indicators_preserves_rows_when_features_missing(tmp_
     assert bool(row["entry_exec_feature_found"]) is False
     assert row["entry_exec_indicator_missing_count"] == 2
     assert pd.isna(row["entry_exec_RSI"])
+
+
+def test_write_enriched_trades_sidecar_defaults_to_parquet(tmp_path):
+    data_root = tmp_path / "data"
+    _write_features(data_root, "7203")
+    trades_csv = tmp_path / "trades.csv"
+    pd.DataFrame(
+        [
+            {
+                "ticker": "7203",
+                "entry_date": "2025-01-10",
+                "entry_metadata_json": "{}",
+                "exit_date": "2025-01-21",
+                "exit_metadata_json": "{}",
+                "return_pct": 5.0,
+            }
+        ]
+    ).to_csv(trades_csv, index=False)
+
+    saved_path = write_enriched_trades_sidecar(
+        trades_csv=trades_csv,
+        data_root=data_root,
+        output_path=tmp_path / "trades_indicators.csv",
+        indicator_columns=("RSI",),
+    )
+
+    assert saved_path == tmp_path / "trades_indicators.parquet"
+    assert saved_path.exists()
+    assert not (tmp_path / "trades_indicators.csv").exists()
+    assert read_table_auto(saved_path).iloc[0]["entry_exec_RSI"] == 52.0

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from src.artifacts.tabular import LargeArtifactFormat, read_table_auto, write_large_artifact
 from src.backtest.entry_reference import normalize_entry_reference_mode
 from src.backtest.fill_buffer import normalize_fill_buffer_pct
 from src.evaluation import (
@@ -1056,6 +1057,20 @@ def _print_companion_files(files: Optional[Dict[str, str]], indent: str = "  ") 
         )
 
 
+def _resolve_large_artifact_format(args: object) -> LargeArtifactFormat:
+    value = str(getattr(args, "large_artifact_format", None) or "parquet")
+    if value not in {"parquet", "csv", "both"}:
+        raise ValueError(f"Unsupported large_artifact_format: {value}")
+    return value  # type: ignore[return-value]
+
+
+def _primary_large_artifact_path(written: dict[str, Path | None]) -> Path:
+    path = written.get("parquet") or written.get("csv")
+    if path is None:
+        raise RuntimeError("large artifact writer did not return an output path")
+    return path
+
+
 def _markdown_table(df: pd.DataFrame) -> str:
     table = df.fillna("N/A").astype(str)
     headers = list(table.columns)
@@ -1192,8 +1207,8 @@ def _write_annual_continuous_stability_rank(
         return None
 
     try:
-        segmented_df = pd.read_csv(segmented_raw_path)
-        continuous_df = pd.read_csv(continuous_raw_path)
+        segmented_df = read_table_auto(segmented_raw_path)
+        continuous_df = read_table_auto(continuous_raw_path)
         rank_df = _build_annual_continuous_stability_rank_df(
             segmented_df=segmented_df,
             continuous_df=continuous_df,
@@ -1367,8 +1382,8 @@ def _prepare_review_frames(
     trades_path: Optional[str],
     sector_by_ticker: Dict[str, str],
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    raw_df = pd.read_csv(raw_path) if raw_path else pd.DataFrame()
-    trades_df = pd.read_csv(trades_path) if trades_path else pd.DataFrame()
+    raw_df = read_table_auto(raw_path) if raw_path else pd.DataFrame()
+    trades_df = read_table_auto(trades_path) if trades_path else pd.DataFrame()
 
     if not raw_df.empty:
         if "entry_filter" in raw_df.columns:
@@ -2051,7 +2066,7 @@ def _append_combined_context_frame(
         return
 
     try:
-        frame = pd.read_csv(file_path)
+        frame = read_table_auto(file_path)
         for key, value in meta.items():
             frame[key] = value
         collector.append(frame)
@@ -2070,6 +2085,7 @@ def _write_combined_position_output_family(
     raw_frames: List[pd.DataFrame],
     regime_frames: List[pd.DataFrame],
     trade_frames: List[pd.DataFrame],
+    large_artifact_format: LargeArtifactFormat,
 ):
     files: Dict[str, str] = {}
     if not raw_frames and not regime_frames and not trade_frames:
@@ -2081,7 +2097,9 @@ def _write_combined_position_output_family(
     if raw_frames:
         combined_raw = pd.concat(raw_frames, ignore_index=True)
         combined_raw_path = output_root / f"{family_prefix}_raw_{ts}.csv"
-        combined_raw.to_csv(combined_raw_path, index=False, encoding="utf-8-sig")
+        combined_raw_path = _primary_large_artifact_path(
+            write_large_artifact(combined_raw, combined_raw_path, large_artifact_format)
+        )
         print(f"\n📦 合并Raw结果: {combined_raw_path}")
         files["raw"] = str(combined_raw_path)
 
@@ -2095,7 +2113,9 @@ def _write_combined_position_output_family(
     if trade_frames:
         combined_trades = pd.concat(trade_frames, ignore_index=True)
         combined_trades_path = output_root / f"{family_prefix}_trades_{ts}.csv"
-        combined_trades.to_csv(combined_trades_path, index=False, encoding="utf-8-sig")
+        combined_trades_path = _primary_large_artifact_path(
+            write_large_artifact(combined_trades, combined_trades_path, large_artifact_format)
+        )
         print(f"📦 合并Trade结果: {combined_trades_path}")
         files["trades"] = str(combined_trades_path)
 
@@ -2104,6 +2124,7 @@ def _write_combined_position_output_family(
                 trades_csv=combined_trades_path,
                 data_root=data_root,
                 trades_df=combined_trades,
+                large_artifact_format=large_artifact_format,
             )
         except Exception as e:
             print(f"⚠️ 合并Trade指标 sidecar 生成失败: {e}")
@@ -3173,11 +3194,23 @@ def _run_walk_forward_once(
     files["train_rank"] = str(train_rank_file)
 
     oos_raw_file = out_dir / f"{prefix}_oos_raw_{timestamp}.csv"
-    oos_df.to_csv(oos_raw_file, index=False, encoding="utf-8-sig")
+    oos_raw_file = _primary_large_artifact_path(
+        write_large_artifact(
+            oos_df,
+            oos_raw_file,
+            _resolve_large_artifact_format(args),
+        )
+    )
     files["oos_raw"] = str(oos_raw_file)
 
     oos_panel_file = out_dir / f"{prefix}_oos_panel_{timestamp}.csv"
-    oos_panel_df.to_csv(oos_panel_file, index=False, encoding="utf-8-sig")
+    oos_panel_file = _primary_large_artifact_path(
+        write_large_artifact(
+            oos_panel_df,
+            oos_panel_file,
+            _resolve_large_artifact_format(args),
+        )
+    )
     files["oos_panel"] = str(oos_panel_file)
 
     regime_file = out_dir / f"{prefix}_oos_by_regime_{timestamp}.csv"
@@ -3193,7 +3226,13 @@ def _run_walk_forward_once(
     files["selection_frequency"] = str(selection_freq_file)
 
     trades_file = out_dir / f"{prefix}_oos_trades_{timestamp}.csv"
-    oos_trade_df.to_csv(trades_file, index=False, encoding="utf-8-sig")
+    trades_file = _primary_large_artifact_path(
+        write_large_artifact(
+            oos_trade_df,
+            trades_file,
+            _resolve_large_artifact_format(args),
+        )
+    )
     files["oos_trades"] = str(trades_file)
 
     report_file = out_dir / f"{prefix}_report_{timestamp}.md"
@@ -3558,7 +3597,14 @@ def _run_once(
 
     _log_step("_run_once: 开始保存结果文件")
     save_started = time.perf_counter()
-    files = evaluator.save_results(prefix=prefix, ranking_mode=ranking_mode)
+    files = evaluator.save_results(
+        prefix=prefix,
+        ranking_mode=ranking_mode,
+        large_artifact_format=_resolve_large_artifact_format(args),
+        save_daily_snapshots_debug=bool(
+            getattr(args, "save_daily_snapshots_debug", False)
+        ),
+    )
     save_elapsed = time.perf_counter() - save_started
     total_elapsed = time.perf_counter() - run_started
     _log_step("_run_once: 结果文件保存完成")
@@ -4174,6 +4220,7 @@ def cmd_pos_evaluation(args):
         raw_frames=combined_raw_frames,
         regime_frames=combined_regime_frames,
         trade_frames=combined_trade_frames,
+        large_artifact_format=_resolve_large_artifact_format(args),
     )
     combined_continuous_files = _write_combined_position_output_family(
         output_dir=output_dir,
@@ -4182,6 +4229,7 @@ def cmd_pos_evaluation(args):
         raw_frames=combined_continuous_raw_frames,
         regime_frames=combined_continuous_regime_frames,
         trade_frames=combined_continuous_trade_frames,
+        large_artifact_format=_resolve_large_artifact_format(args),
     )
     combined_companion_files = _write_annual_continuous_stability_rank(
         output_dir=output_dir,

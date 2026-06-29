@@ -132,6 +132,7 @@ def _build_cli_args(req: EntrySignalAnalysisRunRequest) -> list[str]:
     _append_multi_flag(args, "--entry-strategies", [value for value in entry_strategies if value])
     _append_multi_flag(args, "--universe-file", [value for value in universe_files if value])
     args.extend(["--analysis-profile", req.analysis_profile])
+    args.extend(["--large-artifact-format", req.large_artifact_format])
 
     if req.years:
         _append_multi_flag(args, "--years", req.years)
@@ -328,6 +329,7 @@ def get_options() -> dict[str, object]:
             "entry_strategies": [production_entry] if production_entry else [],
             "universe_files": [str(getattr(prod_cfg, "monitor_list_file", "") or "")],
             "analysis_profile": "priority15",
+            "large_artifact_format": "parquet",
             "horizons": [1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80],
             "primary_horizon": 5,
             "primary_horizons": [5],

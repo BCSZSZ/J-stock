@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.artifacts.tabular import write_csv_artifact, write_large_artifact
 from src.data.benchmark_manager import BenchmarkManager
 from src.entry_exit_validation.models import (
     EntryExitValidationArtifacts,
@@ -54,10 +55,6 @@ def _load_topix_benchmark_frame(data_root: str) -> pd.DataFrame | None:
     if frame is None or frame.empty:
         return None
     return frame.copy()
-
-
-def _write_csv(frame: pd.DataFrame, path: Path) -> None:
-    frame.to_csv(path, index=False, encoding="utf-8-sig")
 
 
 def _records(frame: pd.DataFrame, limit: int = 20) -> list[dict[str, object]]:
@@ -147,7 +144,7 @@ def _write_report(
         [
             "",
             "## Artifacts",
-            f"- Trades: {summary.artifacts.selected_trades_csv}",
+            f"- Trades: {summary.artifacts.selected_trades_parquet or summary.artifacts.selected_trades_csv}",
             f"- Combo Summary: {summary.artifacts.combo_summary_csv}",
             f"- Tail Metrics: {summary.artifacts.combo_tail_metrics_csv}",
             f"- Vs Fixed Horizon: {summary.artifacts.combo_vs_fixed_horizon_csv}",
@@ -206,8 +203,13 @@ def run_entry_exit_validation(
     report_path = output_dir / "combo_report.md"
     manifest_path = output_dir / "entry_exit_validation_manifest.json"
 
+    selected_trades_written = write_large_artifact(
+        trades,
+        selected_trades_path,
+        request.large_artifact_format,
+    )
+
     for frame, path in [
-        (trades, selected_trades_path),
         (combo_summary, combo_summary_path),
         (tail_metrics, tail_metrics_path),
         (vs_fixed, vs_fixed_path),
@@ -219,11 +221,20 @@ def run_entry_exit_validation(
         (robustness, robustness_path),
         (risk, risk_path),
     ]:
-        _write_csv(frame, path)
+        write_csv_artifact(frame, path)
 
     artifacts = EntryExitValidationArtifacts(
         output_dir=str(output_dir),
-        selected_trades_csv=str(selected_trades_path),
+        selected_trades_csv=(
+            str(selected_trades_written["csv"])
+            if selected_trades_written["csv"] is not None
+            else None
+        ),
+        selected_trades_parquet=(
+            str(selected_trades_written["parquet"])
+            if selected_trades_written["parquet"] is not None
+            else None
+        ),
         combo_summary_csv=str(combo_summary_path),
         combo_tail_metrics_csv=str(tail_metrics_path),
         combo_vs_fixed_horizon_csv=str(vs_fixed_path),
@@ -260,7 +271,16 @@ def run_entry_exit_validation(
         dataset_id=output_dir.name,
         generated_at=generated_at.isoformat(timespec="seconds"),
         output_dir=str(output_dir),
-        selected_trades_csv=str(selected_trades_path),
+        selected_trades_csv=(
+            str(selected_trades_written["csv"])
+            if selected_trades_written["csv"] is not None
+            else None
+        ),
+        selected_trades_parquet=(
+            str(selected_trades_written["parquet"])
+            if selected_trades_written["parquet"] is not None
+            else None
+        ),
         combo_summary_csv=str(combo_summary_path),
         combo_tail_metrics_csv=str(tail_metrics_path),
         combo_vs_fixed_horizon_csv=str(vs_fixed_path),
@@ -299,6 +319,6 @@ def run_entry_exit_validation(
 
     print("[entry-exit-validation] saved dataset artifacts")
     print(f"  dataset_id: {manifest.dataset_id}")
-    print(f"  trades: {artifacts.selected_trades_csv}")
+    print(f"  trades: {artifacts.selected_trades_parquet or artifacts.selected_trades_csv}")
     print(f"  summary: {artifacts.combo_summary_csv}")
     return summary

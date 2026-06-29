@@ -40,6 +40,89 @@ class BollingerSqueezeStrategy(BaseEntryStrategy):
         self.adx_threshold = adx_threshold
         self.volume_multiplier = volume_multiplier
         self.min_confidence = min_confidence
+
+    def precompute_entry_signals(
+        self,
+        *,
+        ticker: str,
+        features: pd.DataFrame,
+        **_unused: object,
+    ) -> dict[int, TradingSignal]:
+        if len(features) < 50:
+            return {}
+        required_fields = [
+            'BB_Width',
+            'BB_PctB',
+            'ADX_14',
+            'Volume',
+            'Volume_SMA_20',
+            'Close',
+        ]
+        if not all(field in features.columns for field in required_fields):
+            return {}
+
+        bb_width = pd.to_numeric(features['BB_Width'], errors='coerce')
+        bb_pctb = pd.to_numeric(features['BB_PctB'], errors='coerce')
+        adx = pd.to_numeric(features['ADX_14'], errors='coerce')
+        volume = pd.to_numeric(features['Volume'], errors='coerce')
+        volume_sma20 = pd.to_numeric(features['Volume_SMA_20'], errors='coerce')
+        fallback_threshold, history_count = _rolling_non_null_percentile(
+            bb_width,
+            percentile=self.squeeze_percentile,
+            window=100,
+        )
+        if 'BB_Width_Q20_100' in features.columns:
+            squeeze_threshold = pd.to_numeric(
+                features['BB_Width_Q20_100'],
+                errors='coerce',
+            )
+            squeeze_threshold = squeeze_threshold.where(
+                squeeze_threshold.notna(),
+                fallback_threshold,
+            )
+        else:
+            squeeze_threshold = fallback_threshold
+
+        is_squeezed = bb_width < squeeze_threshold
+        breakout_upper = (bb_pctb > 1.0) & (bb_pctb.shift(1) <= 1.0)
+        near_upper = bb_pctb > 0.8
+        volume_surge = volume > (self.volume_multiplier * volume_sma20)
+        adx_confirmed = adx > self.adx_threshold
+
+        confidence = pd.Series(0.0, index=features.index, dtype='float64')
+        confidence += is_squeezed.fillna(False).astype(float) * 0.2
+        confidence += breakout_upper.fillna(False).astype(float) * 0.4
+        confidence += (
+            (~breakout_upper.fillna(False)) & near_upper.fillna(False)
+        ).astype(float) * 0.2
+        confidence += volume_surge.fillna(False).astype(float) * 0.2
+        confidence += adx_confirmed.fillna(False).astype(float) * 0.2
+        confidence -= (~adx_confirmed.fillna(False)).astype(float) * 0.1
+
+        row_numbers = pd.Series(np.arange(len(features)), index=features.index)
+        buy_mask = (
+            (row_numbers >= 49)
+            & (history_count >= 20)
+            & (confidence >= self.min_confidence)
+        ).fillna(False)
+
+        signals: dict[int, TradingSignal] = {}
+        empty = pd.DataFrame()
+        for row_pos in np.flatnonzero(buy_mask.to_numpy(dtype=bool)):
+            row_pos_int = int(row_pos)
+            signal = self.generate_entry_signal(
+                MarketData(
+                    ticker=ticker,
+                    current_date=pd.Timestamp(features.index[row_pos_int]),
+                    df_features=features.iloc[: row_pos_int + 1],
+                    df_trades=empty,
+                    df_financials=empty,
+                    metadata={},
+                )
+            )
+            if signal.action == SignalAction.BUY:
+                signals[row_pos_int] = signal
+        return signals
     
     def generate_entry_signal(self, market_data: MarketData) -> TradingSignal:
         """
@@ -150,3 +233,26 @@ class BollingerSqueezeStrategy(BaseEntryStrategy):
             },
             strategy_name="BollingerSqueezeStrategy"
         )
+
+
+def _rolling_non_null_percentile(
+    series: pd.Series,
+    *,
+    percentile: float,
+    window: int,
+) -> tuple[pd.Series, pd.Series]:
+    history: list[float] = []
+    thresholds: list[float] = []
+    counts: list[int] = []
+    for value in pd.to_numeric(series, errors='coerce'):
+        if pd.notna(value):
+            history.append(float(value))
+        counts.append(len(history))
+        if len(history) >= 20:
+            thresholds.append(float(np.percentile(history[-window:], percentile)))
+        else:
+            thresholds.append(np.nan)
+    return (
+        pd.Series(thresholds, index=series.index, dtype='float64'),
+        pd.Series(counts, index=series.index, dtype='int64'),
+    )

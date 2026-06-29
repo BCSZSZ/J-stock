@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.artifacts.tabular import LargeArtifactFormat
+
 
 EntryExitExecutionMode = Literal["next_open", "signal_close"]
 EntryExitSignalScope = Literal["all", "selected"]
@@ -46,6 +48,7 @@ class EntryExitValidationRequest(BaseModel):
     min_samples: int = 30
     data_root: str = "data"
     output_dir: str = "entry_exit_validation"
+    large_artifact_format: LargeArtifactFormat = "parquet"
 
     @property
     def normalized_horizons(self) -> list[int]:
@@ -72,7 +75,8 @@ class EntryExitValidationRequest(BaseModel):
 
 class EntryExitValidationArtifacts(BaseModel):
     output_dir: str
-    selected_trades_csv: str
+    selected_trades_csv: str | None = None
+    selected_trades_parquet: str | None = None
     combo_summary_csv: str
     combo_tail_metrics_csv: str
     combo_vs_fixed_horizon_csv: str
@@ -92,7 +96,8 @@ class EntryExitValidationDatasetManifest(BaseModel):
     dataset_id: str
     generated_at: str
     output_dir: str
-    selected_trades_csv: str
+    selected_trades_csv: str | None = None
+    selected_trades_parquet: str | None = None
     combo_summary_csv: str
     combo_tail_metrics_csv: str
     combo_vs_fixed_horizon_csv: str

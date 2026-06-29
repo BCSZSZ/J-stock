@@ -646,6 +646,9 @@ def _build_cli_args(
 
     if req.output_dir:
         args.extend(["--output-dir", req.output_dir])
+    args.extend(["--large-artifact-format", req.large_artifact_format])
+    if req.save_daily_snapshots_debug and req.command != "walk-forward-evaluate":
+        args.append("--save-daily-snapshots-debug")
 
     _append_multi_flag(args, "--universe-file", _resolve_requested_universe_files(req))
 
@@ -774,6 +777,8 @@ def get_options() -> dict[str, object]:
             "fill_buffer_pct": 0.02,
             "capacity_regime_mode": str(eval_cfg.get("capacity_regime_mode", "off")),
             "exit_confirm_days": eval_cfg.get("exit_confirmation_days"),
+            "large_artifact_format": "parquet",
+            "save_daily_snapshots_debug": False,
             "output_dir": str(eval_cfg.get("output_dir", "strategy_evaluation")),
             "universe_files": (
                 [str(default_universe_file)] if default_universe_file else []
@@ -899,7 +904,7 @@ def _iter_result_files(output_root: Path) -> list[Path]:
     files = [
         path
         for path in output_root.rglob("*")
-        if path.is_file() and path.suffix in (".csv", ".md", ".json")
+        if path.is_file() and path.suffix in (".csv", ".md", ".json", ".parquet")
     ]
     files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     return files
@@ -943,6 +948,13 @@ def get_result(filename: str, output_dir: str | None = Query(default=None)) -> d
         import pandas as pd
         df = pd.read_csv(path)
         return {"type": "csv", "name": display_name, "data": df.to_dict(orient="records")}
+    if path.suffix == ".parquet":
+        return {
+            "type": "parquet",
+            "name": display_name,
+            "size": path.stat().st_size,
+            "message": "Parquet artifact is available on disk; preview is intentionally disabled for large raw tables.",
+        }
     if path.suffix == ".json":
         content = json.loads(path.read_text(encoding="utf-8"))
         return {"type": "json", "name": display_name, "data": content}

@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from src.artifacts.tabular import LargeArtifactFormat
+
 
 ForwardLabelMode = Literal["signal_close", "next_open"]
 BucketMode = Literal["manual", "sliding", "fixed", "quantile", "categorical"]
@@ -57,6 +59,7 @@ class EntryAnalysisRequest(BaseModel):
     data_root: str = "data"
     output_dir: str = "entry_analysis"
     save_candidates: bool = True
+    large_artifact_format: LargeArtifactFormat = "parquet"
 
     @property
     def normalized_horizons(self) -> list[int]:
@@ -76,7 +79,8 @@ class EntrySignalCandidate(BaseModel):
 
 class EntryAnalysisArtifacts(BaseModel):
     output_dir: str
-    candidates_csv: str
+    candidates_csv: str | None = None
+    candidates_parquet: str | None = None
     aggregates_csv: str | None = None
     summary_json: str
     rules_json: str | None = None
@@ -88,7 +92,8 @@ class EntryAnalysisDatasetManifest(BaseModel):
     dataset_id: str
     generated_at: str
     output_dir: str
-    candidates_csv: str
+    candidates_csv: str | None = None
+    candidates_parquet: str | None = None
     summary_json: str
     report_md: str
     entry_strategies: list[str]

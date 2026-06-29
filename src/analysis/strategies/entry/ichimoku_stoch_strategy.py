@@ -40,6 +40,86 @@ class IchimokuStochStrategy(BaseEntryStrategy):
         self.obv_lookback = obv_lookback
         self.min_confidence = min_confidence
         self.require_cloud_bullish = require_cloud_bullish
+
+    def precompute_entry_signals(
+        self,
+        *,
+        ticker: str,
+        features: pd.DataFrame,
+        **_unused: object,
+    ) -> dict[int, TradingSignal]:
+        if len(features) < 30:
+            return {}
+        required_fields = [
+            'Close',
+            'Ichi_SpanA',
+            'Ichi_SpanB',
+            'Stoch_K',
+            'Stoch_D',
+            'OBV',
+        ]
+        if not all(field in features.columns for field in required_fields):
+            return {}
+
+        close = pd.to_numeric(features['Close'], errors='coerce')
+        span_a = pd.to_numeric(features['Ichi_SpanA'], errors='coerce')
+        span_b = pd.to_numeric(features['Ichi_SpanB'], errors='coerce')
+        stoch_k = pd.to_numeric(features['Stoch_K'], errors='coerce')
+        stoch_d = pd.to_numeric(features['Stoch_D'], errors='coerce')
+
+        cloud_has_values = span_a.notna() & span_b.notna()
+        cloud_top = pd.concat([span_a, span_b], axis=1).max(axis=1)
+        cloud_top = cloud_top.where(cloud_has_values, close)
+        above_cloud = close > cloud_top
+        cloud_bullish = (span_a > span_b) & cloud_has_values
+
+        stoch_crossover = (
+            (stoch_k.shift(1) < stoch_d.shift(1))
+            & (stoch_k > stoch_d)
+        )
+        stoch_oversold = stoch_k < self.stoch_oversold
+        obv_slope = _obv_slope_series(features, self.obv_lookback)
+        obv_rising = obv_slope.notna() & (obv_slope > 0)
+
+        confidence = pd.Series(0.0, index=features.index, dtype='float64')
+        confidence += above_cloud.fillna(False).astype(float) * 0.25
+        if self.require_cloud_bullish:
+            confidence -= (~above_cloud.fillna(False)).astype(float) * 0.3
+        confidence += cloud_bullish.fillna(False).astype(float) * 0.15
+        if self.require_cloud_bullish:
+            confidence -= (~cloud_bullish.fillna(False)).astype(float) * 0.2
+        confidence += (
+            stoch_crossover.fillna(False) & stoch_oversold.fillna(False)
+        ).astype(float) * 0.4
+        confidence += (
+            stoch_crossover.fillna(False) & ~stoch_oversold.fillna(False)
+        ).astype(float) * 0.25
+        confidence += (
+            ~stoch_crossover.fillna(False) & stoch_oversold.fillna(False)
+        ).astype(float) * 0.1
+        confidence += obv_rising.fillna(False).astype(float) * 0.2
+        confidence -= (~obv_rising.fillna(False)).astype(float) * 0.1
+
+        row_numbers = pd.Series(np.arange(len(features)), index=features.index)
+        buy_mask = ((row_numbers >= 29) & (confidence >= self.min_confidence)).fillna(False)
+
+        signals: dict[int, TradingSignal] = {}
+        empty = pd.DataFrame()
+        for row_pos in np.flatnonzero(buy_mask.to_numpy(dtype=bool)):
+            row_pos_int = int(row_pos)
+            signal = self.generate_entry_signal(
+                MarketData(
+                    ticker=ticker,
+                    current_date=pd.Timestamp(features.index[row_pos_int]),
+                    df_features=features.iloc[: row_pos_int + 1],
+                    df_trades=empty,
+                    df_financials=empty,
+                    metadata={},
+                )
+            )
+            if signal.action == SignalAction.BUY:
+                signals[row_pos_int] = signal
+        return signals
     
     def generate_entry_signal(self, market_data: MarketData) -> TradingSignal:
         """
@@ -171,3 +251,21 @@ class IchimokuStochStrategy(BaseEntryStrategy):
             },
             strategy_name="IchimokuStochStrategy"
         )
+
+
+def _obv_slope_series(features: pd.DataFrame, lookback: int) -> pd.Series:
+    if lookback == 10 and 'OBV_Slope_10' in features.columns:
+        return pd.to_numeric(features['OBV_Slope_10'], errors='coerce')
+    if lookback == 20 and 'OBV_Slope_20' in features.columns:
+        return pd.to_numeric(features['OBV_Slope_20'], errors='coerce')
+
+    history: list[float] = []
+    slopes: list[float] = []
+    for value in pd.to_numeric(features['OBV'], errors='coerce'):
+        if pd.notna(value):
+            history.append(float(value))
+        if len(history) >= lookback:
+            slopes.append((history[-1] - history[-lookback]) / lookback)
+        else:
+            slopes.append(0.0)
+    return pd.Series(slopes, index=features.index, dtype='float64')

@@ -63,7 +63,9 @@ def test_run_entry_exit_validation_writes_artifacts(tmp_path, monkeypatch) -> No
     assert summary.simulated_trade_count == 2
     assert summary.effective_entry_filter_mode == "off"
     assert summary.effective_entry_filter_names == ["production"]
-    assert Path(summary.artifacts.selected_trades_csv).exists()
+    assert summary.artifacts.selected_trades_csv is None
+    assert summary.artifacts.selected_trades_parquet is not None
+    assert Path(summary.artifacts.selected_trades_parquet).exists()
     assert Path(summary.artifacts.combo_summary_csv).exists()
     assert Path(summary.artifacts.combo_robustness_ranking_csv).exists()
     assert Path(summary.artifacts.summary_json).exists()

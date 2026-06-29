@@ -9,6 +9,8 @@ from typing import TypedDict
 
 import pandas as pd
 
+from src.artifacts.tabular import read_table_auto
+
 
 class EvaluationBasis(TypedDict):
     mode: str
@@ -228,9 +230,16 @@ def find_latest_results_bundle(results_dir: Path) -> ResultsBundle:
             context={"results_dir": str(results_dir)},
         )
 
-    segmented_raw_file = _find_latest_file(results_dir, "strategy_evaluation_raw_*.csv")
+    segmented_raw_file = _find_latest_file(
+        results_dir,
+        ("strategy_evaluation_raw_*.parquet", "strategy_evaluation_raw_*.csv"),
+    )
     continuous_raw_file = _find_latest_file(
-        results_dir, "strategy_evaluation_continuous_raw_*.csv"
+        results_dir,
+        (
+            "strategy_evaluation_continuous_raw_*.parquet",
+            "strategy_evaluation_continuous_raw_*.csv",
+        ),
     )
     ranking_file = _find_latest_file(
         results_dir, "strategy_evaluation_continuous_stability_rank_*.csv"
@@ -247,8 +256,8 @@ def build_reference_record(
     reference_input: HallOfFameReferenceInput,
 ) -> HallOfFameReferenceRecord:
     bundle = find_latest_results_bundle(reference_input.results_dir)
-    segmented_df = pd.read_csv(bundle.segmented_raw_file)
-    continuous_df = pd.read_csv(bundle.continuous_raw_file)
+    segmented_df = read_table_auto(bundle.segmented_raw_file)
+    continuous_df = read_table_auto(bundle.continuous_raw_file)
     ranking_df = pd.read_csv(bundle.ranking_file)
 
     segmented_matches = _filter_strategy_rows(segmented_df, reference_input)
@@ -338,12 +347,17 @@ def write_hall_of_fame_document(path: Path, document: HallOfFameDocument) -> Non
     path.write_text(json.dumps(document, indent=2, ensure_ascii=True), encoding="utf-8")
 
 
-def _find_latest_file(results_dir: Path, pattern: str) -> Path:
-    matches = sorted(results_dir.glob(pattern))
+def _find_latest_file(results_dir: Path, pattern: str | tuple[str, ...]) -> Path:
+    patterns = (pattern,) if isinstance(pattern, str) else pattern
+    matches = sorted(
+        path
+        for one_pattern in patterns
+        for path in results_dir.glob(one_pattern)
+    )
     if not matches:
         raise HallOfFameBuildError(
             "required results file not found",
-            context={"results_dir": str(results_dir), "pattern": pattern},
+            context={"results_dir": str(results_dir), "pattern": ",".join(patterns)},
         )
     return matches[-1]
 

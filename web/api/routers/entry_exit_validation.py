@@ -193,6 +193,7 @@ def _build_cli_args(req: EntryExitValidationRunRequest) -> list[str]:
     if req.limit is not None:
         args.extend(["--limit", str(req.limit)])
     args.extend(["--data-root", req.data_root])
+    args.extend(["--large-artifact-format", req.large_artifact_format])
     if req.output_dir:
         args.extend(["--output-dir", req.output_dir])
     return args
@@ -341,6 +342,7 @@ def get_options() -> dict[str, object]:
             "partial_exit_policy": "first_sell_full_exit",
             "min_samples": 30,
             "data_root": "data",
+            "large_artifact_format": "parquet",
             "output_dir": _default_output_dir(),
         },
     }

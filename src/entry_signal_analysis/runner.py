@@ -7,6 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.artifacts.tabular import (
+    LargeArtifactFormat,
+    write_csv_artifact,
+    write_large_artifact,
+)
 from src.data.benchmark_manager import BenchmarkManager
 from src.entry_signal_analysis.models import (
     EntrySignalAnalysisArtifacts,
@@ -182,6 +187,24 @@ def _record_artifact_sizes(
             continue
         artifact_sizes[name] = int(path.stat().st_size)
     performance["artifact_sizes_bytes"] = artifact_sizes
+
+
+def _write_large_artifact(
+    *,
+    artifacts: dict[str, Path | None],
+    frame: pd.DataFrame,
+    key_prefix: str,
+    csv_path: Path,
+    parquet_path: Path,
+    large_artifact_format: LargeArtifactFormat,
+) -> None:
+    written = write_large_artifact(
+        frame,
+        parquet_path,
+        large_artifact_format,
+    )
+    artifacts[f"{key_prefix}_csv"] = written["csv"]
+    artifacts[f"{key_prefix}_parquet"] = written["parquet"]
 
 
 def _minimal_overall_summary(frame: pd.DataFrame) -> dict[str, object]:
@@ -690,8 +713,8 @@ def _write_report(
     lines.extend([
         "",
         "## Artifacts",
-        f"- Candidates: {summary.artifacts.candidates_csv}",
-        f"- Selected: {summary.artifacts.selected_csv}",
+        f"- Candidates: {summary.artifacts.candidates_parquet or summary.artifacts.candidates_csv}",
+        f"- Selected: {summary.artifacts.selected_parquet or summary.artifacts.selected_csv}",
         f"- Daily Summary: {summary.artifacts.daily_summary_csv}",
         f"- Strategy Summary: {summary.artifacts.strategy_summary_csv}",
         f"- Summary: {summary.artifacts.summary_json}",
@@ -731,10 +754,11 @@ def _append_priority15_section(
         lines.append("- profile: legacy")
         return
 
+    event_metrics_artifact = artifacts.event_metrics_parquet or artifacts.event_metrics_csv
     item_artifacts = [
-        ("#1 Event-level fact table", artifacts.event_metrics_csv),
+        ("#1 Event-level fact table", event_metrics_artifact),
         ("#2 MFE / MAE / path metrics", artifacts.path_summary_csv),
-        ("#3 Return curve + marginal return", artifacts.event_metrics_csv),
+        ("#3 Return curve + marginal return", event_metrics_artifact),
         ("#4 Signal decay / entry delay", artifacts.signal_decay_summary_csv),
         ("#5 Target-before-stop matrix", artifacts.target_stop_summary_csv),
         ("#6 Day10 / Day20 / Day40 checkpoint", artifacts.checkpoint_summary_csv),
@@ -895,20 +919,26 @@ def run_entry_signal_analysis(
     priority15_paths = {
         "event_metrics_csv": output_dir / "event_metrics.csv",
         "event_metrics_parquet": output_dir / "event_metrics.parquet",
-        "event_metrics_csv_gz": output_dir / "event_metrics.csv.gz",
         "event_metrics_core_csv": output_dir / "event_metrics_core.csv",
+        "event_metrics_core_parquet": output_dir / "event_metrics_core.parquet",
         "event_metrics_path_csv": output_dir / "event_metrics_path.csv",
+        "event_metrics_path_parquet": output_dir / "event_metrics_path.parquet",
         "event_metrics_checkpoint_csv": output_dir / "event_metrics_checkpoint.csv",
+        "event_metrics_checkpoint_parquet": output_dir / "event_metrics_checkpoint.parquet",
         "event_metrics_alpha_csv": output_dir / "event_metrics_alpha.csv",
+        "event_metrics_alpha_parquet": output_dir / "event_metrics_alpha.parquet",
         "event_metrics_decay_csv": output_dir / "event_metrics_decay.csv",
+        "event_metrics_decay_parquet": output_dir / "event_metrics_decay.parquet",
         "event_metrics_cost_csv": output_dir / "event_metrics_cost.csv",
+        "event_metrics_cost_parquet": output_dir / "event_metrics_cost.parquet",
         "event_metrics_execution_csv": output_dir / "event_metrics_execution.csv",
+        "event_metrics_execution_parquet": output_dir / "event_metrics_execution.parquet",
         "path_summary_csv": output_dir / "path_summary.csv",
         "target_stop_events_csv": output_dir / "target_stop_events.csv",
         "target_stop_events_parquet": output_dir / "target_stop_events.parquet",
-        "target_stop_events_csv_gz": output_dir / "target_stop_events.csv.gz",
         "target_stop_summary_csv": output_dir / "target_stop_summary.csv",
         "checkpoint_events_csv": output_dir / "checkpoint_events.csv",
+        "checkpoint_events_parquet": output_dir / "checkpoint_events.parquet",
         "checkpoint_summary_csv": output_dir / "checkpoint_summary.csv",
         "trend_feature_summary_csv": output_dir / "trend_feature_summary.csv",
         "cooldown_summary_csv": output_dir / "cooldown_summary.csv",
@@ -920,6 +950,9 @@ def run_entry_signal_analysis(
         "exit_rule_summary_csv": output_dir / "exit_rule_summary.csv",
         "walk_forward_summary_csv": output_dir / "walk_forward_summary.csv",
     }
+    priority15_artifact_paths: dict[str, Path | None] = {
+        key: None for key in priority15_paths
+    }
     _record_stage(performance, "prepare_output_dir", stage_started_at)
 
     stage_started_at = time.perf_counter()
@@ -930,52 +963,83 @@ def run_entry_signal_analysis(
     else:
         candidates_to_write = candidates
         selected_to_write = selected
-    candidates_to_write.to_csv(candidates_path, index=False, encoding="utf-8-sig")
-    selected_to_write.to_csv(selected_path, index=False, encoding="utf-8-sig")
+    candidates_written = write_large_artifact(
+        candidates_to_write,
+        candidates_path,
+        request.large_artifact_format,
+    )
+    selected_written = write_large_artifact(
+        selected_to_write,
+        selected_path,
+        request.large_artifact_format,
+    )
     daily_summary.to_csv(daily_summary_path, index=False, encoding="utf-8-sig")
     strategy_summary.to_csv(strategy_summary_path, index=False, encoding="utf-8-sig")
-    _record_stage(performance, "write_core_csv", stage_started_at, behavior=core_csv_behavior)
+    _record_stage(performance, "write_core_artifacts", stage_started_at, behavior=core_csv_behavior)
 
     if priority15_outputs is not None:
         stage_started_at = time.perf_counter()
-        priority15_outputs.event_metrics.to_csv(priority15_paths["event_metrics_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.event_metrics.to_parquet(priority15_paths["event_metrics_parquet"], index=False)
-        priority15_outputs.event_metrics.to_csv(
-            priority15_paths["event_metrics_csv_gz"],
-            index=False,
-            encoding="utf-8-sig",
-            compression="gzip",
+        _write_large_artifact(
+            artifacts=priority15_artifact_paths,
+            frame=priority15_outputs.event_metrics,
+            key_prefix="event_metrics",
+            csv_path=priority15_paths["event_metrics_csv"],
+            parquet_path=priority15_paths["event_metrics_parquet"],
+            large_artifact_format=request.large_artifact_format,
         )
         for layer_key, layer_frame in _event_metric_layers(priority15_outputs.event_metrics).items():
-            layer_frame.to_csv(priority15_paths[layer_key], index=False, encoding="utf-8-sig")
-        priority15_outputs.path_summary.to_csv(priority15_paths["path_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.target_stop_events.to_csv(priority15_paths["target_stop_events_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.target_stop_events.to_parquet(priority15_paths["target_stop_events_parquet"], index=False)
-        priority15_outputs.target_stop_events.to_csv(
-            priority15_paths["target_stop_events_csv_gz"],
-            index=False,
-            encoding="utf-8-sig",
-            compression="gzip",
+            layer_prefix = layer_key.removesuffix("_csv")
+            _write_large_artifact(
+                artifacts=priority15_artifact_paths,
+                frame=layer_frame,
+                key_prefix=layer_prefix,
+                csv_path=priority15_paths[f"{layer_prefix}_csv"],
+                parquet_path=priority15_paths[f"{layer_prefix}_parquet"],
+                large_artifact_format=request.large_artifact_format,
+            )
+        write_csv_artifact(priority15_outputs.path_summary, priority15_paths["path_summary_csv"])
+        priority15_artifact_paths["path_summary_csv"] = priority15_paths["path_summary_csv"]
+        _write_large_artifact(
+            artifacts=priority15_artifact_paths,
+            frame=priority15_outputs.target_stop_events,
+            key_prefix="target_stop_events",
+            csv_path=priority15_paths["target_stop_events_csv"],
+            parquet_path=priority15_paths["target_stop_events_parquet"],
+            large_artifact_format=request.large_artifact_format,
         )
-        priority15_outputs.target_stop_summary.to_csv(priority15_paths["target_stop_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.checkpoint_events.to_csv(priority15_paths["checkpoint_events_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.checkpoint_summary.to_csv(priority15_paths["checkpoint_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.trend_feature_summary.to_csv(priority15_paths["trend_feature_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.cooldown_summary.to_csv(priority15_paths["cooldown_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.alpha_summary.to_csv(priority15_paths["alpha_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.regime_summary.to_csv(priority15_paths["regime_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.stability_summary.to_csv(priority15_paths["stability_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.signal_decay_summary.to_csv(priority15_paths["signal_decay_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.execution_summary.to_csv(priority15_paths["execution_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.exit_rule_summary.to_csv(priority15_paths["exit_rule_summary_csv"], index=False, encoding="utf-8-sig")
-        priority15_outputs.walk_forward_summary.to_csv(priority15_paths["walk_forward_summary_csv"], index=False, encoding="utf-8-sig")
+        _write_large_artifact(
+            artifacts=priority15_artifact_paths,
+            frame=priority15_outputs.checkpoint_events,
+            key_prefix="checkpoint_events",
+            csv_path=priority15_paths["checkpoint_events_csv"],
+            parquet_path=priority15_paths["checkpoint_events_parquet"],
+            large_artifact_format=request.large_artifact_format,
+        )
+        small_summary_artifacts = {
+            "target_stop_summary_csv": priority15_outputs.target_stop_summary,
+            "checkpoint_summary_csv": priority15_outputs.checkpoint_summary,
+            "trend_feature_summary_csv": priority15_outputs.trend_feature_summary,
+            "cooldown_summary_csv": priority15_outputs.cooldown_summary,
+            "alpha_summary_csv": priority15_outputs.alpha_summary,
+            "regime_summary_csv": priority15_outputs.regime_summary,
+            "stability_summary_csv": priority15_outputs.stability_summary,
+            "signal_decay_summary_csv": priority15_outputs.signal_decay_summary,
+            "execution_summary_csv": priority15_outputs.execution_summary,
+            "exit_rule_summary_csv": priority15_outputs.exit_rule_summary,
+            "walk_forward_summary_csv": priority15_outputs.walk_forward_summary,
+        }
+        for artifact_key, frame in small_summary_artifacts.items():
+            write_csv_artifact(frame, priority15_paths[artifact_key])
+            priority15_artifact_paths[artifact_key] = priority15_paths[artifact_key]
         _record_stage(performance, "write_priority15_artifacts", stage_started_at)
 
     stage_started_at = time.perf_counter()
     artifacts = EntrySignalAnalysisArtifacts(
         output_dir=str(output_dir),
-        candidates_csv=str(candidates_path),
-        selected_csv=str(selected_path),
+        candidates_csv=str(candidates_written["csv"]) if candidates_written["csv"] is not None else None,
+        candidates_parquet=str(candidates_written["parquet"]) if candidates_written["parquet"] is not None else None,
+        selected_csv=str(selected_written["csv"]) if selected_written["csv"] is not None else None,
+        selected_parquet=str(selected_written["parquet"]) if selected_written["parquet"] is not None else None,
         daily_summary_csv=str(daily_summary_path),
         strategy_summary_csv=str(strategy_summary_path),
         summary_json=str(summary_path),
@@ -983,7 +1047,10 @@ def run_entry_signal_analysis(
         manifest_json=str(manifest_path),
         performance_json=str(performance_path),
         **(
-            {key: str(path) for key, path in priority15_paths.items()}
+            {
+                key: str(path) if path is not None else None
+                for key, path in priority15_artifact_paths.items()
+            }
             if priority15_outputs is not None
             else {}
         ),
@@ -1012,8 +1079,10 @@ def run_entry_signal_analysis(
         dataset_id=output_dir.name,
         generated_at=generated_at.isoformat(timespec="seconds"),
         output_dir=str(output_dir),
-        candidates_csv=str(candidates_path),
-        selected_csv=str(selected_path),
+        candidates_csv=str(candidates_written["csv"]) if candidates_written["csv"] is not None else None,
+        candidates_parquet=str(candidates_written["parquet"]) if candidates_written["parquet"] is not None else None,
+        selected_csv=str(selected_written["csv"]) if selected_written["csv"] is not None else None,
+        selected_parquet=str(selected_written["parquet"]) if selected_written["parquet"] is not None else None,
         daily_summary_csv=str(daily_summary_path),
         strategy_summary_csv=str(strategy_summary_path),
         summary_json=str(summary_path),
@@ -1037,7 +1106,10 @@ def run_entry_signal_analysis(
         selected_count=int(len(selected)),
         request=request.model_dump(mode="json"),
         **(
-            {key: str(path) for key, path in priority15_paths.items()}
+            {
+                key: str(path) if path is not None else None
+                for key, path in priority15_artifact_paths.items()
+            }
             if priority15_outputs is not None
             else {}
         ),
@@ -1052,15 +1124,17 @@ def run_entry_signal_analysis(
     _record_stage(performance, "total", total_started_at)
 
     artifact_paths: dict[str, Path | None] = {
-        "candidates_csv": candidates_path,
-        "selected_csv": selected_path,
+        "candidates_csv": candidates_written["csv"],
+        "candidates_parquet": candidates_written["parquet"],
+        "selected_csv": selected_written["csv"],
+        "selected_parquet": selected_written["parquet"],
         "daily_summary_csv": daily_summary_path,
         "strategy_summary_csv": strategy_summary_path,
         "summary_json": summary_path,
         "report_md": report_path,
         "manifest_json": manifest_path,
         **(
-            {key: path for key, path in priority15_paths.items()}
+            priority15_artifact_paths
             if priority15_outputs is not None
             else {}
         ),
@@ -1072,8 +1146,8 @@ def run_entry_signal_analysis(
 
     print("[entry-signal-analysis] saved dataset artifacts")
     print(f"  dataset_id: {manifest.dataset_id}")
-    print(f"  candidates: {artifacts.candidates_csv}")
-    print(f"  selected: {artifacts.selected_csv}")
+    print(f"  candidates: {artifacts.candidates_parquet or artifacts.candidates_csv}")
+    print(f"  selected: {artifacts.selected_parquet or artifacts.selected_csv}")
     print(f"  daily_summary: {artifacts.daily_summary_csv}")
     print(f"  strategy_summary: {artifacts.strategy_summary_csv}")
     print(f"  summary: {artifacts.summary_json}")

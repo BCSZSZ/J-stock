@@ -15,11 +15,17 @@ from src.evaluation.trade_indicator_enrichment import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Enrich evaluation trade CSVs with entry/exit daily feature snapshots."
+        description="Enrich evaluation trade artifacts with entry/exit daily feature snapshots."
     )
-    parser.add_argument("--trades-csv", required=True, help="Evaluation trades CSV path")
+    parser.add_argument("--trades-csv", required=True, help="Evaluation trades artifact path")
     parser.add_argument("--data-root", default="data", help="Data root containing features/")
-    parser.add_argument("--output", default="", help="Output CSV path; defaults next to trades CSV")
+    parser.add_argument("--output", default="", help="Output artifact path; defaults next to trades artifact")
+    parser.add_argument(
+        "--large-artifact-format",
+        choices=("parquet", "csv", "both"),
+        default="parquet",
+        help="Large artifact format for enriched trades (default: parquet)",
+    )
     parser.add_argument(
         "--indicator-columns",
         nargs="*",
@@ -41,6 +47,7 @@ def main() -> int:
         data_root=data_root,
         output_path=output_path,
         indicator_columns=indicator_columns,
+        large_artifact_format=args.large_artifact_format,
     )
     print(f"Saved enriched trades: {saved_path}")
     print(f"Indicators: {len(indicator_columns)}")

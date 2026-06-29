@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from src.artifacts.tabular import LargeArtifactFormat
+
 
 EntrySignalLabelMode = Literal["signal_close", "next_open"]
 EntrySignalEntryFilterMode = Literal["auto", "off", "atr", "single", "grid"]
@@ -54,6 +56,7 @@ class EntrySignalAnalysisRequest(BaseModel):
     cooldown_days: list[int] = Field(default_factory=lambda: [5, 10, 20, 40])
     late_entry_days: list[int] = Field(default_factory=lambda: [1, 2, 3, 5])
     cost_bps: list[float] = Field(default_factory=lambda: [10.0, 20.0, 50.0, 100.0])
+    large_artifact_format: LargeArtifactFormat = "parquet"
     data_root: str = "data"
     output_dir: str = "entry_signal_analysis"
 
@@ -146,8 +149,10 @@ class EntrySignalAnalysisRequest(BaseModel):
 
 class EntrySignalAnalysisArtifacts(BaseModel):
     output_dir: str
-    candidates_csv: str
-    selected_csv: str
+    candidates_csv: str | None = None
+    candidates_parquet: str | None = None
+    selected_csv: str | None = None
+    selected_parquet: str | None = None
     daily_summary_csv: str
     strategy_summary_csv: str
     summary_json: str
@@ -156,20 +161,26 @@ class EntrySignalAnalysisArtifacts(BaseModel):
     performance_json: str | None = None
     event_metrics_csv: str | None = None
     event_metrics_parquet: str | None = None
-    event_metrics_csv_gz: str | None = None
     event_metrics_core_csv: str | None = None
+    event_metrics_core_parquet: str | None = None
     event_metrics_path_csv: str | None = None
+    event_metrics_path_parquet: str | None = None
     event_metrics_checkpoint_csv: str | None = None
+    event_metrics_checkpoint_parquet: str | None = None
     event_metrics_alpha_csv: str | None = None
+    event_metrics_alpha_parquet: str | None = None
     event_metrics_decay_csv: str | None = None
+    event_metrics_decay_parquet: str | None = None
     event_metrics_cost_csv: str | None = None
+    event_metrics_cost_parquet: str | None = None
     event_metrics_execution_csv: str | None = None
+    event_metrics_execution_parquet: str | None = None
     path_summary_csv: str | None = None
     target_stop_events_csv: str | None = None
     target_stop_events_parquet: str | None = None
-    target_stop_events_csv_gz: str | None = None
     target_stop_summary_csv: str | None = None
     checkpoint_events_csv: str | None = None
+    checkpoint_events_parquet: str | None = None
     checkpoint_summary_csv: str | None = None
     trend_feature_summary_csv: str | None = None
     cooldown_summary_csv: str | None = None
@@ -186,8 +197,10 @@ class EntrySignalAnalysisDatasetManifest(BaseModel):
     dataset_id: str
     generated_at: str
     output_dir: str
-    candidates_csv: str
-    selected_csv: str
+    candidates_csv: str | None = None
+    candidates_parquet: str | None = None
+    selected_csv: str | None = None
+    selected_parquet: str | None = None
     daily_summary_csv: str
     strategy_summary_csv: str
     summary_json: str
@@ -212,20 +225,26 @@ class EntrySignalAnalysisDatasetManifest(BaseModel):
     request: dict[str, object]
     event_metrics_csv: str | None = None
     event_metrics_parquet: str | None = None
-    event_metrics_csv_gz: str | None = None
     event_metrics_core_csv: str | None = None
+    event_metrics_core_parquet: str | None = None
     event_metrics_path_csv: str | None = None
+    event_metrics_path_parquet: str | None = None
     event_metrics_checkpoint_csv: str | None = None
+    event_metrics_checkpoint_parquet: str | None = None
     event_metrics_alpha_csv: str | None = None
+    event_metrics_alpha_parquet: str | None = None
     event_metrics_decay_csv: str | None = None
+    event_metrics_decay_parquet: str | None = None
     event_metrics_cost_csv: str | None = None
+    event_metrics_cost_parquet: str | None = None
     event_metrics_execution_csv: str | None = None
+    event_metrics_execution_parquet: str | None = None
     path_summary_csv: str | None = None
     target_stop_events_csv: str | None = None
     target_stop_events_parquet: str | None = None
-    target_stop_events_csv_gz: str | None = None
     target_stop_summary_csv: str | None = None
     checkpoint_events_csv: str | None = None
+    checkpoint_events_parquet: str | None = None
     checkpoint_summary_csv: str | None = None
     trend_feature_summary_csv: str | None = None
     cooldown_summary_csv: str | None = None

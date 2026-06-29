@@ -18,6 +18,7 @@ from collections import defaultdict
 import pandas as pd
 
 from src.analysis.signals import SignalAction, TradingSignal
+from src.artifacts.tabular import LargeArtifactFormat, write_large_artifact
 from src.backtest.lot_size_manager import LotSizeManager
 from src.backtest.entry_reference import normalize_entry_reference_mode
 from src.backtest.fill_buffer import normalize_fill_buffer_pct
@@ -2479,6 +2480,11 @@ class StrategyEvaluator:
                 "result_row_count": int(len(df)),
             },
             "artifacts": self._json_safe_data(files),
+            "artifact_sizes_bytes": {
+                str(key): int(Path(value).stat().st_size)
+                for key, value in files.items()
+                if value and Path(value).exists()
+            },
         }
 
     def _write_run_parameter_snapshot(
@@ -3398,14 +3404,20 @@ class StrategyEvaluator:
             complexity_penalty_resolver=get_strategy_complexity_penalty,
         )
 
-    def save_results(self, prefix: str = "evaluation", ranking_mode: str = "target20"):
+    def save_results(
+        self,
+        prefix: str = "evaluation",
+        ranking_mode: str = "target20",
+        large_artifact_format: LargeArtifactFormat = "parquet",
+        save_daily_snapshots_debug: bool = False,
+    ):
         """
         保存结果到文件
 
         生成：
-        1. {prefix}_raw.csv - 原始结果
+        1. {prefix}_raw.{parquet|csv} - 原始结果
         2. {prefix}_by_regime.csv - 按市场环境分组
-        3. {prefix}_trades.csv - 原始逐笔交易
+        3. {prefix}_trades.{parquet|csv} - 原始逐笔交易
         4. {prefix}_exit_trigger_summary.csv - 第一层：退出原因明细
         5. {prefix}_exit_urgency_summary.csv - 第二层：退出类型汇总
         6. {prefix}_exit_urgency_contribution.csv - 第三层：退出贡献汇总
@@ -3413,10 +3425,17 @@ class StrategyEvaluator:
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # 1. 原始结果CSV
+        def _primary_path(written: dict[str, Path | None]) -> Path:
+            path = written.get("parquet") or written.get("csv")
+            if path is None:
+                raise RuntimeError("large artifact writer did not return an output path")
+            return path
+
+        # 1. 原始结果
         df = self._create_results_dataframe()
         raw_file = self.output_dir / f"{prefix}_raw_{timestamp}.csv"
-        df.to_csv(raw_file, index=False, encoding="utf-8-sig")
+        raw_written = write_large_artifact(df, raw_file, large_artifact_format)
+        raw_file = _primary_path(raw_written)
         print(f"✅ 原始结果已保存: {raw_file}")
 
         # 2. 按市场环境分组CSV
@@ -3432,7 +3451,8 @@ class StrategyEvaluator:
 
         trade_df = self._create_trade_results_dataframe()
         trades_file = self.output_dir / f"{prefix}_trades_{timestamp}.csv"
-        trade_df.to_csv(trades_file, index=False, encoding="utf-8-sig")
+        trades_written = write_large_artifact(trade_df, trades_file, large_artifact_format)
+        trades_file = _primary_path(trades_written)
         print(f"✅ 原始交易明细已保存: {trades_file}")
         files["trades"] = str(trades_file)
 
@@ -3441,6 +3461,7 @@ class StrategyEvaluator:
                 trades_csv=trades_file,
                 data_root=self.data_root,
                 trades_df=trade_df,
+                large_artifact_format=large_artifact_format,
             )
         except Exception as e:
             print(f"⚠️ 交易指标 sidecar 生成失败: {e}")
@@ -3478,25 +3499,27 @@ class StrategyEvaluator:
 
         daily_position_df = self._create_daily_position_dataframe()
         daily_position_file = self.output_dir / f"{prefix}_daily_positions_{timestamp}.csv"
-        daily_position_df.to_csv(
+        daily_position_written = write_large_artifact(
+            daily_position_df,
             daily_position_file,
-            index=False,
-            encoding="utf-8-sig",
+            large_artifact_format,
         )
+        daily_position_file = _primary_path(daily_position_written)
         print(f"✅ 全流程日级持仓已保存: {daily_position_file}")
         files["daily_positions"] = str(daily_position_file)
 
-        daily_snapshot_file = self.output_dir / f"{prefix}_daily_snapshots_{timestamp}.json"
-        daily_snapshot_file.write_text(
-            json.dumps(
-                self._create_daily_snapshot_output(self.evaluation_daily_snapshots),
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ),
-            encoding="utf-8",
-        )
-        print(f"✅ 全流程日级快照已保存: {daily_snapshot_file}")
-        files["daily_snapshots"] = str(daily_snapshot_file)
+        if save_daily_snapshots_debug:
+            daily_snapshot_file = self.output_dir / f"{prefix}_daily_snapshots_{timestamp}.json"
+            daily_snapshot_file.write_text(
+                json.dumps(
+                    self._create_daily_snapshot_output(self.evaluation_daily_snapshots),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+            print(f"✅ 全流程日级快照已保存: {daily_snapshot_file}")
+            files["daily_snapshots"] = str(daily_snapshot_file)
 
         exit_reason_detail_df = self.build_exit_reason_detail_df(
             trade_df,

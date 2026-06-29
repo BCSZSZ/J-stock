@@ -3,10 +3,22 @@ import re
 
 import pandas as pd
 
+from src.artifacts.tabular import read_table_auto
+
+
+def _resolve_table_path(path: Path) -> Path:
+    if path.exists():
+        return path
+    if path.suffix == ".csv":
+        parquet_path = path.with_suffix(".parquet")
+        if parquet_path.exists():
+            return parquet_path
+    return path
+
 
 def main() -> None:
     raw = Path(r"G:/My Drive/AI-Stock-Sync/strategy_evaluation/phaseA_mvx_3m_raw_20260220_161229.csv")
-    df = pd.read_csv(raw)
+    df = read_table_auto(_resolve_table_path(raw))
 
     pattern = re.compile(r"MVX_N(?P<N>\d+)_R(?P<R>[0-9p]+)_T(?P<T>[0-9p]+)_D(?P<D>\d+)_B(?P<B>\d+)")
     parts = df["exit_strategy"].str.extract(pattern)
@@ -53,8 +65,9 @@ def main() -> None:
     )
 
     trade_path = Path("strategy_evaluation/mvx_vs_score_tradelevel_20260220_164214.csv")
-    if trade_path.exists():
-        td = pd.read_csv(trade_path)
+    resolved_trade_path = _resolve_table_path(trade_path)
+    if resolved_trade_path.exists():
+        td = read_table_auto(resolved_trade_path)
         mvx = td[td["strategy"] == "MVX_N4_R1p8_T2p2_D20_B15"]
         print(f"\nMVX trades={len(mvx)}")
         print("=== MVX trigger counts ===")

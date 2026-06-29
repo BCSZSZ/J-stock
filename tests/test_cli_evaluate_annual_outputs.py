@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
+from src.artifacts.tabular import read_table_auto
 from src.cli import evaluate as evaluate_cli
 from src.evaluation.strategy_evaluator import StrategyEvaluator
 
@@ -428,12 +429,15 @@ def test_write_combined_position_output_family_writes_indicator_sidecar(tmp_path
         raw_frames=[],
         regime_frames=[],
         trade_frames=trade_frames,
+        large_artifact_format="parquet",
     )
 
     assert Path(files["trades"]).exists()
     assert Path(files["trades_indicators"]).exists()
+    assert Path(files["trades"]).suffix == ".parquet"
+    assert Path(files["trades_indicators"]).suffix == ".parquet"
 
-    indicators_df = pd.read_csv(files["trades_indicators"])
+    indicators_df = read_table_auto(files["trades_indicators"])
     assert "entry_exec_RSI" in indicators_df.columns
     assert indicators_df.iloc[0]["exit_exec_MACD"] == 0.8
 

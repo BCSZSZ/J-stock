@@ -5,6 +5,7 @@ import {
   type EntrySignalAnalysisDatasetDetail,
   type EntrySignalAnalysisDatasetSummary,
   type EntrySignalAnalysisHorizonStats,
+  type EntrySignalAnalysisLargeArtifactFormat,
   type EntrySignalAnalysisOptions,
   type EntrySignalAnalysisProfile,
   type EntrySignalAnalysisPrimaryHorizonValidation,
@@ -214,6 +215,8 @@ export default function EntrySignalAnalysis() {
   const [end, setEnd] = useState("");
   const [analysisProfile, setAnalysisProfile] =
     useState<EntrySignalAnalysisProfile>("priority15");
+  const [largeArtifactFormat, setLargeArtifactFormat] =
+    useState<EntrySignalAnalysisLargeArtifactFormat>("parquet");
   const [horizons, setHorizons] = useState("1,3,5");
   const [primaryHorizons, setPrimaryHorizons] = useState("5");
   const [labelMode, setLabelMode] = useState<"signal_close" | "next_open">("next_open");
@@ -270,6 +273,7 @@ export default function EntrySignalAnalysis() {
     setSelectedEntry(defaults.entry_strategies ?? []);
     setUniverseFiles((defaults.universe_files ?? []).join("\n"));
     setAnalysisProfile(defaults.analysis_profile ?? "priority15");
+    setLargeArtifactFormat(defaults.large_artifact_format ?? "parquet");
     setHorizons((defaults.horizons ?? [1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80]).join(","));
     setPrimaryHorizons(
       (defaults.primary_horizons && defaults.primary_horizons.length > 0
@@ -378,6 +382,7 @@ export default function EntrySignalAnalysis() {
       start: parsedYears.length > 0 ? undefined : start.trim() || undefined,
       end: parsedYears.length > 0 ? undefined : end.trim() || undefined,
       analysis_profile: analysisProfile,
+      large_artifact_format: largeArtifactFormat,
       horizons: parsedHorizons,
       primary_horizons: parsedPrimaryHorizons,
       primary_horizon: parsedPrimaryHorizons[0] ?? parsedHorizons[0] ?? 5,
@@ -480,7 +485,7 @@ export default function EntrySignalAnalysis() {
             </div>
           </div>
           <div className={cardClassName}>
-            <label className={labelClassName}>Profile / Label / Ranking</label>
+            <label className={labelClassName}>Profile / Format / Label / Ranking</label>
             <div className="space-y-2">
               <select
                 value={analysisProfile}
@@ -492,6 +497,23 @@ export default function EntrySignalAnalysis() {
                     {profile}
                   </option>
                 ))}
+              </select>
+              <select
+                value={largeArtifactFormat}
+                onChange={(e) =>
+                  setLargeArtifactFormat(
+                    e.target.value as EntrySignalAnalysisLargeArtifactFormat,
+                  )
+                }
+                className={inputClassName}
+              >
+                {(["parquet", "csv", "both"] as EntrySignalAnalysisLargeArtifactFormat[]).map(
+                  (format) => (
+                    <option key={format} value={format}>
+                      {format}
+                    </option>
+                  ),
+                )}
               </select>
               <select
                 value={labelMode}

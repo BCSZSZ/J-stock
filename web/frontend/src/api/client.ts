@@ -5,6 +5,8 @@ const BASE = "/api";
 export type MomentumExhaustionMode = "off" | "shadow" | "enforce";
 export type IndustryFilterMode = "off" | "shadow" | "enforce";
 export type EntrySignalAnalysisProfile = "legacy" | "priority15";
+export type LargeArtifactFormat = "parquet" | "csv" | "both";
+export type EntrySignalAnalysisLargeArtifactFormat = LargeArtifactFormat;
 
 export type TradeHistoryEvent = {
   date: string;
@@ -58,6 +60,7 @@ export type EntrySignalAnalysisOptions = {
     entry_strategies: string[];
     universe_files: string[];
     analysis_profile: EntrySignalAnalysisProfile;
+    large_artifact_format?: EntrySignalAnalysisLargeArtifactFormat;
     horizons: number[];
     primary_horizon: number;
     primary_horizons?: number[];
@@ -98,6 +101,7 @@ export type EntrySignalAnalysisRunRequest = {
   end?: string;
   years?: number[];
   analysis_profile?: EntrySignalAnalysisProfile;
+  large_artifact_format?: EntrySignalAnalysisLargeArtifactFormat;
   horizons: number[];
   primary_horizon: number;
   primary_horizons?: number[];
@@ -299,6 +303,7 @@ export type EntryExitValidationOptions = {
     partial_exit_policy: string;
     min_samples: number;
     data_root: string;
+    large_artifact_format?: LargeArtifactFormat;
     output_dir: string;
   };
 };
@@ -333,6 +338,7 @@ export type EntryExitValidationRunRequest = {
   min_samples: number;
   limit?: number | null;
   data_root: string;
+  large_artifact_format?: LargeArtifactFormat;
   output_dir?: string;
 };
 
@@ -362,7 +368,7 @@ export type EntryExitValidationRunSummary = {
   combination_count?: number;
   market_regime_status?: string;
   market_regime_definition?: string | null;
-  artifacts?: Record<string, string>;
+  artifacts?: Record<string, string | null>;
   top_robust_combinations?: Array<Record<string, unknown>>;
   top_risk_combinations?: Array<Record<string, unknown>>;
   warnings?: string[];

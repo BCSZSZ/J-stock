@@ -254,6 +254,9 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         start_date=start_date,
         end_date=end_date,
         analysis_profile=str(getattr(args, "analysis_profile", None) or "priority15"),
+        large_artifact_format=str(
+            getattr(args, "large_artifact_format", None) or "parquet"
+        ),
         horizons=horizons,
         primary_horizon=fallback_primary_horizon,
         primary_horizons=parsed_primary_horizons,

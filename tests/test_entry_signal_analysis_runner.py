@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from src.artifacts.tabular import read_table_auto
 from src.entry_signal_analysis.models import EntrySignalAnalysisRequest
 from src.entry_signal_analysis.runner import run_entry_signal_analysis
 
@@ -59,14 +60,18 @@ def test_run_entry_signal_analysis_writes_artifacts(tmp_path, monkeypatch) -> No
     assert summary.effective_entry_filter_mode == "off"
     assert summary.effective_entry_filter_names == ["production"]
     assert summary.overall["1d"]["count"] == 1
-    assert Path(summary.artifacts.candidates_csv).exists()
-    assert Path(summary.artifacts.selected_csv).exists()
+    assert summary.artifacts.candidates_csv is None
+    assert summary.artifacts.selected_csv is None
+    assert summary.artifacts.candidates_parquet is not None
+    assert summary.artifacts.selected_parquet is not None
+    assert Path(summary.artifacts.candidates_parquet).exists()
+    assert Path(summary.artifacts.selected_parquet).exists()
     assert manifest_path.exists()
     assert summary_path.exists()
     assert report_path.exists()
     assert performance_path.exists()
     assert summary.performance["row_counts"]["selected"] == 1
-    assert summary.performance["artifact_sizes_bytes"]["candidates_csv"] > 0
+    assert summary.performance["artifact_sizes_bytes"]["candidates_parquet"] > 0
     assert any(
         item["name"] == "scan_entry_signal_candidates"
         for item in summary.performance["stages"]
@@ -160,11 +165,13 @@ def test_run_entry_signal_analysis_priority15_compacts_core_outputs(tmp_path, mo
 
     summary = run_entry_signal_analysis(request)
 
-    candidates_text = Path(summary.artifacts.candidates_csv).read_text(encoding="utf-8-sig")
-    selected_text = Path(summary.artifacts.selected_csv).read_text(encoding="utf-8-sig")
-    assert "very_wide_priority15_only_column" not in candidates_text
-    assert "very_wide_priority15_only_column" not in selected_text
-    assert "forward_return_5d_pct" in candidates_text
+    assert summary.artifacts.candidates_parquet is not None
+    assert summary.artifacts.selected_parquet is not None
+    candidates_frame = read_table_auto(summary.artifacts.candidates_parquet)
+    selected_frame = read_table_auto(summary.artifacts.selected_parquet)
+    assert "very_wide_priority15_only_column" not in candidates_frame.columns
+    assert "very_wide_priority15_only_column" not in selected_frame.columns
+    assert "forward_return_5d_pct" in candidates_frame.columns
     assert summary.performance["row_counts"]["daily_summary"] == 0
     assert summary.performance["row_counts"]["strategy_summary"] == 1
     assert "5d" in summary.overall
@@ -173,7 +180,7 @@ def test_run_entry_signal_analysis_priority15_compacts_core_outputs(tmp_path, mo
         for item in summary.performance["stages"]
     )
     assert any(
-        item["name"] == "write_core_csv" and item["behavior"] == "priority15_compact"
+        item["name"] == "write_core_artifacts" and item["behavior"] == "priority15_compact"
         for item in summary.performance["stages"]
     )
 
@@ -275,10 +282,25 @@ def test_run_entry_signal_analysis_priority15_writes_layered_and_columnar_artifa
 
     summary = run_entry_signal_analysis(request)
 
-    artifact_names = [
-        "event_metrics_csv",
+    parquet_artifact_names = [
         "event_metrics_parquet",
-        "event_metrics_csv_gz",
+        "event_metrics_core_parquet",
+        "event_metrics_path_parquet",
+        "event_metrics_checkpoint_parquet",
+        "event_metrics_alpha_parquet",
+        "event_metrics_decay_parquet",
+        "event_metrics_cost_parquet",
+        "event_metrics_execution_parquet",
+        "target_stop_events_parquet",
+        "checkpoint_events_parquet",
+    ]
+    for artifact_name in parquet_artifact_names:
+        path = Path(getattr(summary.artifacts, artifact_name) or "")
+        assert path.exists(), artifact_name
+        assert summary.performance["artifact_sizes_bytes"][artifact_name] > 0
+
+    csv_artifact_names = [
+        "event_metrics_csv",
         "event_metrics_core_csv",
         "event_metrics_path_csv",
         "event_metrics_checkpoint_csv",
@@ -287,23 +309,66 @@ def test_run_entry_signal_analysis_priority15_writes_layered_and_columnar_artifa
         "event_metrics_cost_csv",
         "event_metrics_execution_csv",
         "target_stop_events_csv",
-        "target_stop_events_parquet",
-        "target_stop_events_csv_gz",
+        "checkpoint_events_csv",
     ]
-    for artifact_name in artifact_names:
-        path = Path(getattr(summary.artifacts, artifact_name) or "")
-        assert path.exists(), artifact_name
-        assert summary.performance["artifact_sizes_bytes"][artifact_name] > 0
+    for artifact_name in csv_artifact_names:
+        assert getattr(summary.artifacts, artifact_name) is None
+        assert artifact_name not in summary.performance["artifact_sizes_bytes"]
 
     manifest_text = Path(summary.artifacts.manifest_json).read_text(encoding="utf-8")
     assert "event_metrics_parquet" in manifest_text
-    assert "target_stop_events_csv_gz" in manifest_text
-    assert "MFE_10d_pct" in Path(summary.artifacts.event_metrics_path_csv or "").read_text(encoding="utf-8-sig")
-    assert "day10_strong" in Path(summary.artifacts.event_metrics_checkpoint_csv or "").read_text(encoding="utf-8-sig")
-    assert "alpha_5d_vs_universe_pct" in Path(summary.artifacts.event_metrics_alpha_csv or "").read_text(encoding="utf-8-sig")
-    assert "decay_1d_5d_pct" in Path(summary.artifacts.event_metrics_decay_csv or "").read_text(encoding="utf-8-sig")
-    assert "net_return_after_10bps_5d_pct" in Path(summary.artifacts.event_metrics_cost_csv or "").read_text(encoding="utf-8-sig")
-    assert "signal_close_to_next_open_gap_pct" in Path(summary.artifacts.event_metrics_execution_csv or "").read_text(encoding="utf-8-sig")
+    assert "target_stop_events_parquet" in manifest_text
+    assert "target_stop_events_csv_gz" not in manifest_text
+    report_text = Path(summary.artifacts.report_md).read_text(encoding="utf-8")
+    assert str(summary.artifacts.event_metrics_parquet) in report_text
+    assert "event_metrics.csv" not in report_text
+    assert "MFE_10d_pct" in pd.read_parquet(summary.artifacts.event_metrics_path_parquet).columns
+    assert "day10_strong" in pd.read_parquet(summary.artifacts.event_metrics_checkpoint_parquet).columns
+    assert "alpha_5d_vs_universe_pct" in pd.read_parquet(summary.artifacts.event_metrics_alpha_parquet).columns
+    assert "decay_1d_5d_pct" in pd.read_parquet(summary.artifacts.event_metrics_decay_parquet).columns
+    assert "net_return_after_10bps_5d_pct" in pd.read_parquet(summary.artifacts.event_metrics_cost_parquet).columns
+    assert "signal_close_to_next_open_gap_pct" in pd.read_parquet(summary.artifacts.event_metrics_execution_parquet).columns
+
+
+def test_large_artifact_writer_supports_csv_and_both_modes(tmp_path) -> None:
+    import src.entry_signal_analysis.runner as runner
+
+    frame = pd.DataFrame(
+        {
+            "event_row": [1, None],
+            "entry_strategy": ["EntryA", "EntryA"],
+            "horizon": [10, 20],
+            "return_pct": [1.5, -0.5],
+        }
+    )
+
+    csv_artifacts: dict[str, Path | None] = {}
+    runner._write_large_artifact(
+        artifacts=csv_artifacts,
+        frame=frame,
+        key_prefix="event_metrics",
+        csv_path=tmp_path / "event_metrics.csv",
+        parquet_path=tmp_path / "event_metrics.parquet",
+        large_artifact_format="csv",
+    )
+    assert csv_artifacts["event_metrics_csv"] == tmp_path / "event_metrics.csv"
+    assert csv_artifacts["event_metrics_parquet"] is None
+    assert (tmp_path / "event_metrics.csv").exists()
+    assert not (tmp_path / "event_metrics.parquet").exists()
+
+    both_artifacts: dict[str, Path | None] = {}
+    runner._write_large_artifact(
+        artifacts=both_artifacts,
+        frame=frame,
+        key_prefix="target_stop_events",
+        csv_path=tmp_path / "target_stop_events.csv",
+        parquet_path=tmp_path / "target_stop_events.parquet",
+        large_artifact_format="both",
+    )
+    assert both_artifacts["target_stop_events_csv"] == tmp_path / "target_stop_events.csv"
+    assert both_artifacts["target_stop_events_parquet"] == tmp_path / "target_stop_events.parquet"
+    assert (tmp_path / "target_stop_events.csv").exists()
+    assert (tmp_path / "target_stop_events.parquet").exists()
 
 
 def test_run_entry_signal_analysis_includes_primary_horizon_validation(tmp_path, monkeypatch) -> None:

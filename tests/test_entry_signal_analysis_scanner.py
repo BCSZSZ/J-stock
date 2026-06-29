@@ -204,6 +204,107 @@ def test_scan_entry_signal_events_uses_precomputed_strategy_without_market_data(
     assert len(scan_result.event_contexts) == 4
 
 
+def test_scan_entry_signal_events_passes_context_to_precompute_hooks(
+    monkeypatch,
+) -> None:
+    import src.entry_signal_analysis.scanner as scanner
+
+    class _ContextCache(_FakeCache):
+        def get_trades(self, ticker: str) -> pd.DataFrame:
+            return pd.DataFrame(
+                {
+                    "EnDate": ["2026-01-05"],
+                    "FrgnBal": [1_000_000.0],
+                    "Ticker": [ticker],
+                }
+            )
+
+        def get_financials(self, ticker: str) -> pd.DataFrame:
+            return pd.DataFrame(
+                {
+                    "DiscDate": ["2026-01-05"],
+                    "Sales": [100.0],
+                    "Ticker": [ticker],
+                }
+            )
+
+    class _ContextPrecomputedEntry:
+        strategy_name = "ContextPrecomputedEntry"
+        precompute_family_key = "context_precompute"
+
+        def build_precompute_feature_cache(
+            self,
+            *,
+            features: pd.DataFrame,
+            trades: pd.DataFrame,
+            financials: pd.DataFrame,
+            metadata: dict[str, object],
+        ) -> dict[str, object]:
+            assert not features.empty
+            assert not trades.empty
+            assert not financials.empty
+            assert metadata["ticker"] in {"7203", "6758"}
+            return {"ticker": metadata["ticker"]}
+
+        def precompute_entry_signals(
+            self,
+            *,
+            ticker: str,
+            features: pd.DataFrame,
+            trades: pd.DataFrame,
+            financials: pd.DataFrame,
+            metadata: dict[str, object],
+            feature_cache: dict[str, object],
+        ) -> dict[int, TradingSignal]:
+            assert feature_cache["ticker"] == ticker
+            assert not trades.empty
+            assert not financials.empty
+            assert metadata["ticker"] == ticker
+            return {
+                0: TradingSignal(
+                    action=SignalAction.BUY,
+                    confidence=0.9,
+                    reasons=["context precomputed"],
+                    metadata={"score": 10.0},
+                    strategy_name=self.strategy_name,
+                )
+            }
+
+    fake_cache = _ContextCache()
+    fake_filter = _CountingFilter()
+    monkeypatch.setattr(scanner, "BacktestDataCache", lambda data_root: fake_cache)
+    monkeypatch.setattr(scanner.EntrySecondaryFilter, "from_dict", lambda _config: fake_filter)
+    monkeypatch.setattr(scanner, "resolve_filter_variants_for_request", lambda _request: [("off", {})])
+    monkeypatch.setattr(scanner, "resolve_tail_guard_for_request", lambda _request: None)
+    monkeypatch.setattr(scanner, "resolve_momentum_exhaustion_for_request", lambda _request: None)
+    monkeypatch.setattr(scanner, "resolve_industry_filter_for_request", lambda _request: None)
+    monkeypatch.setattr(scanner, "load_entry_strategy", lambda _strategy_name: _ContextPrecomputedEntry())
+    monkeypatch.setattr(
+        scanner,
+        "generate_signal_v2",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("fallback generate not expected")),
+    )
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["ContextPrecomputedEntry"],
+        tickers=["7203", "6758"],
+        start_date=date(2026, 1, 5),
+        end_date=date(2026, 1, 5),
+        horizons=[1],
+        primary_horizon=1,
+        ranking_strategy="score_only",
+        entry_filter_mode="off",
+    )
+
+    scan_result = scan_entry_signal_events(request)
+
+    assert scan_result.scanner_metrics["strategy_family_cache_build_count"] == 2
+    assert scan_result.scanner_metrics["strategy_precompute_count"] == 2
+    assert scan_result.scanner_metrics["strategy_fast_eval_count"] == 2
+    assert scan_result.scanner_metrics["market_data_build_count"] == 0
+    assert len(scan_result.candidates) == 2
+
+
 def test_scan_entry_signal_events_reuses_family_cache_and_forward_returns(
     monkeypatch,
 ) -> None:

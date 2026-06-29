@@ -5,6 +5,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.artifacts.tabular import (
+    LargeArtifactFormat,
+    read_table_auto,
+    write_large_artifact,
+)
+
 
 DEFAULT_INDICATOR_COLUMNS: tuple[str, ...] = (
     "RSI",
@@ -369,7 +375,7 @@ def enrich_trades_with_indicators(
     data_root: Path | str,
     indicator_columns: tuple[str, ...] = DEFAULT_INDICATOR_COLUMNS,
 ) -> pd.DataFrame:
-    trades = pd.read_csv(trades_csv, dtype={"ticker": str})
+    trades = read_table_auto(trades_csv, csv_kwargs={"dtype": {"ticker": str}})
     return enrich_trade_dataframe_with_indicators(
         trades=trades,
         data_root=data_root,
@@ -388,13 +394,14 @@ def write_enriched_trades_sidecar(
     output_path: Path | str | None = None,
     indicator_columns: tuple[str, ...] = DEFAULT_INDICATOR_COLUMNS,
     trades_df: pd.DataFrame | None = None,
+    large_artifact_format: LargeArtifactFormat = "parquet",
 ) -> Path:
     trades_path = Path(trades_csv)
     resolved_output_path = (
         Path(output_path) if output_path is not None else default_indicator_output_path(trades_path)
     )
     if trades_df is None:
-        source_trades = pd.read_csv(trades_path, dtype={"ticker": str})
+        source_trades = read_table_auto(trades_path, csv_kwargs={"dtype": {"ticker": str}})
     else:
         source_trades = trades_df
     enriched = enrich_trade_dataframe_with_indicators(
@@ -402,6 +409,9 @@ def write_enriched_trades_sidecar(
         data_root=data_root,
         indicator_columns=indicator_columns,
     )
-    resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
-    enriched.to_csv(resolved_output_path, index=False, encoding="utf-8-sig")
-    return resolved_output_path
+    written = write_large_artifact(
+        enriched,
+        resolved_output_path,
+        large_artifact_format,
+    )
+    return written["parquet"] or written["csv"] or resolved_output_path

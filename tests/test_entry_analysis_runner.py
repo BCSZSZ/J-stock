@@ -46,6 +46,8 @@ def test_run_entry_analysis_writes_dataset_manifest_without_rules(tmp_path, monk
     assert summary.candidate_count == 1
     assert summary.aggregate_count == 0
     assert summary.artifacts.aggregates_csv is None
-    assert Path(summary.artifacts.candidates_csv).exists()
+    assert summary.artifacts.candidates_csv is None
+    assert summary.artifacts.candidates_parquet is not None
+    assert Path(summary.artifacts.candidates_parquet).exists()
     assert manifest_path.exists()
     assert "RSI" in manifest_path.read_text(encoding="utf-8")

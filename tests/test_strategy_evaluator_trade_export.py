@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from src.artifacts.tabular import read_table_auto
 from src.backtest.models import Trade
 from src.evaluation.strategy_evaluator import AnnualStrategyResult, StrategyEvaluator
 
@@ -259,12 +260,19 @@ def test_save_results_writes_trade_exports_and_indicator_sidecar(tmp_path):
 
     files = evaluator.save_results(prefix="unit_eval")
 
+    raw_path = Path(files["raw"])
     trades_path = Path(files["trades"])
     indicators_path = Path(files["trades_indicators"])
+    daily_positions_path = Path(files["daily_positions"])
     summary_path = Path(files["exit_trigger_summary"])
     urgency_summary_path = Path(files["exit_urgency_summary"])
     contribution_path = Path(files["exit_urgency_contribution"])
     exit_summary_report_path = Path(files["exit_summary_report"])
+    assert raw_path.suffix == ".parquet"
+    assert trades_path.suffix == ".parquet"
+    assert indicators_path.suffix == ".parquet"
+    assert daily_positions_path.suffix == ".parquet"
+    assert "daily_snapshots" not in files
     assert trades_path.exists()
     assert indicators_path.exists()
     assert summary_path.exists()
@@ -272,8 +280,8 @@ def test_save_results_writes_trade_exports_and_indicator_sidecar(tmp_path):
     assert contribution_path.exists()
     assert exit_summary_report_path.exists()
 
-    trades_df = pd.read_csv(trades_path)
-    indicators_df = pd.read_csv(indicators_path)
+    trades_df = read_table_auto(trades_path)
+    indicators_df = read_table_auto(indicators_path)
     summary_df = pd.read_csv(summary_path)
     urgency_summary_df = pd.read_csv(urgency_summary_path)
     contribution_df = pd.read_csv(contribution_path)

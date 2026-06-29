@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.artifacts.tabular import write_large_artifact
 from src.entry_analysis.aggregation import aggregate_candidates, compute_baseline
 from src.entry_analysis.features import normalize_indicator_columns, safe_json_dumps
 from src.entry_analysis.models import (
@@ -97,7 +98,7 @@ def _write_report(path: Path, summary: EntryAnalysisRunSummary) -> None:
         *(top_lines or ["- none"]),
         "",
         "## Artifacts",
-        f"- Candidates: {summary.artifacts.candidates_csv or '-'}",
+        f"- Candidates: {summary.artifacts.candidates_parquet or summary.artifacts.candidates_csv or '-'}",
         f"- Aggregates: {summary.artifacts.aggregates_csv or '-'}",
         f"- Summary: {summary.artifacts.summary_json}",
         f"- Rules: {summary.artifacts.rules_json or '-'}",
@@ -133,7 +134,11 @@ def run_entry_analysis(request: EntryAnalysisRequest) -> EntryAnalysisRunSummary
     report_path = output_dir / f"entry_analysis_report_{timestamp}.md"
     manifest_path = output_dir / "entry_analysis_manifest.json"
 
-    candidates.to_csv(candidates_path, index=False, encoding="utf-8-sig")
+    candidates_written = write_large_artifact(
+        candidates,
+        candidates_path,
+        request.large_artifact_format,
+    )
     if rules:
         aggregates.to_csv(aggregates_path, index=False, encoding="utf-8-sig")
         rules_path.write_text(
@@ -151,7 +156,8 @@ def run_entry_analysis(request: EntryAnalysisRequest) -> EntryAnalysisRunSummary
 
     artifacts = EntryAnalysisArtifacts(
         output_dir=str(output_dir),
-        candidates_csv=str(candidates_path),
+        candidates_csv=str(candidates_written["csv"]) if candidates_written["csv"] is not None else None,
+        candidates_parquet=str(candidates_written["parquet"]) if candidates_written["parquet"] is not None else None,
         aggregates_csv=str(aggregates_path) if rules else None,
         summary_json=str(summary_path),
         rules_json=str(rules_path) if rules else None,
@@ -172,7 +178,8 @@ def run_entry_analysis(request: EntryAnalysisRequest) -> EntryAnalysisRunSummary
         dataset_id=output_dir.name,
         generated_at=generated_at.isoformat(timespec="seconds"),
         output_dir=str(output_dir),
-        candidates_csv=str(candidates_path),
+        candidates_csv=str(candidates_written["csv"]) if candidates_written["csv"] is not None else None,
+        candidates_parquet=str(candidates_written["parquet"]) if candidates_written["parquet"] is not None else None,
         summary_json=str(summary_path),
         report_md=str(report_path),
         entry_strategies=request.entry_strategies,
@@ -192,7 +199,7 @@ def run_entry_analysis(request: EntryAnalysisRequest) -> EntryAnalysisRunSummary
 
     print("[entry-analysis] saved dataset artifacts")
     print(f"  dataset_id: {manifest.dataset_id}")
-    print(f"  candidates: {artifacts.candidates_csv}")
+    print(f"  candidates: {artifacts.candidates_parquet or artifacts.candidates_csv}")
     print(f"  manifest: {artifacts.manifest_json}")
     print(f"  aggregates: {artifacts.aggregates_csv or '-'}")
     print(f"  summary: {artifacts.summary_json}")

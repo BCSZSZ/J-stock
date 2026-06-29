@@ -143,6 +143,7 @@ def cmd_entry_analysis(args: Any) -> None:
         data_root=str(args.data_root),
         output_dir=_resolve_output_dir(args, config),
         save_candidates=True,
+        large_artifact_format=str(getattr(args, "large_artifact_format", None) or "parquet"),
     )
 
     print("Entry Analysis")

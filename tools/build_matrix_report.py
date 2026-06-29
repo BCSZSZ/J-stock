@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.artifacts.tabular import read_table_auto
+
 
 def parse_strategy_parts(combo_id: str):
     strategy, profile, overlay_part = combo_id.split("|")
@@ -35,18 +37,18 @@ def to_md_table(df: pd.DataFrame, cols):
 
 def main():
     parser = argparse.ArgumentParser(description="Build markdown report for 1x9x4x2 matrix results")
-    parser.add_argument("--raw-csv", required=True)
-    parser.add_argument("--rank-csv", required=True)
+    parser.add_argument("--raw-csv", required=True, help="Raw evaluation artifact (.parquet or .csv)")
+    parser.add_argument("--rank-csv", required=True, help="Ranking table artifact (.parquet or .csv)")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    raw = pd.read_csv(args.raw_csv)
-    rank = pd.read_csv(args.rank_csv)
+    raw = read_table_auto(args.raw_csv)
+    rank = read_table_auto(args.rank_csv)
 
     required_raw = {"combo_id", "period", "return_pct", "alpha", "max_drawdown_pct", "sharpe_ratio", "win_rate_pct", "num_trades", "avg_gain_pct", "avg_loss_pct"}
     missing_raw = required_raw - set(raw.columns)
     if missing_raw:
-        raise ValueError(f"Missing columns in raw csv: {sorted(missing_raw)}")
+        raise ValueError(f"Missing columns in raw artifact: {sorted(missing_raw)}")
 
     rank = rank.copy()
     parsed = rank["strategy"].apply(parse_strategy_parts)

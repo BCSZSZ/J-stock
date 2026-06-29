@@ -230,6 +230,8 @@ class EvaluationRunRequest(BaseModel):
     max_total_positions_per_industry: int | None = Field(default=None, ge=1)
     industry_reference_file: str | None = None
     allow_held_position_buys: bool = False
+    large_artifact_format: Literal["parquet", "csv", "both"] = "parquet"
+    save_daily_snapshots_debug: bool = False
     output_dir: str | None = None
     verbose: bool = False
 
@@ -248,6 +250,7 @@ class EntrySignalAnalysisRunRequest(BaseModel):
     end: str | None = None
     years: list[int] | None = None
     analysis_profile: Literal["legacy", "priority15"] = "priority15"
+    large_artifact_format: Literal["parquet", "csv", "both"] = "parquet"
     horizons: list[int] = Field(
         default_factory=lambda: [1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 60, 80]
     )
@@ -329,6 +332,7 @@ class EntryExitValidationRunRequest(BaseModel):
     min_samples: int = Field(default=30, ge=1)
     limit: int | None = None
     data_root: str = "data"
+    large_artifact_format: Literal["parquet", "csv", "both"] = "parquet"
     output_dir: str | None = None
 
     @model_validator(mode="after")

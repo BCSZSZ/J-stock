@@ -8,6 +8,8 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 
+from src.artifacts.tabular import read_table_auto
+
 
 @dataclass
 class FoldConfig:
@@ -24,9 +26,9 @@ def extract_year(period_value: str) -> int:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Generic walk-forward stability analysis for evaluation raw CSV."
+        description="Generic walk-forward stability analysis for evaluation raw artifact."
     )
-    p.add_argument("--raw-csv", required=True, help="Path to evaluation raw CSV")
+    p.add_argument("--raw-csv", required=True, help="Path to evaluation raw artifact")
     p.add_argument(
         "--group-cols",
         nargs="+",
@@ -195,9 +197,9 @@ def main() -> None:
 
     raw_path = Path(args.raw_csv)
     if not raw_path.exists():
-        raise FileNotFoundError(f"raw csv not found: {raw_path}")
+        raise FileNotFoundError(f"raw artifact not found: {raw_path}")
 
-    df = pd.read_csv(raw_path)
+    df = read_table_auto(raw_path)
     ensure_columns(
         df,
         args.group_cols

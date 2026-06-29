@@ -30,6 +30,7 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
         universe_files=["data/monitor_list.json"],
         start="2026-01-01",
         end="2026-01-31",
+        large_artifact_format="both",
         horizons=[1, 3, 5],
         primary_horizon=5,
         primary_horizons=[3, 5],
@@ -56,6 +57,7 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
     assert "EntryA" in args
     assert "--ranking-strategy" in args
     assert "score_only" in args
+    assert args[args.index("--large-artifact-format") + 1] == "both"
     assert "--entry-filter-name" in args
     assert "f01" in args
     assert args[args.index("--primary-horizons") + 1 : args.index("--label-mode")] == ["3", "5", "--primary-horizon", "3"]
@@ -91,6 +93,7 @@ def test_build_cli_args_falls_back_to_production_defaults(monkeypatch) -> None:
     assert "ProdEntry" in args
     assert "data/production_monitor_list.json" in args
     assert "momentum" in args
+    assert args[args.index("--large-artifact-format") + 1] == "parquet"
 
 
 def test_dataset_summary_reads_manifest_and_summary(tmp_path, monkeypatch) -> None:

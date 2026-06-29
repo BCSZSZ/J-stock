@@ -73,6 +73,7 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
     assert args[args.index("--max-total-positions-per-industry") + 1] == "3"
     assert args[args.index("--industry-reference-file") + 1] == "data/jpx_final_list.csv"
     assert args[args.index("--max-holding-trading-days") + 1] == "40"
+    assert args[args.index("--large-artifact-format") + 1] == "parquet"
 
 
 def test_build_cli_args_falls_back_to_production_defaults(monkeypatch) -> None:
@@ -98,6 +99,7 @@ def test_build_cli_args_falls_back_to_production_defaults(monkeypatch) -> None:
     assert "ProdExit" in args
     assert "data/production_monitor_list.json" in args
     assert "momentum" in args
+    assert args[args.index("--large-artifact-format") + 1] == "parquet"
 
 
 def test_dataset_summary_reads_manifest_and_summary(tmp_path, monkeypatch) -> None:

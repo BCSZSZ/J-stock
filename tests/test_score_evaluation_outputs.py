@@ -32,7 +32,11 @@ def _write_raw(path: Path, entry: str, returns: list[float], mdds: list[float], 
                 "atr_stop_multiple": 0.60,
             }
         )
-    pd.DataFrame(rows).to_csv(path, index=False)
+    frame = pd.DataFrame(rows)
+    if path.suffix == ".parquet":
+        frame.to_parquet(path, index=False)
+    else:
+        frame.to_csv(path, index=False)
 
 
 def test_global_output_score_merges_single_candidate_workers(tmp_path: Path) -> None:
@@ -41,7 +45,7 @@ def test_global_output_score_merges_single_candidate_workers(tmp_path: Path) -> 
     fragile_dir.mkdir()
     balanced_dir.mkdir()
     _write_raw(
-        fragile_dir / "strategy_evaluation_raw_20260621_010000.csv",
+        fragile_dir / "strategy_evaluation_raw_20260621_010000.parquet",
         "HighReturnFragile",
         [300.0, 300.0],
         [40.0, 50.0],

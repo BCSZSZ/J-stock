@@ -23,9 +23,6 @@ DEFAULT_RUNS_ROOT = TMP_ROOT / "parallel_eval"
 DEFAULT_MAX_WORKERS = 8
 
 _OUTPUT_DIR_RE = re.compile(r"本次输出目录:\s*([^\r\n]+)")
-_RAW_CSV_RE = re.compile(
-    r"([A-Za-z]:[/\\][^\r\n]*strategy_evaluation_universe_[^\r\n]*_raw_[^\r\n]*\.csv)"
-)
 _SUMMARY_HEARTBEAT_WRITE_INTERVAL_SECONDS = 5.0
 
 
@@ -140,9 +137,6 @@ def parse_output_dir(text: str) -> str | None:
     explicit = _OUTPUT_DIR_RE.search(text)
     if explicit is not None:
         return explicit.group(1).strip().rstrip(".")
-    matches = [candidate.strip().rstrip(".") for candidate in _RAW_CSV_RE.findall(text)]
-    if matches:
-        return str(Path(matches[-1]).parent)
     return None
 
 

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   api,
   type IndustryFilterMode,
+  type LargeArtifactFormat,
   type MomentumExhaustionMode,
   type StockPoolOption,
 } from "../api/client";
@@ -46,6 +47,8 @@ interface EvaluationDefaults {
   overlay_modes: string[];
   capacity_regime_mode: string;
   exit_confirm_days: number | null;
+  large_artifact_format?: LargeArtifactFormat;
+  save_daily_snapshots_debug?: boolean;
   output_dir: string;
   universe_files: string[];
   universe_pool_ids: string[];
@@ -298,6 +301,10 @@ function isIndustryFilterMode(value: string): value is IndustryFilterMode {
   return value === "off" || value === "shadow" || value === "enforce";
 }
 
+function isLargeArtifactFormat(value: string): value is LargeArtifactFormat {
+  return value === "parquet" || value === "csv" || value === "both";
+}
+
 function formatEntryFilterModeLabel(mode: string): string {
   if (mode === "atr") return "atr (ATR only)";
   if (mode === "single") return "single (configured)";
@@ -338,6 +345,9 @@ export default function Evaluation() {
   const [customPeriods, setCustomPeriods] = useState("");
   const [launchDates, setLaunchDates] = useState<string[]>([]);
   const [exitConfirmDays, setExitConfirmDays] = useState("");
+  const [largeArtifactFormat, setLargeArtifactFormat] =
+    useState<LargeArtifactFormat>("parquet");
+  const [saveDailySnapshotsDebug, setSaveDailySnapshotsDebug] = useState(false);
   const [entryFilterMode, setEntryFilterMode] =
     useState<EntryFilterMode>("atr");
   const [selectedFilterNames, setSelectedFilterNames] = useState<string[]>([]);
@@ -571,6 +581,13 @@ export default function Evaluation() {
         ? String(defaults.exit_confirm_days)
         : "",
     );
+    const defaultLargeArtifactFormat = defaults.large_artifact_format ?? "";
+    setLargeArtifactFormat(
+      isLargeArtifactFormat(defaultLargeArtifactFormat)
+        ? defaultLargeArtifactFormat
+        : "parquet",
+    );
+    setSaveDailySnapshotsDebug(Boolean(defaults.save_daily_snapshots_debug));
     setOverrideStrategies(Boolean(defaults.override_strategies));
     setEntryFilterMode(
       (defaults.entry_filter_mode as EntryFilterMode) ?? "atr",
@@ -718,6 +735,8 @@ export default function Evaluation() {
       fill_buffer_enabled: fillBufferEnabled,
       fill_buffer_pct: normalizedFillBufferPct,
       capacity_regime_mode: capacityRegimeMode,
+      large_artifact_format: largeArtifactFormat,
+      save_daily_snapshots_debug: saveDailySnapshotsDebug,
       override_strategies: overrideStrategies,
       entry_strategies:
         overrideStrategies && selectedEntry.length > 0 ? selectedEntry : undefined,
@@ -802,6 +821,7 @@ export default function Evaluation() {
         `Industry Filter: ${industryFilterMode} | daily ${parsedMaxBuyPerIndustryPerDay ?? "config default"} | total ${parsedMaxTotalPositionsPerIndustry ?? "config default"}`,
         `Execution: ${executionBatchCount} full run(s) across selected fill/reference combinations`,
         `Capacity Regime Mode: ${capacityRegimeMode}`,
+        `Large Artifacts: ${largeArtifactFormat}${saveDailySnapshotsDebug ? " + daily snapshots debug" : ""}`,
         `Continuous Companion: ${supportsContinuousCompanion ? (includeContinuous ? "on" : "off") : "n/a"}`,
         isReplayEvaluation
           ? `Report Anchors: ${replayAnchorSummary}`
@@ -1012,6 +1032,31 @@ export default function Evaluation() {
                 placeholder="Use config default when blank"
                 className={compactInputClassName}
               />
+            </div>
+
+            <div className={fieldCardClassName}>
+              <label className={compactLabelClassName}>Large Artifacts</label>
+              <select
+                value={largeArtifactFormat}
+                onChange={(e) =>
+                  setLargeArtifactFormat(e.target.value as LargeArtifactFormat)
+                }
+                className={compactInputClassName}
+              >
+                <option value="parquet">parquet</option>
+                <option value="csv">csv</option>
+                <option value="both">both</option>
+              </select>
+              {!isWalkForward && (
+                <label className="mt-2 flex items-center gap-2 text-xs text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={saveDailySnapshotsDebug}
+                    onChange={(e) => setSaveDailySnapshotsDebug(e.target.checked)}
+                  />
+                  Daily snapshot debug JSON
+                </label>
+              )}
             </div>
 
             <div className={fieldCardClassName}>

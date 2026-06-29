@@ -21,6 +21,7 @@ from src.evaluation.scoring import (
     candidate_key_columns,
     period_sort_values,
 )
+from src.artifacts.tabular import read_table_auto
 
 
 DISPLAY_PARAM_COLS = [
@@ -40,8 +41,10 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _find_raw_csv(output_dir: Path) -> Path:
-    raw_files = sorted(output_dir.glob("*_raw_*.csv"))
+def _find_raw_artifact(output_dir: Path) -> Path:
+    raw_files = sorted(output_dir.glob("*_raw_*.parquet")) + sorted(
+        output_dir.glob("*_raw_*.csv")
+    )
     preferred = [
         path
         for path in raw_files
@@ -49,7 +52,7 @@ def _find_raw_csv(output_dir: Path) -> Path:
     ]
     candidates = preferred or raw_files
     if not candidates:
-        raise FileNotFoundError(f"No *_raw_*.csv found under {output_dir}")
+        raise FileNotFoundError(f"No *_raw_*.parquet or *_raw_*.csv found under {output_dir}")
     return candidates[0]
 
 
@@ -92,7 +95,11 @@ def discover_outputs(
 
     if output_root is not None:
         raw_paths = (
-            output_root.rglob("*_raw_*.csv") if recursive else output_root.glob("*/*_raw_*.csv")
+            list(output_root.rglob("*_raw_*.parquet"))
+            + list(output_root.rglob("*_raw_*.csv"))
+            if recursive
+            else list(output_root.glob("*/*_raw_*.parquet"))
+            + list(output_root.glob("*/*_raw_*.csv"))
         )
         for raw_path in raw_paths:
             output_dir = raw_path.parent
@@ -122,20 +129,20 @@ def load_raw_panel(outputs: list[dict[str, str]]) -> pd.DataFrame:
     for item in outputs:
         output_dir = Path(item["output_dir"])
         try:
-            raw_path = _find_raw_csv(output_dir)
-            frame = pd.read_csv(raw_path)
+            raw_path = _find_raw_artifact(output_dir)
+            frame = read_table_auto(raw_path)
         except Exception as exc:
             errors.append(f"{output_dir}: {exc}")
             continue
         frame["source_candidate_id"] = item["candidate_id"]
         frame["source_job_name"] = item.get("job_name", "")
         frame["source_output_dir"] = str(output_dir)
-        frame["source_raw_csv"] = str(raw_path)
+        frame["source_raw_artifact"] = str(raw_path)
         frames.append(frame)
 
     if not frames:
         detail = "\n".join(errors) if errors else "No output directories supplied."
-        raise RuntimeError(f"No raw evaluation CSVs could be loaded.\n{detail}")
+        raise RuntimeError(f"No raw evaluation artifacts could be loaded.\n{detail}")
     return pd.concat(frames, ignore_index=True)
 
 
@@ -150,7 +157,7 @@ def summarize_candidates(raw_df: pd.DataFrame, recent_period: str | None = None)
     required = {
         "source_candidate_id",
         "source_output_dir",
-        "source_raw_csv",
+        "source_raw_artifact",
         "period",
         "entry_strategy",
         "exit_strategy",
@@ -178,7 +185,7 @@ def summarize_candidates(raw_df: pd.DataFrame, recent_period: str | None = None)
     key_cols = [
         "source_candidate_id",
         "source_output_dir",
-        "source_raw_csv",
+        "source_raw_artifact",
     ] + candidate_key_columns(working)
     display_cols = [
         col for col in DISPLAY_PARAM_COLS if col in working.columns and col not in key_cols
@@ -342,7 +349,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--recursive",
         action="store_true",
-        help="Recursively discover raw CSVs under --output-root.",
+        help="Recursively discover raw parquet/csv artifacts under --output-root.",
     )
     parser.add_argument(
         "--recent-period",

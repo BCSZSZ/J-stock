@@ -1,5 +1,5 @@
 """
-Rank strategy variants from multi-year backtest raw CSV with normalized scoring.
+Rank strategy variants from multi-year backtest raw artifact with normalized scoring.
 
 Default model:
 - Risk 60%: max drawdown 35% + worst-year return 25%
@@ -13,6 +13,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from src.artifacts.tabular import read_table_auto
 
 
 @dataclass(frozen=True)
@@ -171,17 +173,17 @@ def _score_strategies(df_summary: pd.DataFrame, model: ScoringModel) -> pd.DataF
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Normalize and rank strategy performance from multi-year raw CSV."
+        description="Normalize and rank strategy performance from multi-year raw artifact."
     )
     parser.add_argument(
         "--raw-csv",
         required=True,
-        help="Path to raw multi-year CSV (must include return_pct, alpha, max_drawdown_pct, period).",
+        help="Path to raw multi-year artifact (must include return_pct, alpha, max_drawdown_pct, period).",
     )
     parser.add_argument(
         "--strategy-col",
         default="exit_strategy",
-        help="Strategy identifier column name in raw CSV (default: exit_strategy).",
+        help="Strategy identifier column name in raw artifact (default: exit_strategy).",
     )
     parser.add_argument(
         "--model",
@@ -203,9 +205,9 @@ def main() -> None:
 
     raw_path = Path(args.raw_csv)
     if not raw_path.exists():
-        raise FileNotFoundError(f"Raw CSV not found: {raw_path}")
+        raise FileNotFoundError(f"Raw artifact not found: {raw_path}")
 
-    df_raw = pd.read_csv(raw_path)
+    df_raw = read_table_auto(raw_path)
     required_cols = {
         args.strategy_col,
         "period",

@@ -170,6 +170,8 @@ def entry_strategy_uses_only_feature_data(
     return path.endswith("entry.macd_crossover.MACDCrossoverStrategy") or (
         "entry.macd_precross_momentum_entry" in path
         or "entry.rule_based_crossover_entry" in path
+        or "entry.bollinger_squeeze_strategy" in path
+        or "entry.ichimoku_stoch_strategy" in path
     )
 
 

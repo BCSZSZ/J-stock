@@ -176,6 +176,15 @@ def _add_held_position_buy_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_large_artifact_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--large-artifact-format",
+        choices=["parquet", "csv", "both"],
+        default="parquet",
+        help="大型原始明细写出格式：parquet/csv/both（默认: parquet）",
+    )
+
+
 def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
     """Attach shared arguments used by evaluate and pos-evaluation."""
     parser.add_argument(
@@ -261,6 +270,12 @@ def _add_common_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         "--output-dir",
         default=None,
         help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
+    )
+    _add_large_artifact_arguments(parser)
+    parser.add_argument(
+        "--save-daily-snapshots-debug",
+        action="store_true",
+        help="额外保存全量 daily_snapshots JSON 调试文件（默认关闭）",
     )
     parser.add_argument(
         "--universe-file",
@@ -395,6 +410,7 @@ def _add_walk_forward_evaluation_arguments(parser: argparse.ArgumentParser) -> N
         default=None,
         help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
     )
+    _add_large_artifact_arguments(parser)
     parser.add_argument(
         "--universe-file",
         nargs="+",
@@ -480,6 +496,12 @@ def _add_replay_evaluation_arguments(parser: argparse.ArgumentParser) -> None:
         "--output-dir",
         default=None,
         help=f"输出目录（默认: {DEFAULT_EVALUATION_OUTPUT_DIR}）",
+    )
+    _add_large_artifact_arguments(parser)
+    parser.add_argument(
+        "--save-daily-snapshots-debug",
+        action="store_true",
+        help="额外保存全量 daily_snapshots JSON 调试文件（默认关闭）",
     )
     parser.add_argument(
         "--universe-file",
@@ -1042,6 +1064,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="data",
         help="数据根目录（默认: data）",
     )
+    _add_large_artifact_arguments(entry_analysis_parser)
     entry_analysis_parser.add_argument(
         "--output-dir",
         default=None,
@@ -1077,6 +1100,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["legacy", "priority15"],
         default="priority15",
         help="分析配置：legacy=旧候选/汇总输出，priority15=生成15条优先级分析artifact（默认: priority15）",
+    )
+    entry_signal_analysis_parser.add_argument(
+        "--large-artifact-format",
+        choices=["parquet", "csv", "both"],
+        default="parquet",
+        help="priority15 大型明细写出格式：parquet/csv/both（默认: parquet）",
     )
     entry_signal_analysis_parser.add_argument(
         "--horizons",
@@ -1329,6 +1358,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="data",
         help="数据根目录（默认: data）",
     )
+    _add_large_artifact_arguments(entry_exit_validation_parser)
     entry_exit_validation_parser.add_argument(
         "--output-dir",
         default=None,

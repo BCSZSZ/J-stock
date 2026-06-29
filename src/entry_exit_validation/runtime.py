@@ -150,6 +150,7 @@ def build_request_from_args(args: object) -> EntryExitValidationRequest:
         min_samples=int(getattr(args, "min_samples", None) or 30),
         data_root=str(getattr(args, "data_root", None) or "data"),
         output_dir=resolve_output_dir(args, raw_config),
+        large_artifact_format=str(getattr(args, "large_artifact_format", None) or "parquet"),
     )
 
 

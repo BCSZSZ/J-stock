@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+import numpy as np
 import pandas as pd
 
 from ...signals import MarketData, SignalAction, TradingSignal
@@ -210,6 +211,67 @@ class CrossTrendMACDVolumeEntry(RuleBasedCrossoverEntry):
             ),
         ]
 
+    def precompute_entry_signals(
+        self,
+        *,
+        ticker: str,
+        features: pd.DataFrame,
+        **_unused: object,
+    ) -> dict[int, TradingSignal]:
+        if len(features) < 2:
+            return {}
+
+        close = _numeric_series(features, "Close")
+        sma20 = _indicator_series_or_nan(features, "SMA_20", rolling_window=20)
+        sma60 = _indicator_series_or_nan(features, "SMA_60", rolling_window=60)
+        macd = _numeric_series(features, "MACD")
+        macd_signal = _numeric_series(features, "MACD_Signal")
+        volume = _numeric_series(features, "Volume")
+        volume_avg = _indicator_series_or_nan(
+            features,
+            "Volume_SMA_20",
+            rolling_window=20,
+        )
+
+        close_above_sma60 = close > sma60
+        sma20_above_sma60 = sma20 > sma60
+        macd_golden_cross = (macd.shift(1) <= macd_signal.shift(1)) & (
+            macd > macd_signal
+        )
+        macd_position = _macd_position_mask(
+            macd,
+            macd_signal,
+            mode=self.macd_position_mode,
+            near_zero_abs=self.near_zero_abs,
+        )
+        volume_ratio_series = volume / volume_avg.where(volume_avg > 0)
+        volume_confirmation = volume_ratio_series >= self.volume_multiplier
+
+        buy_mask = (
+            close_above_sma60
+            & sma20_above_sma60
+            & macd_golden_cross
+            & macd_position
+            & volume_confirmation
+        ).fillna(False)
+
+        signals: dict[int, TradingSignal] = {}
+        for row_pos in np.flatnonzero(buy_mask.to_numpy(dtype=bool)):
+            if row_pos < 1:
+                continue
+            results = self._evaluate_rule_results(features.iloc[: int(row_pos) + 1])
+            if not all(result.passed for result in results):
+                continue
+            score = 100.0 if results else 0.0
+            signals[int(row_pos)] = TradingSignal(
+                action=SignalAction.BUY,
+                confidence=self.buy_confidence,
+                reasons=[f"{self.rule_profile} rules passed"],
+                metadata=self._build_metadata(results, score, None),
+                strategy_name=self.strategy_name,
+            )
+        return signals
+
 
 class CrossTrendMACDVolumeLooseEntry(CrossTrendMACDVolumeEntry):
     """Trend + MACD + volume combo without zero-axis MACD position gating."""
@@ -338,6 +400,42 @@ def _indicator_series(
         return None
     close = pd.to_numeric(df["Close"], errors="coerce")
     return close.rolling(window=rolling_window).mean()
+
+
+def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series(np.nan, index=df.index, dtype="float64")
+    return pd.to_numeric(df[column], errors="coerce")
+
+
+def _indicator_series_or_nan(
+    df: pd.DataFrame,
+    column: str,
+    *,
+    rolling_window: int,
+) -> pd.Series:
+    series = _indicator_series(df, column, rolling_window=rolling_window)
+    if series is None:
+        return pd.Series(np.nan, index=df.index, dtype="float64")
+    return pd.to_numeric(series, errors="coerce")
+
+
+def _macd_position_mask(
+    macd: pd.Series,
+    macd_signal: pd.Series,
+    *,
+    mode: str,
+    near_zero_abs: float,
+) -> pd.Series:
+    normalized = str(mode).strip().lower()
+    if normalized == "any":
+        return macd.notna()
+    if normalized == "above_zero":
+        return macd > 0.0
+    if normalized == "near_zero":
+        floor = -abs(float(near_zero_abs))
+        return (macd >= floor) & (macd_signal.isna() | (macd_signal >= floor))
+    raise ValueError(f"Unsupported MACD position mode: {mode}")
 
 
 def _latest_indicator(

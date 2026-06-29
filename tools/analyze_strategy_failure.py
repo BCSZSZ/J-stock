@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.artifacts.tabular import read_table_auto
+
 # Load historical security backtest data
 results_dir = Path(r"G:\My Drive\AI-Stock-Sync\strategy_evaluation")
 
@@ -23,13 +25,18 @@ def analyze_strategy_comparison():
     # We need to examine individual trade records to understand what happened
     # Since we don't have granular trade data, we'll analyze by period/ticker combinations
 
-    raw_files = sorted(results_dir.glob("strategy_evaluation_raw_*.csv"))
+    raw_files = sorted(
+        [
+            *results_dir.glob("strategy_evaluation_raw_*.parquet"),
+            *results_dir.glob("strategy_evaluation_raw_*.csv"),
+        ]
+    )
     if not raw_files:
         print("No raw results found")
         return
 
     latest = raw_files[-1]
-    df = pd.read_csv(latest)
+    df = read_table_auto(latest)
 
     print("=" * 120)
     print("CRITICAL FINDING: MACDEnhanced with Optimized Parameters")

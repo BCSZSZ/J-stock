@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import timedelta
+import inspect
 from typing import Any
 
 import pandas as pd
@@ -172,6 +173,9 @@ def _precompute_strategy_signals(
     *,
     strategies: dict[str, object],
     features_by_ticker: dict[str, pd.DataFrame],
+    trades_by_ticker: dict[str, pd.DataFrame],
+    financials_by_ticker: dict[str, pd.DataFrame],
+    metadata_by_ticker: dict[str, Any],
     scanner_metrics: dict[str, int],
 ) -> dict[tuple[str, str], dict[int, TradingSignal]]:
     precomputed: dict[tuple[str, str], dict[int, TradingSignal]] = {}
@@ -184,6 +188,13 @@ def _precompute_strategy_signals(
         family_key_text = str(family_key) if family_key else None
         build_feature_cache = getattr(strategy, "build_precompute_feature_cache", None)
         for ticker, features in features_by_ticker.items():
+            precompute_kwargs: dict[str, Any] = {
+                "ticker": ticker,
+                "features": features,
+                "trades": trades_by_ticker.get(ticker, pd.DataFrame()),
+                "financials": financials_by_ticker.get(ticker, pd.DataFrame()),
+                "metadata": metadata_by_ticker.get(ticker, {}),
+            }
             feature_cache: object | None = None
             if family_key_text and callable(build_feature_cache):
                 cache_key = (family_key_text, ticker)
@@ -193,7 +204,10 @@ def _precompute_strategy_signals(
                 else:
                     scanner_metrics["strategy_family_cache_build_count"] += 1
                     try:
-                        feature_cache = build_feature_cache(features)
+                        feature_cache = _call_strategy_hook(
+                            build_feature_cache,
+                            precompute_kwargs,
+                        )
                     except Exception as exc:
                         scanner_metrics["strategy_family_cache_failure_count"] += 1
                         print(
@@ -205,14 +219,10 @@ def _precompute_strategy_signals(
                         family_cache_by_ticker[cache_key] = feature_cache
             scanner_metrics["strategy_precompute_count"] += 1
             try:
-                if feature_cache is None:
-                    signals_by_pos = precompute(ticker=ticker, features=features)
-                else:
-                    signals_by_pos = precompute(
-                        ticker=ticker,
-                        features=features,
-                        feature_cache=feature_cache,
-                    )
+                signals_by_pos = _call_strategy_hook(
+                    precompute,
+                    {**precompute_kwargs, "feature_cache": feature_cache},
+                )
             except Exception as exc:
                 scanner_metrics["strategy_precompute_failure_count"] += 1
                 print(
@@ -227,6 +237,24 @@ def _precompute_strategy_signals(
             scanner_metrics["strategy_precomputed_buy_signal_count"] += len(buy_signals)
             precomputed[(strategy_name, ticker)] = buy_signals
     return precomputed
+
+
+def _call_strategy_hook(hook: object, kwargs: dict[str, Any]) -> Any:
+    if not callable(hook):
+        raise TypeError("strategy hook is not callable")
+    signature = inspect.signature(hook)
+    parameters = signature.parameters
+    if any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    ):
+        return hook(**kwargs)
+    supported_kwargs = {
+        name: value
+        for name, value in kwargs.items()
+        if name in parameters
+    }
+    return hook(**supported_kwargs)
 
 
 def _collect_trading_dates(
@@ -328,6 +356,9 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
     precomputed_signals = _precompute_strategy_signals(
         strategies=strategies,
         features_by_ticker=features_by_ticker,
+        trades_by_ticker=trades_by_ticker,
+        financials_by_ticker=financials_by_ticker,
+        metadata_by_ticker=metadata_by_ticker,
         scanner_metrics=scanner_metrics,
     )
     forward_values_cache: dict[

@@ -7,6 +7,7 @@ import {
   type EntryExitValidationOptions,
   type EntryExitValidationRunRequest,
   type IndustryFilterMode,
+  type LargeArtifactFormat,
   type MomentumExhaustionMode,
 } from "../api/client";
 import StrategyMultiSelect from "../components/StrategyMultiSelect";
@@ -136,6 +137,8 @@ export default function EntryExitValidation() {
   const [minSamples, setMinSamples] = useState("30");
   const [limit, setLimit] = useState("");
   const [dataRoot, setDataRoot] = useState("data");
+  const [largeArtifactFormat, setLargeArtifactFormat] =
+    useState<LargeArtifactFormat>("parquet");
   const [outputDir, setOutputDir] = useState("");
   const [selectedDataset, setSelectedDataset] = useState("");
 
@@ -187,6 +190,7 @@ export default function EntryExitValidation() {
     setMaxHoldingTradingDays(String(defaults.max_holding_trading_days ?? 60));
     setMinSamples(String(defaults.min_samples ?? 30));
     setDataRoot(defaults.data_root ?? "data");
+    setLargeArtifactFormat(defaults.large_artifact_format ?? "parquet");
     setOutputDir(defaults.output_dir ?? "entry_exit_validation");
     setInitialized(true);
   }, [initialized, options.data]);
@@ -240,6 +244,7 @@ export default function EntryExitValidation() {
       min_samples: Number.parseInt(minSamples, 10) || 30,
       limit: parseOptionalNumber(limit),
       data_root: dataRoot.trim() || "data",
+      large_artifact_format: largeArtifactFormat,
       output_dir: outputDir.trim() || undefined,
     };
     void exec.execute("/api/entry-exit-validation/run", body);
@@ -389,6 +394,20 @@ export default function EntryExitValidation() {
               <div>
                 <label className={labelClassName}>Data Root</label>
                 <input className={inputClassName} value={dataRoot} onChange={(event) => setDataRoot(event.target.value)} />
+              </div>
+              <div>
+                <label className={labelClassName}>Large Artifacts</label>
+                <select
+                  className={inputClassName}
+                  value={largeArtifactFormat}
+                  onChange={(event) =>
+                    setLargeArtifactFormat(event.target.value as LargeArtifactFormat)
+                  }
+                >
+                  <option value="parquet">parquet</option>
+                  <option value="csv">csv</option>
+                  <option value="both">both</option>
+                </select>
               </div>
               <div className="md:col-span-2">
                 <label className={labelClassName}>Output Dir</label>
