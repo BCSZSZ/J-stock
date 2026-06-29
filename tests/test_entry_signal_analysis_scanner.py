@@ -202,3 +202,184 @@ def test_scan_entry_signal_events_uses_precomputed_strategy_without_market_data(
     assert scan_result.scanner_metrics["buy_signal_count"] == 4
     assert len(scan_result.candidates) == 4
     assert len(scan_result.event_contexts) == 4
+
+
+def test_scan_entry_signal_events_reuses_family_cache_and_forward_returns(
+    monkeypatch,
+) -> None:
+    import src.entry_signal_analysis.scanner as scanner
+
+    class _FamilyPrecomputedBuyEntry:
+        precompute_family_key = "fake_family"
+
+        def __init__(self, strategy_name: str) -> None:
+            self.strategy_name = strategy_name
+
+        def build_precompute_feature_cache(self, features: pd.DataFrame) -> object:
+            feature_cache = {"features_id": id(features)}
+            cache_builds.append((self.strategy_name, id(features), feature_cache))
+            return feature_cache
+
+        def precompute_entry_signals(
+            self,
+            *,
+            ticker: str,
+            features: pd.DataFrame,
+            feature_cache: object | None = None,
+        ) -> dict[int, TradingSignal]:
+            assert feature_cache is not None
+            precompute_calls.append((self.strategy_name, ticker, id(feature_cache)))
+            return {
+                row_pos: TradingSignal(
+                    action=SignalAction.BUY,
+                    confidence=0.9,
+                    reasons=["precomputed"],
+                    metadata={"score": 10.0},
+                    strategy_name=self.strategy_name,
+                )
+                for row_pos in range(len(features))
+            }
+
+    cache_builds: list[tuple[str, int, object]] = []
+    precompute_calls: list[tuple[str, str, int]] = []
+    fake_cache = _FakeCache()
+    fake_filter = _CountingFilter()
+
+    monkeypatch.setattr(scanner, "BacktestDataCache", lambda data_root: fake_cache)
+    monkeypatch.setattr(scanner.EntrySecondaryFilter, "from_dict", lambda _config: fake_filter)
+    monkeypatch.setattr(
+        scanner,
+        "resolve_filter_variants_for_request",
+        lambda _request: [("f1", {}), ("f2", {})],
+    )
+    monkeypatch.setattr(scanner, "resolve_tail_guard_for_request", lambda _request: None)
+    monkeypatch.setattr(scanner, "resolve_momentum_exhaustion_for_request", lambda _request: None)
+    monkeypatch.setattr(scanner, "resolve_industry_filter_for_request", lambda _request: None)
+    monkeypatch.setattr(
+        scanner,
+        "load_entry_strategy",
+        lambda strategy_name: _FamilyPrecomputedBuyEntry(strategy_name),
+    )
+    monkeypatch.setattr(
+        scanner,
+        "generate_signal_v2",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("fallback generate not expected")),
+    )
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["EntryA", "EntryB"],
+        tickers=["7203", "6758"],
+        start_date=date(2026, 1, 5),
+        end_date=date(2026, 1, 6),
+        horizons=[1],
+        primary_horizon=1,
+        ranking_strategy="score_only",
+        entry_filter_mode="grid",
+    )
+
+    scan_result = scan_entry_signal_events(request)
+
+    assert scan_result.scanner_metrics["strategy_family_cache_build_count"] == 2
+    assert scan_result.scanner_metrics["strategy_family_cache_reuse_count"] == 2
+    assert scan_result.scanner_metrics["strategy_precompute_count"] == 4
+    assert scan_result.scanner_metrics["strategy_fast_eval_count"] == 16
+    assert scan_result.scanner_metrics["forward_return_cache_miss_count"] == 4
+    assert scan_result.scanner_metrics["forward_return_cache_hit_count"] == 4
+    assert scan_result.scanner_metrics["market_data_build_count"] == 0
+    assert len(cache_builds) == 2
+    assert len(precompute_calls) == 4
+    assert len({cache_id for _strategy, _ticker, cache_id in precompute_calls}) == 2
+    assert len(scan_result.candidates) == 16
+
+
+def test_scan_entry_signal_events_precomputes_momentum_rank_without_market_data(
+    monkeypatch,
+) -> None:
+    import src.entry_signal_analysis.scanner as scanner
+
+    class _PrecomputedBuyEntry:
+        strategy_name = "PrecomputedBuyEntry"
+
+        def precompute_entry_signals(
+            self,
+            *,
+            ticker: str,
+            features: pd.DataFrame,
+        ) -> dict[int, TradingSignal]:
+            return {
+                row_pos: TradingSignal(
+                    action=SignalAction.BUY,
+                    confidence=0.9,
+                    reasons=["precomputed"],
+                    metadata={"score": 1.0},
+                    strategy_name=self.strategy_name,
+                )
+                for row_pos in range(len(features))
+            }
+
+    class _MomentumCache(_FakeCache):
+        def __init__(self) -> None:
+            dates = pd.bdate_range("2026-01-01", periods=27)
+            rising = pd.Series([100.0 + index for index in range(len(dates))], index=dates)
+            flat = pd.Series([100.0 for _index in range(len(dates))], index=dates)
+            self.features_cache = {
+                "7203": pd.DataFrame(
+                    {
+                        "Open": rising + 0.1,
+                        "High": rising + 1.0,
+                        "Low": rising - 1.0,
+                        "Close": rising,
+                        "Volume": 1_000_000.0,
+                    },
+                    index=dates,
+                ),
+                "6758": pd.DataFrame(
+                    {
+                        "Open": flat + 0.1,
+                        "High": flat + 1.0,
+                        "Low": flat - 1.0,
+                        "Close": flat,
+                        "Volume": 1_000_000.0,
+                    },
+                    index=dates,
+                ),
+            }
+            self.date_pos_cache: dict[str, dict[pd.Timestamp, int]] = {}
+
+    fake_cache = _MomentumCache()
+    fake_filter = _CountingFilter()
+    target_day = pd.Timestamp("2026-02-04")
+    monkeypatch.setattr(scanner, "BacktestDataCache", lambda data_root: fake_cache)
+    monkeypatch.setattr(scanner.EntrySecondaryFilter, "from_dict", lambda _config: fake_filter)
+    monkeypatch.setattr(scanner, "resolve_filter_variants_for_request", lambda _request: [("off", {})])
+    monkeypatch.setattr(scanner, "resolve_tail_guard_for_request", lambda _request: None)
+    monkeypatch.setattr(scanner, "resolve_momentum_exhaustion_for_request", lambda _request: None)
+    monkeypatch.setattr(scanner, "resolve_industry_filter_for_request", lambda _request: None)
+    monkeypatch.setattr(scanner, "load_entry_strategy", lambda _strategy_name: _PrecomputedBuyEntry())
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["PrecomputedBuyEntry"],
+        tickers=["7203", "6758"],
+        start_date=target_day.date(),
+        end_date=target_day.date(),
+        horizons=[1],
+        primary_horizon=1,
+        ranking_strategy="momentum",
+        entry_filter_mode="off",
+    )
+
+    scan_result = scan_entry_signal_events(request)
+
+    assert scan_result.scanner_metrics["market_data_build_count"] == 0
+    assert scan_result.scanner_metrics["rank_score_precompute_count"] == 2
+    ranks = {
+        row["ticker"]: row["rank"]
+        for row in scan_result.candidates.to_dict(orient="records")
+    }
+    rank_scores = {
+        row["ticker"]: row["rank_score"]
+        for row in scan_result.candidates.to_dict(orient="records")
+    }
+    assert ranks["7203"] == 1
+    assert ranks["6758"] == 2
+    assert rank_scores["7203"] > rank_scores["6758"]

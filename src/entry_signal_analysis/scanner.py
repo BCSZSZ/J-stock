@@ -92,6 +92,21 @@ def _build_market_data(
     )
 
 
+def _signal_with_metadata(
+    signal: TradingSignal,
+    updates: dict[str, Any],
+) -> TradingSignal:
+    metadata = dict(signal.metadata or {})
+    metadata.update(updates)
+    return TradingSignal(
+        action=signal.action,
+        confidence=float(signal.confidence),
+        reasons=list(signal.reasons or []),
+        metadata=metadata,
+        strategy_name=signal.strategy_name,
+    )
+
+
 def _preload_end_date(end_date: pd.Timestamp, horizons: list[int]) -> str:
     extra_days = max(horizons or [1]) * 4 + 10
     return (end_date + timedelta(days=extra_days)).date().isoformat()
@@ -160,14 +175,44 @@ def _precompute_strategy_signals(
     scanner_metrics: dict[str, int],
 ) -> dict[tuple[str, str], dict[int, TradingSignal]]:
     precomputed: dict[tuple[str, str], dict[int, TradingSignal]] = {}
+    family_cache_by_ticker: dict[tuple[str, str], object] = {}
     for strategy_name, strategy in strategies.items():
         precompute = getattr(strategy, "precompute_entry_signals", None)
         if not callable(precompute):
             continue
+        family_key = getattr(strategy, "precompute_family_key", None)
+        family_key_text = str(family_key) if family_key else None
+        build_feature_cache = getattr(strategy, "build_precompute_feature_cache", None)
         for ticker, features in features_by_ticker.items():
+            feature_cache: object | None = None
+            if family_key_text and callable(build_feature_cache):
+                cache_key = (family_key_text, ticker)
+                if cache_key in family_cache_by_ticker:
+                    scanner_metrics["strategy_family_cache_reuse_count"] += 1
+                    feature_cache = family_cache_by_ticker[cache_key]
+                else:
+                    scanner_metrics["strategy_family_cache_build_count"] += 1
+                    try:
+                        feature_cache = build_feature_cache(features)
+                    except Exception as exc:
+                        scanner_metrics["strategy_family_cache_failure_count"] += 1
+                        print(
+                            f"[entry-signal-analysis] warning: {strategy_name} {ticker} "
+                            f"family cache failed: {exc}"
+                        )
+                        feature_cache = None
+                    else:
+                        family_cache_by_ticker[cache_key] = feature_cache
             scanner_metrics["strategy_precompute_count"] += 1
             try:
-                signals_by_pos = precompute(ticker=ticker, features=features)
+                if feature_cache is None:
+                    signals_by_pos = precompute(ticker=ticker, features=features)
+                else:
+                    signals_by_pos = precompute(
+                        ticker=ticker,
+                        features=features,
+                        feature_cache=feature_cache,
+                    )
             except Exception as exc:
                 scanner_metrics["strategy_precompute_failure_count"] += 1
                 print(
@@ -227,6 +272,19 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
     }
     ranker = load_ranking_strategy(request.ranking_strategy)
     ranker_requires_market_data = bool(ranker.requires_market_data())
+    rank_feature_source = getattr(ranker, "_delegate", ranker)
+    rank_score_from_features = getattr(rank_feature_source, "score_from_features", None)
+    rank_score_metadata_key_fn = getattr(rank_feature_source, "metadata_rank_score_key", None)
+    ranker_uses_feature_score = bool(
+        ranker_requires_market_data and callable(rank_score_from_features)
+    )
+    rank_score_metadata_key = (
+        str(rank_score_metadata_key_fn())
+        if callable(rank_score_metadata_key_fn)
+        else "rank_feature_score"
+    )
+    if ranker_uses_feature_score:
+        ranker_requires_market_data = False
     for strategy_name in strategies:
         print(f"[entry-signal-analysis] scanning strategy={strategy_name}")
 
@@ -256,6 +314,13 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
         "strategy_precompute_count": 0,
         "strategy_precompute_failure_count": 0,
         "strategy_precomputed_buy_signal_count": 0,
+        "strategy_family_cache_build_count": 0,
+        "strategy_family_cache_reuse_count": 0,
+        "strategy_family_cache_failure_count": 0,
+        "forward_return_cache_hit_count": 0,
+        "forward_return_cache_miss_count": 0,
+        "rank_score_precompute_count": 0,
+        "rank_score_precompute_failure_count": 0,
         "buy_signal_count": 0,
         "annotated_event_count": 0,
         "selected_event_count": 0,
@@ -265,6 +330,10 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
         features_by_ticker=features_by_ticker,
         scanner_metrics=scanner_metrics,
     )
+    forward_values_cache: dict[
+        tuple[str, int, str, tuple[int, ...]],
+        dict[str, Any],
+    ] = {}
     total_days = len(trading_dates)
     for filter_name, filter_config in filter_variants:
         entry_filter = EntrySecondaryFilter.from_dict(filter_config)
@@ -333,12 +402,41 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
 
                     scanner_metrics["buy_signal_count"] += 1
                     if forward_values is None:
-                        forward_values = compute_forward_returns(
-                            features=features,
-                            signal_pos=row_pos,
-                            horizons=request.normalized_horizons,
-                            label_mode=request.label_mode,
+                        forward_cache_key = (
+                            ticker,
+                            int(row_pos),
+                            str(request.label_mode),
+                            tuple(request.normalized_horizons),
                         )
+                        cached_forward_values = forward_values_cache.get(forward_cache_key)
+                        if cached_forward_values is None:
+                            scanner_metrics["forward_return_cache_miss_count"] += 1
+                            forward_values = compute_forward_returns(
+                                features=features,
+                                signal_pos=row_pos,
+                                horizons=request.normalized_horizons,
+                                label_mode=request.label_mode,
+                            )
+                            forward_values_cache[forward_cache_key] = forward_values
+                        else:
+                            scanner_metrics["forward_return_cache_hit_count"] += 1
+                            forward_values = cached_forward_values
+                    candidate_signal = signal
+                    if ranker_uses_feature_score and callable(rank_score_from_features):
+                        try:
+                            rank_score = float(rank_score_from_features(features, row_pos))
+                        except Exception as exc:
+                            scanner_metrics["rank_score_precompute_failure_count"] += 1
+                            print(
+                                f"[entry-signal-analysis] warning: rank score {ticker} "
+                                f"{current_date.date()} failed: {exc}"
+                            )
+                        else:
+                            scanner_metrics["rank_score_precompute_count"] += 1
+                            candidate_signal = _signal_with_metadata(
+                                signal,
+                                {rank_score_metadata_key: rank_score},
+                            )
                     candidate_market_data = (
                         get_market_data() if ranker_requires_market_data else None
                     )
@@ -348,7 +446,7 @@ def scan_entry_signal_events(request: EntrySignalAnalysisRequest) -> EntrySignal
                         filter_name=filter_name,
                         ticker=ticker,
                         current_date=current_date,
-                        signal=signal,
+                        signal=candidate_signal,
                         market_data=candidate_market_data,
                         forward_values=forward_values,
                     )

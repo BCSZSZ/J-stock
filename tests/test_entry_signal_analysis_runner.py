@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -175,6 +176,134 @@ def test_run_entry_signal_analysis_priority15_compacts_core_outputs(tmp_path, mo
         item["name"] == "write_core_csv" and item["behavior"] == "priority15_compact"
         for item in summary.performance["stages"]
     )
+
+
+def test_run_entry_signal_analysis_priority15_writes_layered_and_columnar_artifacts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import src.entry_signal_analysis.runner as runner
+
+    event_metrics = pd.DataFrame(
+        {
+            "event_row": [1],
+            "event_id": ["FakeEntry::production::7203::2026-01-05"],
+            "entry_strategy": ["FakeEntry"],
+            "entry_filter_name": ["production"],
+            "ticker": ["7203"],
+            "signal_date": ["2026-01-05"],
+            "entry_date": ["2026-01-06"],
+            "entry_price": [100.0],
+            "selected": [True],
+            "rank": [1],
+            "rank_score": [3.5],
+            "confidence": [0.8],
+            "score": [7.0],
+            "sector": ["Auto"],
+            "liquidity_bucket": ["high"],
+            "volatility_bucket": ["mid"],
+            "market_regime": ["bull"],
+            "forward_return_5d_pct": [4.2],
+            "MFE_10d_pct": [6.0],
+            "MAE_10d_pct": [-2.0],
+            "day10_strong": [True],
+            "alpha_5d_vs_universe_pct": [1.2],
+            "late_entry_1d_date": ["2026-01-07"],
+            "decay_1d_5d_pct": [-0.4],
+            "net_return_after_10bps_5d_pct": [4.0],
+            "signal_close": [99.0],
+            "signal_close_to_next_open_gap_pct": [1.0],
+            "entry_day_open_to_close_pct": [0.5],
+            "adv20_jpy": [1_000_000_000.0],
+            "dollar_volume_jpy": [1_000_000_000.0],
+            "turnover_median_20_jpy": [900_000_000.0],
+            "entry_atr_ratio": [0.02],
+            "spread_proxy_pct": [0.2],
+        }
+    )
+    priority15_outputs = runner.Priority15Outputs(
+        event_metrics=event_metrics,
+        path_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        target_stop_events=pd.DataFrame(
+            {
+                "event_row": [1],
+                "target_pct": [5.0],
+                "stop_pct": [3.0],
+                "horizon": [10],
+                "hit_type": ["target_first"],
+                "days_to_target": [3],
+                "days_to_stop": [None],
+                "rule_return_pct": [5.0],
+            }
+        ),
+        target_stop_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        checkpoint_events=pd.DataFrame({"entry_strategy": ["FakeEntry"], "checkpoint_day": [10]}),
+        checkpoint_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        trend_feature_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        cooldown_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        alpha_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        regime_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        stability_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        signal_decay_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        execution_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        exit_rule_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        walk_forward_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+    )
+    scan_result = SimpleNamespace(
+        candidates=event_metrics,
+        scanner_metrics={"market_data_build_count": 0},
+        cache=None,
+    )
+    monkeypatch.setattr(runner, "scan_entry_signal_events", lambda _request: scan_result)
+    monkeypatch.setattr(runner, "build_priority15_outputs", lambda *_args, **_kwargs: priority15_outputs)
+    monkeypatch.setattr(
+        runner,
+        "resolve_effective_entry_filter_for_request",
+        lambda _request: ("off", ["production"]),
+    )
+    monkeypatch.setattr(runner, "_load_topix_benchmark_frame", lambda _data_root: None)
+
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["FakeEntry"],
+        tickers=["7203"],
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        horizons=[5],
+        primary_horizon=5,
+        output_dir=str(tmp_path),
+    )
+
+    summary = run_entry_signal_analysis(request)
+
+    artifact_names = [
+        "event_metrics_csv",
+        "event_metrics_parquet",
+        "event_metrics_csv_gz",
+        "event_metrics_core_csv",
+        "event_metrics_path_csv",
+        "event_metrics_checkpoint_csv",
+        "event_metrics_alpha_csv",
+        "event_metrics_decay_csv",
+        "event_metrics_cost_csv",
+        "event_metrics_execution_csv",
+        "target_stop_events_csv",
+        "target_stop_events_parquet",
+        "target_stop_events_csv_gz",
+    ]
+    for artifact_name in artifact_names:
+        path = Path(getattr(summary.artifacts, artifact_name) or "")
+        assert path.exists(), artifact_name
+        assert summary.performance["artifact_sizes_bytes"][artifact_name] > 0
+
+    manifest_text = Path(summary.artifacts.manifest_json).read_text(encoding="utf-8")
+    assert "event_metrics_parquet" in manifest_text
+    assert "target_stop_events_csv_gz" in manifest_text
+    assert "MFE_10d_pct" in Path(summary.artifacts.event_metrics_path_csv or "").read_text(encoding="utf-8-sig")
+    assert "day10_strong" in Path(summary.artifacts.event_metrics_checkpoint_csv or "").read_text(encoding="utf-8-sig")
+    assert "alpha_5d_vs_universe_pct" in Path(summary.artifacts.event_metrics_alpha_csv or "").read_text(encoding="utf-8-sig")
+    assert "decay_1d_5d_pct" in Path(summary.artifacts.event_metrics_decay_csv or "").read_text(encoding="utf-8-sig")
+    assert "net_return_after_10bps_5d_pct" in Path(summary.artifacts.event_metrics_cost_csv or "").read_text(encoding="utf-8-sig")
+    assert "signal_close_to_next_open_gap_pct" in Path(summary.artifacts.event_metrics_execution_csv or "").read_text(encoding="utf-8-sig")
 
 
 def test_run_entry_signal_analysis_includes_primary_horizon_validation(tmp_path, monkeypatch) -> None:

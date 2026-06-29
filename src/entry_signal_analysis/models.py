@@ -155,8 +155,19 @@ class EntrySignalAnalysisArtifacts(BaseModel):
     manifest_json: str
     performance_json: str | None = None
     event_metrics_csv: str | None = None
+    event_metrics_parquet: str | None = None
+    event_metrics_csv_gz: str | None = None
+    event_metrics_core_csv: str | None = None
+    event_metrics_path_csv: str | None = None
+    event_metrics_checkpoint_csv: str | None = None
+    event_metrics_alpha_csv: str | None = None
+    event_metrics_decay_csv: str | None = None
+    event_metrics_cost_csv: str | None = None
+    event_metrics_execution_csv: str | None = None
     path_summary_csv: str | None = None
     target_stop_events_csv: str | None = None
+    target_stop_events_parquet: str | None = None
+    target_stop_events_csv_gz: str | None = None
     target_stop_summary_csv: str | None = None
     checkpoint_events_csv: str | None = None
     checkpoint_summary_csv: str | None = None
@@ -200,8 +211,19 @@ class EntrySignalAnalysisDatasetManifest(BaseModel):
     selected_count: int
     request: dict[str, object]
     event_metrics_csv: str | None = None
+    event_metrics_parquet: str | None = None
+    event_metrics_csv_gz: str | None = None
+    event_metrics_core_csv: str | None = None
+    event_metrics_path_csv: str | None = None
+    event_metrics_checkpoint_csv: str | None = None
+    event_metrics_alpha_csv: str | None = None
+    event_metrics_decay_csv: str | None = None
+    event_metrics_cost_csv: str | None = None
+    event_metrics_execution_csv: str | None = None
     path_summary_csv: str | None = None
     target_stop_events_csv: str | None = None
+    target_stop_events_parquet: str | None = None
+    target_stop_events_csv_gz: str | None = None
     target_stop_summary_csv: str | None = None
     checkpoint_events_csv: str | None = None
     checkpoint_summary_csv: str | None = None

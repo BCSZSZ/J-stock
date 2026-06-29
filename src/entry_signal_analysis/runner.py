@@ -231,6 +231,137 @@ def _compact_core_csv_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.loc[:, columns].copy()
 
 
+EVENT_METRIC_LAYER_ID_COLUMNS = [
+    "event_row",
+    "event_id",
+    "entry_strategy",
+    "entry_filter_name",
+    "ticker",
+    "signal_date",
+    "entry_date",
+    "entry_price",
+    "selected",
+    "rank",
+    "rank_score",
+    "confidence",
+    "score",
+]
+
+
+def _event_metric_layer_frame(
+    frame: pd.DataFrame,
+    *,
+    exact_columns: tuple[str, ...] = (),
+    prefixes: tuple[str, ...] = (),
+) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    id_columns = [column for column in EVENT_METRIC_LAYER_ID_COLUMNS if column in frame.columns]
+    layer_columns = [
+        column
+        for column in frame.columns
+        if column not in id_columns
+        and (
+            column in exact_columns
+            or any(str(column).startswith(prefix) for prefix in prefixes)
+        )
+    ]
+    return frame.loc[:, [*id_columns, *layer_columns]].copy()
+
+
+def _event_metric_layers(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    if frame.empty:
+        empty = frame.copy()
+        return {
+            "event_metrics_core_csv": empty,
+            "event_metrics_path_csv": empty,
+            "event_metrics_checkpoint_csv": empty,
+            "event_metrics_alpha_csv": empty,
+            "event_metrics_decay_csv": empty,
+            "event_metrics_cost_csv": empty,
+            "event_metrics_execution_csv": empty,
+        }
+    core_columns = (
+        "sector",
+        "market_cap_bucket",
+        "liquidity_bucket",
+        "volatility_bucket",
+        "market_regime",
+        "positive_rank_score",
+        "positive_rank_score_count",
+        "tail_guard_limit",
+        "ranking_strategy",
+        "momentum_exhaustion_filtered",
+        "industry_filter_filtered",
+        "signal_pos",
+        "entry_pos",
+        "reasons_json",
+        "signal_metadata_json",
+    )
+    checkpoint_columns = tuple(
+        str(column)
+        for column in frame.columns
+        if str(column).startswith("day")
+        and len(str(column)) > 3
+        and str(column)[3].isdigit()
+    )
+    return {
+        "event_metrics_core_csv": _event_metric_layer_frame(
+            frame,
+            exact_columns=core_columns,
+        ),
+        "event_metrics_path_csv": _event_metric_layer_frame(
+            frame,
+            prefixes=(
+                "forward_return_",
+                "forward_diff_",
+                "forward_missing_",
+                "forward_date_",
+                "forward_price_",
+                "marginal_return_",
+                "MFE_",
+                "MAE_",
+                "time_to_MFE_",
+                "time_to_MAE_",
+                "days_underwater_",
+                "profit_giveback_",
+                "MFE_capture_ratio_",
+            ),
+        ),
+        "event_metrics_checkpoint_csv": _event_metric_layer_frame(
+            frame,
+            exact_columns=checkpoint_columns,
+        ),
+        "event_metrics_alpha_csv": _event_metric_layer_frame(
+            frame,
+            prefixes=("alpha_",),
+        ),
+        "event_metrics_decay_csv": _event_metric_layer_frame(
+            frame,
+            prefixes=("late_entry_", "late_return_", "decay_"),
+        ),
+        "event_metrics_cost_csv": _event_metric_layer_frame(
+            frame,
+            prefixes=("net_return_after_",),
+        ),
+        "event_metrics_execution_csv": _event_metric_layer_frame(
+            frame,
+            exact_columns=(
+                "signal_close",
+                "signal_close_to_next_open_gap_pct",
+                "entry_day_open_to_close_pct",
+                "adv20_jpy",
+                "dollar_volume_jpy",
+                "turnover_median_20_jpy",
+                "entry_atr_ratio",
+                "spread_proxy_pct",
+                "liquidity_bucket",
+                "volatility_bucket",
+            ),
+        ),
+    }
+
+
 def _write_performance_json(path: Path, performance: dict[str, object]) -> None:
     path.write_text(
         json.dumps(performance, ensure_ascii=False, indent=2, default=str),
@@ -763,8 +894,19 @@ def run_entry_signal_analysis(
     performance_path = output_dir / f"entry_signal_analysis_performance_{timestamp}.json"
     priority15_paths = {
         "event_metrics_csv": output_dir / "event_metrics.csv",
+        "event_metrics_parquet": output_dir / "event_metrics.parquet",
+        "event_metrics_csv_gz": output_dir / "event_metrics.csv.gz",
+        "event_metrics_core_csv": output_dir / "event_metrics_core.csv",
+        "event_metrics_path_csv": output_dir / "event_metrics_path.csv",
+        "event_metrics_checkpoint_csv": output_dir / "event_metrics_checkpoint.csv",
+        "event_metrics_alpha_csv": output_dir / "event_metrics_alpha.csv",
+        "event_metrics_decay_csv": output_dir / "event_metrics_decay.csv",
+        "event_metrics_cost_csv": output_dir / "event_metrics_cost.csv",
+        "event_metrics_execution_csv": output_dir / "event_metrics_execution.csv",
         "path_summary_csv": output_dir / "path_summary.csv",
         "target_stop_events_csv": output_dir / "target_stop_events.csv",
+        "target_stop_events_parquet": output_dir / "target_stop_events.parquet",
+        "target_stop_events_csv_gz": output_dir / "target_stop_events.csv.gz",
         "target_stop_summary_csv": output_dir / "target_stop_summary.csv",
         "checkpoint_events_csv": output_dir / "checkpoint_events.csv",
         "checkpoint_summary_csv": output_dir / "checkpoint_summary.csv",
@@ -797,8 +939,24 @@ def run_entry_signal_analysis(
     if priority15_outputs is not None:
         stage_started_at = time.perf_counter()
         priority15_outputs.event_metrics.to_csv(priority15_paths["event_metrics_csv"], index=False, encoding="utf-8-sig")
+        priority15_outputs.event_metrics.to_parquet(priority15_paths["event_metrics_parquet"], index=False)
+        priority15_outputs.event_metrics.to_csv(
+            priority15_paths["event_metrics_csv_gz"],
+            index=False,
+            encoding="utf-8-sig",
+            compression="gzip",
+        )
+        for layer_key, layer_frame in _event_metric_layers(priority15_outputs.event_metrics).items():
+            layer_frame.to_csv(priority15_paths[layer_key], index=False, encoding="utf-8-sig")
         priority15_outputs.path_summary.to_csv(priority15_paths["path_summary_csv"], index=False, encoding="utf-8-sig")
         priority15_outputs.target_stop_events.to_csv(priority15_paths["target_stop_events_csv"], index=False, encoding="utf-8-sig")
+        priority15_outputs.target_stop_events.to_parquet(priority15_paths["target_stop_events_parquet"], index=False)
+        priority15_outputs.target_stop_events.to_csv(
+            priority15_paths["target_stop_events_csv_gz"],
+            index=False,
+            encoding="utf-8-sig",
+            compression="gzip",
+        )
         priority15_outputs.target_stop_summary.to_csv(priority15_paths["target_stop_summary_csv"], index=False, encoding="utf-8-sig")
         priority15_outputs.checkpoint_events.to_csv(priority15_paths["checkpoint_events_csv"], index=False, encoding="utf-8-sig")
         priority15_outputs.checkpoint_summary.to_csv(priority15_paths["checkpoint_summary_csv"], index=False, encoding="utf-8-sig")
@@ -811,7 +969,7 @@ def run_entry_signal_analysis(
         priority15_outputs.execution_summary.to_csv(priority15_paths["execution_summary_csv"], index=False, encoding="utf-8-sig")
         priority15_outputs.exit_rule_summary.to_csv(priority15_paths["exit_rule_summary_csv"], index=False, encoding="utf-8-sig")
         priority15_outputs.walk_forward_summary.to_csv(priority15_paths["walk_forward_summary_csv"], index=False, encoding="utf-8-sig")
-        _record_stage(performance, "write_priority15_csv", stage_started_at)
+        _record_stage(performance, "write_priority15_artifacts", stage_started_at)
 
     stage_started_at = time.perf_counter()
     artifacts = EntrySignalAnalysisArtifacts(

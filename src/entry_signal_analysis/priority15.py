@@ -959,16 +959,23 @@ def _build_path_summary(event_metrics: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _first_hit_offset(values: Iterable[object], threshold: float, *, hit_above: bool) -> int | None:
-    for offset, value in enumerate(values, start=1):
-        parsed = _to_float(value)
-        if parsed is None:
-            continue
-        if hit_above and parsed >= threshold:
-            return offset
-        if not hit_above and parsed <= threshold:
-            return offset
-    return None
+def _first_hit_offsets(
+    values: np.ndarray,
+    thresholds: np.ndarray,
+    *,
+    hit_above: bool,
+) -> np.ndarray:
+    offsets = np.zeros(len(thresholds), dtype="int64")
+    if len(values) == 0 or len(thresholds) == 0:
+        return offsets
+    if hit_above:
+        hits = values[:, None] >= thresholds[None, :]
+    else:
+        hits = values[:, None] <= thresholds[None, :]
+    has_hit = hits.any(axis=0)
+    if has_hit.any():
+        offsets[has_hit] = hits.argmax(axis=0)[has_hit] + 1
+    return offsets
 
 
 TARGET_STOP_EVENT_COLUMNS = [
@@ -987,28 +994,6 @@ def _empty_target_stop_buffers() -> dict[str, list[object]]:
     return {column: [] for column in TARGET_STOP_EVENT_COLUMNS}
 
 
-def _append_target_stop_row(
-    rows: dict[str, list[object]],
-    *,
-    event_row: int,
-    target_pct: float,
-    stop_pct: float,
-    horizon: int,
-    hit_type: str,
-    days_to_target: int | None,
-    days_to_stop: int | None,
-    rule_return: float | None,
-) -> None:
-    rows["event_row"].append(event_row)
-    rows["target_pct"].append(target_pct)
-    rows["stop_pct"].append(stop_pct)
-    rows["horizon"].append(horizon)
-    rows["hit_type"].append(hit_type)
-    rows["days_to_target"].append(days_to_target)
-    rows["days_to_stop"].append(days_to_stop)
-    rows["rule_return_pct"].append(rule_return)
-
-
 def _append_target_stop_for_event(
     rows: dict[str, list[object]],
     context: EntrySignalEventContext,
@@ -1019,8 +1004,13 @@ def _append_target_stop_for_event(
     entry_price = _to_float(context.payload.get("entry_price") or context.payload.get("label_entry_price"))
     if entry_price is None or entry_price <= 0:
         return 0
+    target_pcts = np.asarray(request.normalized_target_pcts, dtype="float64")
+    stop_pcts = np.asarray(request.normalized_stop_pcts, dtype="float64")
+    horizons = list(request.normalized_target_stop_horizons)
+    if len(target_pcts) == 0 or len(stop_pcts) == 0 or not horizons:
+        return 0
     start_pos = context.entry_pos if request.label_mode == "next_open" else context.entry_pos + 1
-    max_horizon = max(request.normalized_target_stop_horizons, default=0)
+    max_horizon = max(horizons, default=0)
     max_end_pos = min(len(frame) - 1, context.signal_pos + max_horizon)
     window = frame.iloc[start_pos : max_end_pos + 1] if start_pos <= max_end_pos else pd.DataFrame()
     close_values = pd.to_numeric(window["Close"], errors="coerce") if "Close" in window.columns else pd.Series(dtype=float)
@@ -1036,66 +1026,73 @@ def _append_target_stop_for_event(
     )
     high_values = high_values.where(high_values.notna(), close_values)
     low_values = low_values.where(low_values.notna(), close_values)
-    target_hit_offsets = {
-        target_pct: _first_hit_offset(
-            high_values.tolist(),
-            entry_price * (1.0 + target_pct / 100.0),
-            hit_above=True,
-        )
-        for target_pct in request.normalized_target_pcts
-    }
-    stop_hit_offsets = {
-        stop_pct: _first_hit_offset(
-            low_values.tolist(),
-            entry_price * (1.0 - stop_pct / 100.0),
-            hit_above=False,
-        )
-        for stop_pct in request.normalized_stop_pcts
-    }
+    high_array = high_values.to_numpy(dtype="float64", copy=False)
+    low_array = low_values.to_numpy(dtype="float64", copy=False)
+    target_hit_offsets = _first_hit_offsets(
+        high_array,
+        entry_price * (1.0 + target_pcts / 100.0),
+        hit_above=True,
+    )
+    stop_hit_offsets = _first_hit_offsets(
+        low_array,
+        entry_price * (1.0 - stop_pcts / 100.0),
+        hit_above=False,
+    )
     horizon_close_returns = {
         horizon: _return_pct(_price_at(frame, context.signal_pos + horizon, "Close"), entry_price)
-        for horizon in request.normalized_target_stop_horizons
+        for horizon in horizons
     }
     appended = 0
-    for horizon in request.normalized_target_stop_horizons:
+    combo_count = int(len(target_pcts) * len(stop_pcts))
+    target_pct_grid = np.repeat(target_pcts, len(stop_pcts))
+    stop_pct_grid = np.tile(stop_pcts, len(target_pcts))
+    for horizon in horizons:
         end_pos = min(len(frame) - 1, context.signal_pos + horizon)
         horizon_offset = end_pos - start_pos + 1
-        for target_pct in request.normalized_target_pcts:
-            target_hit_offset = target_hit_offsets.get(target_pct)
-            days_to_target = (
-                target_hit_offset
-                if target_hit_offset is not None and target_hit_offset <= horizon_offset
-                else None
-            )
-            for stop_pct in request.normalized_stop_pcts:
-                stop_hit_offset = stop_hit_offsets.get(stop_pct)
-                days_to_stop = (
-                    stop_hit_offset
-                    if stop_hit_offset is not None and stop_hit_offset <= horizon_offset
-                    else None
-                )
-                hit_type = "neither"
-                rule_return = horizon_close_returns.get(horizon)
-                if days_to_stop is not None and (
-                    days_to_target is None or days_to_stop <= days_to_target
-                ):
-                    hit_type = "stop_first"
-                    rule_return = -stop_pct
-                elif days_to_target is not None:
-                    hit_type = "target_first"
-                    rule_return = target_pct
-                _append_target_stop_row(
-                    rows,
-                    event_row=event_row,
-                    target_pct=target_pct,
-                    stop_pct=stop_pct,
-                    horizon=horizon,
-                    hit_type=hit_type,
-                    days_to_target=days_to_target,
-                    days_to_stop=days_to_stop,
-                    rule_return=rule_return,
-                )
-                appended += 1
+        target_days = np.where(
+            (target_hit_offsets > 0) & (target_hit_offsets <= horizon_offset),
+            target_hit_offsets,
+            0,
+        )
+        stop_days = np.where(
+            (stop_hit_offsets > 0) & (stop_hit_offsets <= horizon_offset),
+            stop_hit_offsets,
+            0,
+        )
+        target_days_grid = np.repeat(target_days, len(stop_pcts))
+        stop_days_grid = np.tile(stop_days, len(target_pcts))
+        stop_first = (stop_days_grid > 0) & (
+            (target_days_grid == 0) | (stop_days_grid <= target_days_grid)
+        )
+        target_first = (~stop_first) & (target_days_grid > 0)
+        hit_types = np.full(combo_count, "neither", dtype=object)
+        hit_types[stop_first] = "stop_first"
+        hit_types[target_first] = "target_first"
+
+        base_rule_return = horizon_close_returns.get(horizon)
+        rule_returns = np.full(
+            combo_count,
+            np.nan if base_rule_return is None else float(base_rule_return),
+            dtype="float64",
+        )
+        rule_returns[stop_first] = -stop_pct_grid[stop_first]
+        rule_returns[target_first] = target_pct_grid[target_first]
+
+        rows["event_row"].extend([event_row] * combo_count)
+        rows["target_pct"].extend(target_pct_grid.tolist())
+        rows["stop_pct"].extend(stop_pct_grid.tolist())
+        rows["horizon"].extend([horizon] * combo_count)
+        rows["hit_type"].extend(hit_types.tolist())
+        rows["days_to_target"].extend(
+            int(value) if int(value) > 0 else None for value in target_days_grid
+        )
+        rows["days_to_stop"].extend(
+            int(value) if int(value) > 0 else None for value in stop_days_grid
+        )
+        rows["rule_return_pct"].extend(
+            None if np.isnan(value) else float(value) for value in rule_returns
+        )
+        appended += combo_count
     return appended
 
 

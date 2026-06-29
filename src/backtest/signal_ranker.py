@@ -7,8 +7,11 @@ SignalRanker wrapper for backward compatibility.
 """
 
 import heapq
+import math
 import random
 from typing import Callable, Dict, List, Optional, Tuple
+
+import pandas as pd
 
 from ..analysis.signals import MarketData, SignalAction, TradingSignal
 
@@ -54,6 +57,44 @@ def _momentum_score(
     short_ret = (cur / closes.iloc[-short_window] - 1) * 100 if len(closes) >= short_window else 0.0
     long_ret = (cur / closes.iloc[-long_window] - 1) * 100 if len(closes) >= long_window else 0.0
     return short_ret * short_weight + long_ret * (1.0 - short_weight)
+
+
+def _momentum_score_from_features(
+    features: pd.DataFrame,
+    row_pos: int,
+    short_window: int,
+    long_window: int,
+    short_weight: float,
+) -> float:
+    if features.empty or "Close" not in features.columns:
+        return 0.0
+    if row_pos < 0 or row_pos >= len(features):
+        return 0.0
+    closes = pd.to_numeric(features["Close"], errors="coerce")
+    cur = closes.iloc[row_pos]
+    if pd.isna(cur) or float(cur) == 0.0:
+        return 0.0
+    short_idx = row_pos - short_window + 1
+    long_idx = row_pos - long_window + 1
+    short_ret = 0.0
+    long_ret = 0.0
+    if short_idx >= 0:
+        short_base = closes.iloc[short_idx]
+        if pd.notna(short_base) and float(short_base) != 0.0:
+            short_ret = (float(cur) / float(short_base) - 1.0) * 100.0
+    if long_idx >= 0:
+        long_base = closes.iloc[long_idx]
+        if pd.notna(long_base) and float(long_base) != 0.0:
+            long_ret = (float(cur) / float(long_base) - 1.0) * 100.0
+    return short_ret * short_weight + long_ret * (1.0 - short_weight)
+
+
+def _metadata_score(signal: TradingSignal, key: str) -> float | None:
+    try:
+        value = float((signal.metadata or {}).get(key))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _is_stale_buy_signal(signal: TradingSignal) -> bool:
@@ -268,6 +309,18 @@ class MomentumRanker:
     def requires_market_data(self) -> bool:
         return True
 
+    def metadata_rank_score_key(self) -> str:
+        return "momentum_rank_score"
+
+    def score_from_features(self, features: pd.DataFrame, row_pos: int) -> float:
+        return _momentum_score_from_features(
+            features,
+            row_pos,
+            self._short,
+            self._long,
+            self._sw,
+        )
+
     def rank_buy_signals(
         self,
         signals: Dict[str, TradingSignal],
@@ -275,6 +328,9 @@ class MomentumRanker:
         top_k: Optional[int] = None,
     ) -> List[Tuple[str, TradingSignal, float]]:
         def _score(ticker: str, signal: TradingSignal) -> float:
+            metadata_score = _metadata_score(signal, self.metadata_rank_score_key())
+            if metadata_score is not None:
+                return metadata_score
             return _momentum_score(
                 ticker,
                 market_data_dict,
@@ -303,13 +359,18 @@ class FreshMomentumRanker(MomentumRanker):
         for ticker, signal in signals.items():
             if signal.action != SignalAction.BUY:
                 continue
-            momentum_score = _momentum_score(
-                ticker,
-                market_data_dict,
-                self._short,
-                self._long,
-                self._sw,
+            momentum_score = _metadata_score(
+                signal,
+                self.metadata_rank_score_key(),
             )
+            if momentum_score is None:
+                momentum_score = _momentum_score(
+                    ticker,
+                    market_data_dict,
+                    self._short,
+                    self._long,
+                    self._sw,
+                )
             scored.append((ticker, signal, momentum_score, _is_stale_buy_signal(signal)))
 
         scored.sort(key=lambda x: (not x[3], x[2]), reverse=True)

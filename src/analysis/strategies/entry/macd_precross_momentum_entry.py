@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import numpy as np
 import pandas as pd
 
@@ -51,6 +53,109 @@ def _calc_bias_pct_and_reference(latest_row: pd.Series) -> tuple[float, str] | t
     return bias_pct, sma_col
 
 
+@dataclass
+class PrecrossMomentumFeatureCache:
+    frame: pd.DataFrame
+    close: pd.Series
+    macd_hist: pd.Series
+    hist_abs_norm: pd.Series
+    hist_delta_norm: pd.Series
+    ema20: pd.Series
+    ema200: pd.Series
+    return_5d: pd.Series
+    adx_14: pd.Series
+    sma: pd.Series
+    sma_col: str | None
+    bias_pct: pd.Series
+    volume_ratio: pd.Series
+    hist_rising_by_window: dict[int, pd.Series] = field(default_factory=dict)
+    price_rising_by_window: dict[int, pd.Series] = field(default_factory=dict)
+    peak_at_window_start_by_window: dict[int, pd.Series] = field(default_factory=dict)
+
+    def hist_rising(self, window: int) -> pd.Series:
+        window = max(2, int(window))
+        cached = self.hist_rising_by_window.get(window)
+        if cached is None:
+            cached = _rising_for_window(self.macd_hist, window).fillna(False)
+            self.hist_rising_by_window[window] = cached
+        return cached
+
+    def price_rising(self, window: int) -> pd.Series:
+        window = max(2, int(window))
+        cached = self.price_rising_by_window.get(window)
+        if cached is None:
+            cached = _rising_for_window(self.close, window).fillna(False)
+            self.price_rising_by_window[window] = cached
+        return cached
+
+    def peak_at_window_start(self, window: int) -> pd.Series:
+        window = max(2, int(window))
+        cached = self.peak_at_window_start_by_window.get(window)
+        if cached is None:
+            cached = _peak_at_window_start(self.macd_hist, window).fillna(False)
+            self.peak_at_window_start_by_window[window] = cached
+        return cached
+
+
+def build_precross_momentum_feature_cache(df: pd.DataFrame) -> PrecrossMomentumFeatureCache:
+    close = pd.to_numeric(df["Close"], errors="coerce")
+    macd_hist = pd.to_numeric(df["MACD_Hist"], errors="coerce")
+    ema20 = (
+        pd.to_numeric(df["EMA_20"], errors="coerce")
+        if "EMA_20" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    ema200 = (
+        pd.to_numeric(df["EMA_200"], errors="coerce")
+        if "EMA_200" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    return_5d = (
+        pd.to_numeric(df["Return_5d"], errors="coerce")
+        if "Return_5d" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    adx_14 = (
+        pd.to_numeric(df["ADX_14"], errors="coerce")
+        if "ADX_14" in df.columns
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+    sma_col = (
+        "SMA_25"
+        if "SMA_25" in df.columns
+        else "SMA_20"
+        if "SMA_20" in df.columns
+        else None
+    )
+    sma = (
+        pd.to_numeric(df[sma_col], errors="coerce")
+        if sma_col is not None
+        else pd.Series(np.nan, index=df.index, dtype=float)
+    )
+
+    volume_ratio = pd.Series(np.nan, index=df.index, dtype=float)
+    if "Volume" in df.columns and "Volume_SMA_20" in df.columns:
+        volume = pd.to_numeric(df["Volume"], errors="coerce")
+        volume_sma_20 = pd.to_numeric(df["Volume_SMA_20"], errors="coerce")
+        volume_ratio = volume / volume_sma_20.replace(0, np.nan)
+
+    return PrecrossMomentumFeatureCache(
+        frame=df,
+        close=close,
+        macd_hist=macd_hist,
+        hist_abs_norm=macd_hist.abs() / close.replace(0, np.nan),
+        hist_delta_norm=macd_hist.diff() / close.replace(0, np.nan),
+        ema20=ema20,
+        ema200=ema200,
+        return_5d=return_5d,
+        adx_14=adx_14,
+        sma=sma,
+        sma_col=sma_col,
+        bias_pct=((close / sma.replace(0, np.nan)) - 1.0) * 100.0,
+        volume_ratio=volume_ratio,
+    )
+
+
 def build_precross_momentum_flags(
     df: pd.DataFrame,
     hist_rise_days: int = 3,
@@ -67,71 +172,94 @@ def build_precross_momentum_flags(
     max_bias_pct: float | None = None,
     max_buy_signal_streak_days: int | None = None,
 ) -> pd.DataFrame:
-    close = pd.to_numeric(df["Close"], errors="coerce")
-    macd_hist = pd.to_numeric(df["MACD_Hist"], errors="coerce")
-    hist_abs_norm = macd_hist.abs() / close.replace(0, np.nan)
-    hist_delta_norm = macd_hist.diff() / close.replace(0, np.nan)
-    ema20 = pd.to_numeric(df["EMA_20"], errors="coerce") if "EMA_20" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
-    return_5d = pd.to_numeric(df["Return_5d"], errors="coerce") if "Return_5d" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
-    adx_14 = pd.to_numeric(df["ADX_14"], errors="coerce") if "ADX_14" in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
-    sma_col = "SMA_25" if "SMA_25" in df.columns else "SMA_20"
-    sma = pd.to_numeric(df[sma_col], errors="coerce") if sma_col in df.columns else pd.Series(np.nan, index=df.index, dtype=float)
+    cache = build_precross_momentum_feature_cache(df)
+    return build_precross_momentum_flags_from_cache(
+        cache,
+        hist_rise_days=hist_rise_days,
+        price_rise_days=price_rise_days,
+        require_price_rising=require_price_rising,
+        require_hist_below_zero=require_hist_below_zero,
+        max_hist_abs_norm=max_hist_abs_norm,
+        min_hist_delta_norm=min_hist_delta_norm,
+        require_above_ema200=require_above_ema200,
+        require_peak_at_window_start=require_peak_at_window_start,
+        max_gap_above_ema20_pct=max_gap_above_ema20_pct,
+        max_return_5d=max_return_5d,
+        min_adx_14=min_adx_14,
+        max_bias_pct=max_bias_pct,
+        max_buy_signal_streak_days=max_buy_signal_streak_days,
+    )
 
-    hist_rising = _rising_for_window(macd_hist, max(2, int(hist_rise_days))).fillna(False)
-    price_rising = _rising_for_window(close, max(2, int(price_rise_days))).fillna(False)
-    peak_at_window_start = _peak_at_window_start(macd_hist, max(2, int(hist_rise_days))).fillna(False)
+
+def build_precross_momentum_flags_from_cache(
+    cache: PrecrossMomentumFeatureCache,
+    hist_rise_days: int = 3,
+    price_rise_days: int = 3,
+    require_price_rising: bool = True,
+    require_hist_below_zero: bool = True,
+    max_hist_abs_norm: float | None = None,
+    min_hist_delta_norm: float | None = None,
+    require_above_ema200: bool = False,
+    require_peak_at_window_start: bool = False,
+    max_gap_above_ema20_pct: float | None = None,
+    max_return_5d: float | None = None,
+    min_adx_14: float | None = None,
+    max_bias_pct: float | None = None,
+    max_buy_signal_streak_days: int | None = None,
+) -> pd.DataFrame:
+    close = cache.close
+    macd_hist = cache.macd_hist
+    hist_abs_norm = cache.hist_abs_norm
+    hist_delta_norm = cache.hist_delta_norm
+    ema20 = cache.ema20
+    return_5d = cache.return_5d
+    adx_14 = cache.adx_14
+    bias_pct = cache.bias_pct
+
+    hist_rising = cache.hist_rising(hist_rise_days)
+    price_rising = cache.price_rising(price_rise_days)
+    peak_at_window_start = cache.peak_at_window_start(hist_rise_days)
 
     if require_hist_below_zero:
         hist_below_zero = macd_hist.lt(0).fillna(False)
     else:
-        hist_below_zero = pd.Series(True, index=df.index, dtype="boolean")
+        hist_below_zero = pd.Series(True, index=cache.frame.index, dtype="boolean")
 
     if max_hist_abs_norm is None:
-        near_zero_ok = pd.Series(True, index=df.index, dtype="boolean")
+        near_zero_ok = pd.Series(True, index=cache.frame.index, dtype="boolean")
     else:
         near_zero_ok = hist_abs_norm.le(float(max_hist_abs_norm)).fillna(False)
 
     if min_hist_delta_norm is None:
-        hist_delta_ok = pd.Series(True, index=df.index, dtype="boolean")
+        hist_delta_ok = pd.Series(True, index=cache.frame.index, dtype="boolean")
     else:
         hist_delta_ok = hist_delta_norm.ge(float(min_hist_delta_norm)).fillna(False)
 
     if require_above_ema200:
-        if "EMA_200" in df.columns:
-            ema_200 = pd.to_numeric(df["EMA_200"], errors="coerce")
-            above_ema200 = close.gt(ema_200).fillna(False)
-        else:
-            above_ema200 = pd.Series(False, index=df.index, dtype="boolean")
+        above_ema200 = close.gt(cache.ema200).fillna(False)
     else:
-        above_ema200 = pd.Series(True, index=df.index, dtype="boolean")
+        above_ema200 = pd.Series(True, index=cache.frame.index, dtype="boolean")
 
     gap_above_ema20_pct = ((close / ema20) - 1.0) * 100.0
     if max_gap_above_ema20_pct is None:
-        gap_above_ema20_ok = pd.Series(True, index=df.index, dtype="boolean")
+        gap_above_ema20_ok = pd.Series(True, index=cache.frame.index, dtype="boolean")
     else:
         gap_above_ema20_ok = gap_above_ema20_pct.le(float(max_gap_above_ema20_pct)).fillna(False)
 
     if max_return_5d is None:
-        return_5d_ok = pd.Series(True, index=df.index, dtype="boolean")
+        return_5d_ok = pd.Series(True, index=cache.frame.index, dtype="boolean")
     else:
         return_5d_ok = return_5d.le(float(max_return_5d)).fillna(False)
 
     if min_adx_14 is None:
-        adx_ok = pd.Series(True, index=df.index, dtype="boolean")
+        adx_ok = pd.Series(True, index=cache.frame.index, dtype="boolean")
     else:
         adx_ok = adx_14.ge(float(min_adx_14)).fillna(False)
 
-    bias_pct = ((close / sma.replace(0, np.nan)) - 1.0) * 100.0
     if max_bias_pct is None:
-        bias_ok = pd.Series(True, index=df.index, dtype="boolean")
+        bias_ok = pd.Series(True, index=cache.frame.index, dtype="boolean")
     else:
         bias_ok = bias_pct.le(float(max_bias_pct)) | bias_pct.isna()
-
-    volume_ratio = pd.Series(np.nan, index=df.index, dtype=float)
-    if "Volume" in df.columns and "Volume_SMA_20" in df.columns:
-        volume = pd.to_numeric(df["Volume"], errors="coerce")
-        volume_sma_20 = pd.to_numeric(df["Volume_SMA_20"], errors="coerce")
-        volume_ratio = volume / volume_sma_20.replace(0, np.nan)
 
     flags = pd.DataFrame(
         {
@@ -152,18 +280,18 @@ def build_precross_momentum_flags(
             "adx_ok": adx_ok,
             "bias_pct": bias_pct,
             "bias_ok": bias_ok,
-            "volume_ratio": volume_ratio,
+            "volume_ratio": cache.volume_ratio,
         },
-        index=df.index,
+        index=cache.frame.index,
     )
     if require_peak_at_window_start:
         peak_ok = flags["peak_at_window_start"]
     else:
-        peak_ok = pd.Series(True, index=df.index, dtype="boolean")
+        peak_ok = pd.Series(True, index=cache.frame.index, dtype="boolean")
     if require_price_rising:
         price_rising_ok = flags["price_rising"]
     else:
-        price_rising_ok = pd.Series(True, index=df.index, dtype="boolean")
+        price_rising_ok = pd.Series(True, index=cache.frame.index, dtype="boolean")
     flags["peak_ok"] = peak_ok
     flags["price_rising_ok"] = price_rising_ok
     raw_signal = flags[
@@ -187,7 +315,7 @@ def build_precross_momentum_flags(
     flags["is_fresh_buy_signal"] = raw_signal & streak_days.eq(1)
     flags["stale_buy_signal"] = raw_signal & streak_days.gt(1)
     if max_buy_signal_streak_days is None:
-        fresh_gate = pd.Series(True, index=df.index, dtype="boolean")
+        fresh_gate = pd.Series(True, index=cache.frame.index, dtype="boolean")
     else:
         fresh_gate = streak_days.le(max(1, int(max_buy_signal_streak_days)))
     flags["fresh_buy_signal_ok"] = fresh_gate
@@ -449,6 +577,8 @@ def _latest_precross_momentum_flags(
 class MACDPreCrossMomentumEntry(BaseEntryStrategy):
     """Enter before MACD crosses above zero when histogram and price both strengthen."""
 
+    precompute_family_key = "macd_precross_momentum"
+
     complexity = StrategyComplexity(
         numeric_param_count=6,
         extra_filter_count=4,
@@ -535,6 +665,12 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
                 "strategy_name",
                 exit_strategy.__class__.__name__,
             )
+
+    def build_precompute_feature_cache(
+        self,
+        features: pd.DataFrame,
+    ) -> PrecrossMomentumFeatureCache:
+        return build_precross_momentum_feature_cache(features)
 
     def _build_signal_from_flags(
         self,
@@ -694,6 +830,7 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         *,
         ticker: str,
         features: pd.DataFrame,
+        feature_cache: PrecrossMomentumFeatureCache | None = None,
     ) -> dict[int, TradingSignal]:
         min_rows = max(self.hist_rise_days, self.price_rise_days)
         if len(features) < min_rows:
@@ -701,8 +838,9 @@ class MACDPreCrossMomentumEntry(BaseEntryStrategy):
         if "Close" not in features.columns or "MACD_Hist" not in features.columns:
             return {}
 
-        flags = build_precross_momentum_flags(
-            features,
+        cache = feature_cache or self.build_precompute_feature_cache(features)
+        flags = build_precross_momentum_flags_from_cache(
+            cache,
             hist_rise_days=self.hist_rise_days,
             price_rise_days=self.price_rise_days,
             require_price_rising=self.require_price_rising,
@@ -1448,5 +1586,8 @@ __all__ = [
     "MACD3BarAnySignEntry",
     "MACD3BarAnySignMaxBiasPct20Entry",
     *GENERATED_STRICT_FRESH_VARIANT_NAMES,
+    "PrecrossMomentumFeatureCache",
+    "build_precross_momentum_feature_cache",
     "build_precross_momentum_flags",
+    "build_precross_momentum_flags_from_cache",
 ]
