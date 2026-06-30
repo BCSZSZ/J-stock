@@ -65,6 +65,18 @@ ENTRY_STRATEGIES = {
     "CrossTrendMACDVolumeEntry": "src.analysis.strategies.entry.rule_based_crossover_entry.CrossTrendMACDVolumeEntry",
     "CrossTrendMACDVolumeLooseEntry": "src.analysis.strategies.entry.rule_based_crossover_entry.CrossTrendMACDVolumeLooseEntry",
     "CrossReboundKDJRSIEntry": "src.analysis.strategies.entry.rule_based_crossover_entry.CrossReboundKDJRSIEntry",
+    "ImmediateReboundOversoldUptrendEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundOversoldUptrendEntry",
+    "ImmediateReboundEMA50SupportEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundEMA50SupportEntry",
+    "ImmediateReboundTwoDownEMA20Entry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundTwoDownEMA20Entry",
+    "ImmediateReboundNarrowRedUptrendEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundNarrowRedUptrendEntry",
+    "ImmediateReboundADXTrendPullbackEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundADXTrendPullbackEntry",
+    "ImmediateReboundMACDPositivePullbackEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundMACDPositivePullbackEntry",
+    "ImmediateReboundLowerShadowUptrendEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundLowerShadowUptrendEntry",
+    "ImmediateReboundRSI4555PullbackEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundRSI4555PullbackEntry",
+    "ImmediateReboundRedCloseNearHighEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundRedCloseNearHighEntry",
+    "ImmediateReboundBBMidPullbackEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundBBMidPullbackEntry",
+    "ImmediateReboundEMA20TouchEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundEMA20TouchEntry",
+    "ImmediateReboundThreeDaySnapbackEntry": "src.analysis.strategies.entry.immediate_rebound_entry.ImmediateReboundThreeDaySnapbackEntry",
 }
 
 _PRE_CROSS_STRICT_FRESH_ENTRY_NAMES = (
@@ -170,6 +182,7 @@ def entry_strategy_uses_only_feature_data(
     return path.endswith("entry.macd_crossover.MACDCrossoverStrategy") or (
         "entry.macd_precross_momentum_entry" in path
         or "entry.rule_based_crossover_entry" in path
+        or "entry.immediate_rebound_entry" in path
         or "entry.bollinger_squeeze_strategy" in path
         or "entry.ichimoku_stoch_strategy" in path
     )

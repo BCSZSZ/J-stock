@@ -9,6 +9,9 @@ from src.analysis.signals import MarketData, SignalAction, TradingSignal
 from src.analysis.strategies.entry.bollinger_squeeze_strategy import (
     BollingerSqueezeStrategy,
 )
+from src.analysis.strategies.entry.immediate_rebound_entry import (
+    IMMEDIATE_REBOUND_ENTRY_NAMES,
+)
 from src.analysis.strategies.entry.ichimoku_stoch_strategy import IchimokuStochStrategy
 from src.analysis.strategies.entry.rule_based_crossover_entry import (
     CrossTrendMACDVolumeEntry,
@@ -18,6 +21,7 @@ from src.analysis.strategies.entry.scorer_strategy import (
     EnhancedScorerStrategy,
     SimpleScorerStrategy,
 )
+from src.utils.strategy_loader import ENTRY_STRATEGIES, create_strategy_instance
 
 
 def _market_data(
@@ -233,3 +237,60 @@ def test_scorer_precompute_matches_daily_signal() -> None:
         financials=financials,
         metadata={},
     )
+
+
+def test_immediate_rebound_precompute_matches_daily_signal() -> None:
+    dates = pd.bdate_range("2026-01-01", periods=30)
+    close = [95.0 + index * 0.20 for index in range(24)] + [
+        101.0,
+        93.0,
+        95.0,
+        103.0,
+        102.0,
+        101.3,
+    ]
+    high = [value + 0.6 for value in close]
+    low = [value - 0.6 for value in close]
+    open_ = [value - 0.2 for value in close]
+    high[-2] = 103.0
+    low[-2] = 101.0
+    open_[-2] = 102.8
+    high[-1] = 101.5
+    low[-1] = 99.8
+    open_[-1] = 101.2
+
+    features = pd.DataFrame(
+        {
+            "Open": open_,
+            "High": high,
+            "Low": low,
+            "Close": close,
+            "Volume": [100.0] * 29 + [110.0],
+            "Volume_SMA_20": [100.0] * 30,
+            "EMA_20": [96.0 + index * 0.10 for index in range(27)] + [100.5, 100.7, 100.8],
+            "EMA_50": [94.0 + index * 0.08 for index in range(27)] + [98.8, 99.0, 99.2],
+            "EMA_200": [90.0] * 30,
+            "MACD": [0.05] * 30,
+            "MACD_Signal": [0.03] * 30,
+            "MACD_Hist": [0.04] * 30,
+            "RSI_9": [48.0] * 30,
+            "RSI_14": [48.0] * 29 + [45.0],
+            "KDJ_K_9": [45.0] * 30,
+            "KDJ_D_9": [48.0] * 30,
+            "BB_PctB": [0.50] * 30,
+            "BB_Width": [0.05] * 30,
+            "ADX_14": [25.0] * 30,
+            "Return_5d": [0.03] * 30,
+        },
+        index=dates,
+    )
+
+    for strategy_name in IMMEDIATE_REBOUND_ENTRY_NAMES:
+        assert strategy_name in ENTRY_STRATEGIES
+        strategy = create_strategy_instance(strategy_name, "entry")
+        precomputed = strategy.precompute_entry_signals(
+            ticker="0000",
+            features=features,
+        )
+        assert 29 in precomputed, strategy_name
+        _assert_precompute_matches_daily(strategy, features)
