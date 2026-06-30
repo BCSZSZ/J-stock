@@ -280,6 +280,7 @@ class EntrySignalAnalysisRunRequest(BaseModel):
     checkpoint_days: list[int] = Field(default_factory=lambda: [10, 20, 40])
     cooldown_days: list[int] = Field(default_factory=lambda: [5, 10, 20, 40])
     late_entry_days: list[int] = Field(default_factory=lambda: [1, 2, 3, 5])
+    early_adverse_days: list[int] = Field(default_factory=lambda: [1, 2, 3])
     cost_bps: list[float] = Field(default_factory=lambda: [10.0, 20.0, 50.0, 100.0])
     limit: int | None = None
     data_root: str = "data"

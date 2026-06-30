@@ -42,10 +42,17 @@ class Priority15Outputs:
     regime_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
     stability_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
     signal_decay_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
+    early_adverse_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
     execution_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
     exit_rule_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
     walk_forward_summary: pd.DataFrame = field(default_factory=pd.DataFrame)
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _ForwardMedianBaselines:
+    universe: dict[tuple[str, int], float | None]
+    sector: dict[tuple[str, str, int], float | None]
 
 
 def _to_float(value: object) -> float | None:
@@ -172,6 +179,13 @@ def _is_missing(value: object) -> bool:
     return False
 
 
+def _normalize_sector_value(value: object) -> str:
+    if _is_missing(value):
+        return "unknown"
+    text = str(value).strip()
+    return text or "unknown"
+
+
 def _numeric_mean(frame: pd.DataFrame, column: str) -> float | None:
     if column not in frame.columns:
         return None
@@ -214,6 +228,68 @@ def _return_pct(price: float | None, entry_price: float | None) -> float | None:
     if price is None or entry_price is None or entry_price <= 0:
         return None
     return (price / entry_price - 1.0) * 100.0
+
+
+def _early_adverse_metrics(
+    frame: pd.DataFrame | _FeatureView,
+    *,
+    entry_pos: int,
+    entry_price: float | None,
+    label_mode: str,
+    days: Iterable[int],
+) -> dict[str, object]:
+    metrics: dict[str, object] = {}
+    normalized_days = sorted({int(value) for value in days if int(value) > 0})
+    if not normalized_days:
+        return metrics
+    for day in normalized_days:
+        metrics[f"post_entry_{day}d_close_return_pct"] = None
+        metrics[f"post_entry_{day}d_low_drawdown_pct"] = None
+        metrics[f"post_entry_{day}d_close_below_entry"] = None
+        metrics[f"post_entry_consecutive_down_{day}d"] = None
+    if entry_price is None or entry_price <= 0:
+        return metrics
+
+    start_pos = entry_pos if label_mode == "next_open" else entry_pos + 1
+    max_day = max(normalized_days)
+    end_pos = min(_frame_len(frame) - 1, start_pos + max_day - 1)
+    if start_pos > end_pos:
+        return metrics
+
+    closes: list[float | None] = []
+    lows: list[float | None] = []
+    for row_pos in range(start_pos, end_pos + 1):
+        closes.append(_price_at(frame, row_pos, "Close"))
+        low = _price_at(frame, row_pos, "Low")
+        lows.append(low if low is not None else _price_at(frame, row_pos, "Close"))
+
+    for day in normalized_days:
+        if len(closes) < day:
+            continue
+        close = closes[day - 1]
+        close_return = _return_pct(close, entry_price)
+        low_values = [value for value in lows[:day] if value is not None]
+        low_drawdown = _return_pct(min(low_values), entry_price) if low_values else None
+        metrics[f"post_entry_{day}d_close_return_pct"] = close_return
+        metrics[f"post_entry_{day}d_low_drawdown_pct"] = low_drawdown
+        metrics[f"post_entry_{day}d_close_below_entry"] = (
+            None if close_return is None else close_return < 0.0
+        )
+
+        sequence = closes[:day]
+        if any(value is None for value in sequence):
+            consecutive_down: bool | None = None
+        else:
+            previous = entry_price
+            consecutive_down = True
+            for value in sequence:
+                assert value is not None
+                if value >= previous:
+                    consecutive_down = False
+                    break
+                previous = value
+        metrics[f"post_entry_consecutive_down_{day}d"] = consecutive_down
+    return metrics
 
 
 def _bool_selected(frame: pd.DataFrame) -> pd.Series:
@@ -623,14 +699,15 @@ def _benchmark_forward_lookup(
     return lookup
 
 
-def _universe_forward_medians(
+def _forward_median_baselines(
     scan_result: EntrySignalScanResult,
     request: EntrySignalAnalysisRequest,
     signal_dates: list[str],
-) -> dict[tuple[str, int], float | None]:
+) -> _ForwardMedianBaselines:
     if not signal_dates:
-        return {}
-    medians: dict[tuple[str, int], float | None] = {}
+        return _ForwardMedianBaselines(universe={}, sector={})
+    universe_medians: dict[tuple[str, int], float | None] = {}
+    sector_medians: dict[tuple[str, str, int], float | None] = {}
     unique_dates = sorted({str(value) for value in signal_dates})
     total_dates = len(unique_dates)
     feature_by_ticker = {}
@@ -642,9 +719,15 @@ def _universe_forward_medians(
         ticker: scan_result.cache.get_date_pos_map(ticker)
         for ticker in request.tickers
     }
+    reference_file = request.industry_reference_file or DEFAULT_INDUSTRY_REFERENCE_FILE
+    sector_by_ticker = {
+        ticker: _normalize_sector_value(get_industry_name(ticker, reference_file))
+        for ticker in request.tickers
+    }
     for date_index, signal_date in enumerate(unique_dates, start=1):
         ts = pd.Timestamp(signal_date).normalize()
         values_by_horizon: dict[int, list[float]] = {h: [] for h in request.normalized_horizons}
+        sector_values_by_horizon: dict[tuple[str, int], list[float]] = {}
         for ticker in request.tickers:
             feature_view = feature_by_ticker.get(ticker)
             if feature_view is None:
@@ -652,6 +735,7 @@ def _universe_forward_medians(
             signal_pos = date_pos_by_ticker.get(ticker, {}).get(ts)
             if signal_pos is None:
                 continue
+            sector = sector_by_ticker.get(ticker, "unknown")
             for horizon in request.normalized_horizons:
                 value = feature_view.forward_return_pct(
                     signal_pos=signal_pos,
@@ -660,13 +744,18 @@ def _universe_forward_medians(
                 )
                 if value is not None:
                     values_by_horizon[horizon].append(value)
+                    sector_values_by_horizon.setdefault((sector, horizon), []).append(value)
         for horizon, values in values_by_horizon.items():
-            medians[(signal_date, horizon)] = (
+            universe_medians[(signal_date, horizon)] = (
+                float(pd.Series(values).median()) if values else None
+            )
+        for (sector, horizon), values in sector_values_by_horizon.items():
+            sector_medians[(signal_date, sector, horizon)] = (
                 float(pd.Series(values).median()) if values else None
             )
         if date_index % 50 == 0 or date_index == total_dates:
-            _log_priority15_progress("universe_forward_medians", date_index, total_dates)
-    return medians
+            _log_priority15_progress("forward_median_baselines", date_index, total_dates)
+    return _ForwardMedianBaselines(universe=universe_medians, sector=sector_medians)
 
 
 def _add_relative_strength_ranks(event_metrics: pd.DataFrame) -> None:
@@ -759,6 +848,15 @@ def _build_event_metrics(
         atr_ratio = _price_at(features, context.entry_pos, "ATR_Ratio")
         values["entry_atr_ratio"] = atr_ratio
         values["spread_proxy_pct"] = None if atr_ratio is None else atr_ratio * 100.0 / 10.0
+        values.update(
+            _early_adverse_metrics(
+                features,
+                entry_pos=context.entry_pos,
+                entry_price=entry_price,
+                label_mode=request.label_mode,
+                days=request.normalized_early_adverse_days,
+            )
+        )
 
         entry_bb_width = _price_at(features, context.entry_pos, "BB_Width")
         values["entry_rs_20d_pct"] = _return_pct(
@@ -852,8 +950,12 @@ def _build_event_metrics(
     _add_relative_strength_ranks(event_metrics)
 
     signal_date_series = event_metrics["signal_date"].astype(str) if "signal_date" in event_metrics.columns else pd.Series("", index=event_metrics.index)
-    sector_series = event_metrics["sector"].astype(str) if "sector" in event_metrics.columns else pd.Series("", index=event_metrics.index)
-    universe_medians = _universe_forward_medians(
+    sector_series = (
+        event_metrics["sector"].map(_normalize_sector_value)
+        if "sector" in event_metrics.columns
+        else pd.Series("unknown", index=event_metrics.index)
+    )
+    baselines = _forward_median_baselines(
         scan_result,
         request,
         list(signal_date_series.dropna().astype(str)),
@@ -869,15 +971,39 @@ def _build_event_metrics(
             continue
         gross_returns = pd.to_numeric(event_metrics[return_col], errors="coerce")
         universe_values = signal_date_series.map(
-            lambda signal_date: universe_medians.get((str(signal_date), horizon))
+            lambda signal_date: baselines.universe.get((str(signal_date), horizon))
         )
         topix_values = signal_date_series.map(
             lambda signal_date: topix_forward_lookup.get((str(signal_date), horizon))
         )
-        sector_medians = gross_returns.groupby([signal_date_series, sector_series], dropna=False).transform("median")
-        event_metrics[f"alpha_{horizon}d_vs_universe_pct"] = gross_returns - pd.to_numeric(universe_values, errors="coerce")
-        event_metrics[f"alpha_{horizon}d_vs_sector_pct"] = gross_returns - sector_medians
-        event_metrics[f"alpha_{horizon}d_vs_topix_pct"] = gross_returns - pd.to_numeric(topix_values, errors="coerce")
+        sector_values = pd.Series(
+            [
+                baselines.sector.get((str(signal_date), str(sector), horizon))
+                for signal_date, sector in zip(signal_date_series, sector_series)
+            ],
+            index=event_metrics.index,
+        )
+        event_metrics[f"baseline_{horizon}d_universe_median_pct"] = pd.to_numeric(
+            universe_values,
+            errors="coerce",
+        )
+        event_metrics[f"baseline_{horizon}d_sector_median_pct"] = pd.to_numeric(
+            sector_values,
+            errors="coerce",
+        )
+        event_metrics[f"baseline_{horizon}d_topix_pct"] = pd.to_numeric(
+            topix_values,
+            errors="coerce",
+        )
+        event_metrics[f"alpha_{horizon}d_vs_universe_pct"] = (
+            gross_returns - event_metrics[f"baseline_{horizon}d_universe_median_pct"]
+        )
+        event_metrics[f"alpha_{horizon}d_vs_sector_pct"] = (
+            gross_returns - event_metrics[f"baseline_{horizon}d_sector_median_pct"]
+        )
+        event_metrics[f"alpha_{horizon}d_vs_topix_pct"] = (
+            gross_returns - event_metrics[f"baseline_{horizon}d_topix_pct"]
+        )
 
     if "event_row" in event_metrics.columns:
         event_metrics = event_metrics.drop(columns=["event_row"])
@@ -1299,20 +1425,50 @@ def _build_alpha_summary(event_metrics: pd.DataFrame, request: EntrySignalAnalys
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
     for horizon in request.normalized_primary_horizons:
+        raw_column = f"forward_return_{horizon}d_pct"
+        if raw_column not in selected.columns:
+            continue
         for alpha_type in ("universe", "sector", "topix"):
             column = f"alpha_{horizon}d_vs_{alpha_type}_pct"
             if column not in selected.columns:
                 continue
-            summary = _summarize_returns(
-                selected,
-                group_cols=["entry_strategy", "entry_filter_name"],
-                return_col=column,
-            )
-            if summary.empty:
-                continue
-            summary.insert(2, "horizon", horizon)
-            summary.insert(3, "alpha_type", alpha_type)
-            rows.extend(summary.to_dict(orient="records"))
+            baseline_column = {
+                "universe": f"baseline_{horizon}d_universe_median_pct",
+                "sector": f"baseline_{horizon}d_sector_median_pct",
+                "topix": f"baseline_{horizon}d_topix_pct",
+            }[alpha_type]
+            for keys, group in selected.groupby(["entry_strategy", "entry_filter_name"], dropna=False):
+                entry_strategy, entry_filter_name = keys
+                alpha_stats = _stats_dict(group[column])
+                raw_stats = _stats_dict(group[raw_column])
+                baseline_stats = (
+                    _stats_dict(group[baseline_column])
+                    if baseline_column in group.columns
+                    else _stats_dict(pd.Series(dtype=float))
+                )
+                row: dict[str, object] = {
+                    "entry_strategy": entry_strategy,
+                    "entry_filter_name": entry_filter_name,
+                    "horizon": horizon,
+                    "alpha_type": alpha_type,
+                    **alpha_stats,
+                    "avg_alpha_pct": alpha_stats.get("avg_return_pct"),
+                    "median_alpha_pct": alpha_stats.get("median_return_pct"),
+                    "p10_alpha_pct": alpha_stats.get("p10_return_pct"),
+                    "alpha_positive_rate": alpha_stats.get("win_rate"),
+                    "avg_raw_return_pct": raw_stats.get("avg_return_pct"),
+                    "median_raw_return_pct": raw_stats.get("median_return_pct"),
+                    "raw_win_rate": raw_stats.get("win_rate"),
+                    "avg_baseline_return_pct": baseline_stats.get("avg_return_pct"),
+                    "median_baseline_return_pct": baseline_stats.get("median_return_pct"),
+                    "baseline_positive_rate": baseline_stats.get("win_rate"),
+                }
+                avg_raw = _to_float(row.get("avg_raw_return_pct"))
+                avg_alpha = _to_float(row.get("avg_alpha_pct"))
+                row["avg_market_beta_component_pct"] = (
+                    None if avg_raw is None or avg_alpha is None else avg_raw - avg_alpha
+                )
+                rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -1321,11 +1477,64 @@ def _build_regime_summary(event_metrics: pd.DataFrame, request: EntrySignalAnaly
     return_col = f"forward_return_{request.primary_horizon}d_pct"
     if selected.empty or "market_regime" not in selected.columns:
         return pd.DataFrame()
-    return _summarize_returns(
-        selected,
-        group_cols=["entry_strategy", "entry_filter_name", "market_regime"],
-        return_col=return_col,
-    )
+    rows: list[dict[str, object]] = []
+    group_cols = ["entry_strategy", "entry_filter_name", "market_regime"]
+    for keys, group in selected.groupby(group_cols, dropna=False):
+        row = {column: value for column, value in zip(group_cols, keys)}
+        row.update(_stats_dict(group[return_col]))
+        for alpha_type in ("universe", "sector", "topix"):
+            alpha_col = f"alpha_{request.primary_horizon}d_vs_{alpha_type}_pct"
+            if alpha_col not in group.columns:
+                continue
+            stats = _stats_dict(group[alpha_col])
+            row[f"avg_alpha_vs_{alpha_type}_pct"] = stats.get("avg_return_pct")
+            row[f"median_alpha_vs_{alpha_type}_pct"] = stats.get("median_return_pct")
+            row[f"alpha_positive_rate_vs_{alpha_type}"] = stats.get("win_rate")
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _build_early_adverse_summary(
+    event_metrics: pd.DataFrame,
+    request: EntrySignalAnalysisRequest,
+) -> pd.DataFrame:
+    selected = _selected_frame(event_metrics)
+    if selected.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, object]] = []
+    for keys, group in selected.groupby(["entry_strategy", "entry_filter_name"], dropna=False):
+        entry_strategy, entry_filter_name = keys
+        for day in request.normalized_early_adverse_days:
+            return_col = f"post_entry_{day}d_close_return_pct"
+            drawdown_col = f"post_entry_{day}d_low_drawdown_pct"
+            below_col = f"post_entry_{day}d_close_below_entry"
+            consecutive_col = f"post_entry_consecutive_down_{day}d"
+            if return_col not in group.columns:
+                continue
+            returns = pd.to_numeric(group[return_col], errors="coerce")
+            drawdowns = pd.to_numeric(group.get(drawdown_col, pd.Series(dtype=float)), errors="coerce")
+            losses = returns[returns < 0.0]
+            below = group.get(below_col, pd.Series(index=group.index, dtype=object))
+            consecutive = group.get(consecutive_col, pd.Series(index=group.index, dtype=object))
+            row: dict[str, object] = {
+                "entry_strategy": entry_strategy,
+                "entry_filter_name": entry_filter_name,
+                "days_after_entry": day,
+                "event_count": int(len(group)),
+                "valid_event_count": int(returns.notna().sum()),
+                "close_below_entry_rate": _boolean_rate(below),
+                "consecutive_down_rate": _boolean_rate(consecutive),
+                "avg_close_return_pct": _to_float(returns.mean()),
+                "median_close_return_pct": _to_float(returns.median()),
+                "avg_loss_pct": _to_float(losses.mean()) if not losses.empty else None,
+                "p10_close_return_pct": _to_float(returns.quantile(0.10)),
+                "p25_close_return_pct": _to_float(returns.quantile(0.25)),
+                "avg_low_drawdown_pct": _to_float(drawdowns.mean()),
+                "p10_low_drawdown_pct": _to_float(drawdowns.quantile(0.10)),
+                "worst_low_drawdown_pct": _to_float(drawdowns.min()),
+            }
+            rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def _build_stability_summary(event_metrics: pd.DataFrame, request: EntrySignalAnalysisRequest) -> pd.DataFrame:
@@ -1395,6 +1604,17 @@ def _positive_group_ratio(frame: pd.DataFrame, group_col: str, return_col: str) 
     if grouped.empty:
         return None
     return float((grouped > 0).mean())
+
+
+def _boolean_rate(values: pd.Series) -> float | None:
+    if values.empty:
+        return None
+    normalized = values.dropna()
+    if normalized.empty:
+        return None
+    if not pd.api.types.is_bool_dtype(normalized):
+        normalized = normalized.astype(str).str.lower().isin({"true", "1", "yes"})
+    return float(normalized.astype(bool).mean())
 
 
 def _build_signal_decay_summary(event_metrics: pd.DataFrame, request: EntrySignalAnalysisRequest) -> pd.DataFrame:
@@ -1596,6 +1816,14 @@ def build_priority15_outputs(
     )
 
     stage_started_at = time.perf_counter()
+    early_adverse_summary = _build_early_adverse_summary(event_metrics, request)
+    _log_priority15_stage(
+        "early_adverse_summary",
+        stage_started_at,
+        rows=len(early_adverse_summary),
+    )
+
+    stage_started_at = time.perf_counter()
     execution_summary = _build_execution_summary(event_metrics, request)
     _log_priority15_stage("execution_summary", stage_started_at, rows=len(execution_summary))
 
@@ -1621,6 +1849,7 @@ def build_priority15_outputs(
         regime_summary=regime_summary,
         stability_summary=stability_summary,
         signal_decay_summary=signal_decay_summary,
+        early_adverse_summary=early_adverse_summary,
         execution_summary=execution_summary,
         exit_rule_summary=exit_rule_summary,
         walk_forward_summary=walk_forward_summary,

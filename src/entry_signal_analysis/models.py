@@ -55,6 +55,7 @@ class EntrySignalAnalysisRequest(BaseModel):
     checkpoint_days: list[int] = Field(default_factory=lambda: [10, 20, 40])
     cooldown_days: list[int] = Field(default_factory=lambda: [5, 10, 20, 40])
     late_entry_days: list[int] = Field(default_factory=lambda: [1, 2, 3, 5])
+    early_adverse_days: list[int] = Field(default_factory=lambda: [1, 2, 3])
     cost_bps: list[float] = Field(default_factory=lambda: [10.0, 20.0, 50.0, 100.0])
     large_artifact_format: LargeArtifactFormat = "parquet"
     data_root: str = "data"
@@ -101,6 +102,10 @@ class EntrySignalAnalysisRequest(BaseModel):
         return sorted({int(value) for value in self.late_entry_days if int(value) > 0})
 
     @property
+    def normalized_early_adverse_days(self) -> list[int]:
+        return sorted({int(value) for value in self.early_adverse_days if int(value) > 0})
+
+    @property
     def normalized_cost_bps(self) -> list[float]:
         return sorted({float(value) for value in self.cost_bps if float(value) >= 0})
 
@@ -117,6 +122,7 @@ class EntrySignalAnalysisRequest(BaseModel):
                 *self.normalized_horizons,
                 *self.normalized_target_stop_horizons,
                 *self.normalized_checkpoint_days,
+                *self.normalized_early_adverse_days,
                 *fixed_exit_horizons,
                 *late_extension,
             }
@@ -143,6 +149,7 @@ class EntrySignalAnalysisRequest(BaseModel):
         self.checkpoint_days = self.normalized_checkpoint_days
         self.cooldown_days = self.normalized_cooldown_days
         self.late_entry_days = self.normalized_late_entry_days
+        self.early_adverse_days = self.normalized_early_adverse_days
         self.cost_bps = self.normalized_cost_bps
         return self
 
@@ -188,6 +195,7 @@ class EntrySignalAnalysisArtifacts(BaseModel):
     regime_summary_csv: str | None = None
     stability_summary_csv: str | None = None
     signal_decay_summary_csv: str | None = None
+    early_adverse_summary_csv: str | None = None
     execution_summary_csv: str | None = None
     exit_rule_summary_csv: str | None = None
     walk_forward_summary_csv: str | None = None
@@ -252,6 +260,7 @@ class EntrySignalAnalysisDatasetManifest(BaseModel):
     regime_summary_csv: str | None = None
     stability_summary_csv: str | None = None
     signal_decay_summary_csv: str | None = None
+    early_adverse_summary_csv: str | None = None
     execution_summary_csv: str | None = None
     exit_rule_summary_csv: str | None = None
     walk_forward_summary_csv: str | None = None

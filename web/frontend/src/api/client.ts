@@ -88,6 +88,7 @@ export type EntrySignalAnalysisOptions = {
     checkpoint_days: number[];
     cooldown_days: number[];
     late_entry_days: number[];
+    early_adverse_days: number[];
     cost_bps: number[];
     data_root: string;
     output_dir: string;
@@ -129,6 +130,7 @@ export type EntrySignalAnalysisRunRequest = {
   checkpoint_days?: number[];
   cooldown_days?: number[];
   late_entry_days?: number[];
+  early_adverse_days?: number[];
   cost_bps?: number[];
   limit?: number | null;
   data_root: string;

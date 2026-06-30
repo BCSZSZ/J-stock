@@ -247,6 +247,7 @@ export default function EntrySignalAnalysis() {
   const [checkpointDays, setCheckpointDays] = useState("10,20,40");
   const [cooldownDays, setCooldownDays] = useState("5,10,20,40");
   const [lateEntryDays, setLateEntryDays] = useState("1,2,3,5");
+  const [earlyAdverseDays, setEarlyAdverseDays] = useState("1,2,3");
   const [costBps, setCostBps] = useState("10,20,50,100");
   const [limit, setLimit] = useState("");
   const [dataRoot, setDataRoot] = useState("data");
@@ -315,6 +316,7 @@ export default function EntrySignalAnalysis() {
     setCheckpointDays((defaults.checkpoint_days ?? [10, 20, 40]).join(","));
     setCooldownDays((defaults.cooldown_days ?? [5, 10, 20, 40]).join(","));
     setLateEntryDays((defaults.late_entry_days ?? [1, 2, 3, 5]).join(","));
+    setEarlyAdverseDays((defaults.early_adverse_days ?? [1, 2, 3]).join(","));
     setCostBps((defaults.cost_bps ?? [10, 20, 50, 100]).join(","));
     setDataRoot(defaults.data_root ?? "data");
     setOutputDir(defaults.output_dir ?? "entry_signal_analysis");
@@ -412,6 +414,7 @@ export default function EntrySignalAnalysis() {
       checkpoint_days: parseIntegerList(checkpointDays),
       cooldown_days: parseIntegerList(cooldownDays),
       late_entry_days: parseIntegerList(lateEntryDays),
+      early_adverse_days: parseIntegerList(earlyAdverseDays),
       cost_bps: parseNumberList(costBps),
       limit: parseOptionalNumber(limit),
       data_root: dataRoot.trim() || "data",
@@ -663,9 +666,10 @@ export default function EntrySignalAnalysis() {
             </div>
           </div>
           <div className={cardClassName}>
-            <label className={labelClassName}>Delay / Cost</label>
+            <label className={labelClassName}>Delay / Early Adverse / Cost</label>
             <div className="space-y-2">
               <input value={lateEntryDays} onChange={(e) => setLateEntryDays(e.target.value)} className={inputClassName} />
+              <input value={earlyAdverseDays} onChange={(e) => setEarlyAdverseDays(e.target.value)} className={inputClassName} />
               <input value={costBps} onChange={(e) => setCostBps(e.target.value)} className={inputClassName} />
             </div>
           </div>

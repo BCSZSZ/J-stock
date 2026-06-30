@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from src.analysis.signals import SignalAction, TradingSignal
 from src.backtest.data_cache import BacktestDataCache
@@ -112,7 +113,7 @@ def _candidate_and_context(
 def test_priority15_outputs_cover_core_event_derived_artifacts() -> None:
     request = EntrySignalAnalysisRequest(
         entry_strategies=["EntryA"],
-        tickers=["7203"],
+        tickers=["7203", "6758"],
         start_date=date(2024, 1, 1),
         end_date=date(2026, 3, 31),
         horizons=[5, 10, 20, 40, 60, 80],
@@ -124,11 +125,19 @@ def test_priority15_outputs_cover_core_event_derived_artifacts() -> None:
         cooldown_days=[5],
         late_entry_days=[1],
         cost_bps=[10],
+        industry_reference_file="missing_test_industry_reference.csv",
     )
     frame = _feature_frame()
+    weak_peer_frame = frame.copy()
+    weak_peer_frame["Open"] = 100.0
+    weak_peer_frame["High"] = 100.5
+    weak_peer_frame["Low"] = 99.0
+    weak_peer_frame["Close"] = 99.5
     cache = BacktestDataCache(data_root="data")
     cache.features_cache["7203"] = frame
+    cache.features_cache["6758"] = weak_peer_frame
     cache.date_pos_cache["7203"] = {ts: idx for idx, ts in enumerate(frame.index)}
+    cache.date_pos_cache["6758"] = {ts: idx for idx, ts in enumerate(weak_peer_frame.index)}
 
     payloads: list[dict[str, object]] = []
     contexts: list[EntrySignalEventContext] = []
@@ -160,6 +169,8 @@ def test_priority15_outputs_cover_core_event_derived_artifacts() -> None:
     assert "marginal_return_5d_to_10d_pct" in outputs.event_metrics.columns
     assert "net_return_after_10bps_20d_pct" in outputs.event_metrics.columns
     assert "decay_1d_20d_pct" in outputs.event_metrics.columns
+    assert first_event["baseline_20d_sector_median_pct"] < first_event["forward_return_20d_pct"]
+    assert first_event["alpha_20d_vs_sector_pct"] > 0
 
     assert "event_id" not in outputs.target_stop_events.columns
     assert "entry_strategy" not in outputs.target_stop_events.columns
@@ -176,6 +187,73 @@ def test_priority15_outputs_cover_core_event_derived_artifacts() -> None:
 
     assert not outputs.path_summary.empty
     assert not outputs.trend_feature_summary.empty
+    assert not outputs.early_adverse_summary.empty
     assert not outputs.execution_summary.empty
     assert not outputs.exit_rule_summary.empty
     assert not outputs.walk_forward_summary.empty
+
+
+def test_priority15_flags_immediate_and_consecutive_post_entry_drops() -> None:
+    request = EntrySignalAnalysisRequest(
+        entry_strategies=["EntryA"],
+        tickers=["7203"],
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 6, 30),
+        horizons=[1, 2, 3, 5],
+        primary_horizon=3,
+        target_pcts=[5],
+        stop_pcts=[3],
+        target_stop_horizons=[5],
+        checkpoint_days=[3],
+        cooldown_days=[5],
+        late_entry_days=[1],
+        early_adverse_days=[1, 2, 3],
+        cost_bps=[10],
+    )
+    frame = _feature_frame()
+    signal_pos = 40
+    entry_pos = signal_pos + 1
+    close_loc = frame.columns.get_loc("Close")
+    open_loc = frame.columns.get_loc("Open")
+    high_loc = frame.columns.get_loc("High")
+    low_loc = frame.columns.get_loc("Low")
+    for offset, close, low in ((0, 99.0, 98.5), (1, 98.0, 97.5), (2, 97.0, 96.5)):
+        row = entry_pos + offset
+        frame.iloc[row, open_loc] = 100.0 if offset == 0 else close + 0.2
+        frame.iloc[row, high_loc] = 100.5 if offset == 0 else close + 0.5
+        frame.iloc[row, low_loc] = low
+        frame.iloc[row, close_loc] = close
+
+    cache = BacktestDataCache(data_root="data")
+    cache.features_cache["7203"] = frame
+    cache.date_pos_cache["7203"] = {ts: idx for idx, ts in enumerate(frame.index)}
+    payload, context = _candidate_and_context(
+        frame=frame,
+        request=request,
+        signal_pos=signal_pos,
+    )
+    scan_result = EntrySignalScanResult(
+        candidates=pd.DataFrame([payload]),
+        event_contexts=[context],
+        cache=cache,
+        trading_dates=list(frame.index),
+    )
+
+    outputs = build_priority15_outputs(scan_result, request, benchmark_frame=None)
+    event = outputs.event_metrics.iloc[0]
+
+    assert event["post_entry_1d_close_return_pct"] == pytest.approx(-1.0)
+    assert event["post_entry_2d_close_return_pct"] == pytest.approx(-2.0)
+    assert event["post_entry_3d_close_return_pct"] == pytest.approx(-3.0)
+    assert event["post_entry_3d_low_drawdown_pct"] == pytest.approx(-3.5)
+    assert bool(event["post_entry_1d_close_below_entry"]) is True
+    assert bool(event["post_entry_consecutive_down_2d"]) is True
+    assert bool(event["post_entry_consecutive_down_3d"]) is True
+
+    day3_summary = outputs.early_adverse_summary[
+        outputs.early_adverse_summary["days_after_entry"] == 3
+    ].iloc[0]
+    assert day3_summary["close_below_entry_rate"] == 1.0
+    assert day3_summary["consecutive_down_rate"] == 1.0
+    assert day3_summary["avg_close_return_pct"] == pytest.approx(-3.0)
+    assert day3_summary["worst_low_drawdown_pct"] == pytest.approx(-3.5)

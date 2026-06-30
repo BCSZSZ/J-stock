@@ -1196,6 +1196,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="priority15 延迟入场天数（默认: 1 2 3 5）",
     )
     entry_signal_analysis_parser.add_argument(
+        "--early-adverse-days",
+        nargs="+",
+        type=int,
+        default=[1, 2, 3],
+        help="priority15 买入后短期下跌观察天数（默认: 1 2 3）",
+    )
+    entry_signal_analysis_parser.add_argument(
         "--cost-bps",
         nargs="+",
         type=float,

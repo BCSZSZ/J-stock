@@ -124,6 +124,7 @@ def _set_priority15_row_counts(
         "regime_summary",
         "stability_summary",
         "signal_decay_summary",
+        "early_adverse_summary",
         "execution_summary",
         "exit_rule_summary",
         "walk_forward_summary",
@@ -357,7 +358,7 @@ def _event_metric_layers(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
         ),
         "event_metrics_alpha_csv": _event_metric_layer_frame(
             frame,
-            prefixes=("alpha_",),
+            prefixes=("alpha_", "baseline_"),
         ),
         "event_metrics_decay_csv": _event_metric_layer_frame(
             frame,
@@ -381,6 +382,7 @@ def _event_metric_layers(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
                 "liquidity_bucket",
                 "volatility_bucket",
             ),
+            prefixes=("post_entry_",),
         ),
     }
 
@@ -767,6 +769,7 @@ def _append_priority15_section(
         ("#9 Market regime slicing", artifacts.regime_summary_csv),
         ("#10 Ticker / sector / time stability", artifacts.stability_summary_csv),
         ("#11 Cooldown-adjusted result", artifacts.cooldown_summary_csv),
+        ("Early adverse move after entry", artifacts.early_adverse_summary_csv),
         ("#14 Trading cost / liquidity / execution", artifacts.execution_summary_csv),
         ("#16 Exit rule comparison", artifacts.exit_rule_summary_csv),
         ("#19 Walk-forward / OOS", artifacts.walk_forward_summary_csv),
@@ -784,6 +787,7 @@ def _append_priority15_section(
     _append_dataframe_preview(lines, "#5 Target/Stop Summary", outputs.target_stop_summary)
     _append_dataframe_preview(lines, "#6 Checkpoint Summary", outputs.checkpoint_summary)
     _append_dataframe_preview(lines, "#11 Cooldown Summary", outputs.cooldown_summary)
+    _append_dataframe_preview(lines, "Early Adverse Move Summary", outputs.early_adverse_summary)
     _append_dataframe_preview(lines, "#16 Exit Rule Summary", outputs.exit_rule_summary)
     _append_dataframe_preview(lines, "#19 Walk-forward Summary", outputs.walk_forward_summary)
 
@@ -946,6 +950,7 @@ def run_entry_signal_analysis(
         "regime_summary_csv": output_dir / "regime_summary.csv",
         "stability_summary_csv": output_dir / "stability_summary.csv",
         "signal_decay_summary_csv": output_dir / "signal_decay_summary.csv",
+        "early_adverse_summary_csv": output_dir / "early_adverse_summary.csv",
         "execution_summary_csv": output_dir / "execution_summary.csv",
         "exit_rule_summary_csv": output_dir / "exit_rule_summary.csv",
         "walk_forward_summary_csv": output_dir / "walk_forward_summary.csv",
@@ -1024,6 +1029,7 @@ def run_entry_signal_analysis(
             "regime_summary_csv": priority15_outputs.regime_summary,
             "stability_summary_csv": priority15_outputs.stability_summary,
             "signal_decay_summary_csv": priority15_outputs.signal_decay_summary,
+            "early_adverse_summary_csv": priority15_outputs.early_adverse_summary,
             "execution_summary_csv": priority15_outputs.execution_summary,
             "exit_rule_summary_csv": priority15_outputs.exit_rule_summary,
             "walk_forward_summary_csv": priority15_outputs.walk_forward_summary,

@@ -294,6 +294,10 @@ def build_request_from_args(args: Any) -> EntrySignalAnalysisRequest:
         checkpoint_days=[int(value) for value in (getattr(args, "checkpoint_days", None) or [10, 20, 40])],
         cooldown_days=[int(value) for value in (getattr(args, "cooldown_days", None) or [5, 10, 20, 40])],
         late_entry_days=[int(value) for value in (getattr(args, "late_entry_days", None) or [1, 2, 3, 5])],
+        early_adverse_days=[
+            int(value)
+            for value in (getattr(args, "early_adverse_days", None) or [1, 2, 3])
+        ],
         cost_bps=[float(value) for value in (getattr(args, "cost_bps", None) or [10, 20, 50, 100])],
         data_root=str(getattr(args, "data_root", None) or "data"),
         output_dir=resolve_output_dir(args, raw_config),

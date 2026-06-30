@@ -185,6 +185,7 @@ def _build_cli_args(req: EntrySignalAnalysisRunRequest) -> list[str]:
     _append_multi_flag(args, "--checkpoint-days", req.checkpoint_days)
     _append_multi_flag(args, "--cooldown-days", req.cooldown_days)
     _append_multi_flag(args, "--late-entry-days", req.late_entry_days)
+    _append_multi_flag(args, "--early-adverse-days", req.early_adverse_days)
     _append_multi_flag(args, "--cost-bps", req.cost_bps)
     if req.limit is not None:
         args.extend(["--limit", str(req.limit)])
@@ -352,6 +353,7 @@ def get_options() -> dict[str, object]:
             "checkpoint_days": [10, 20, 40],
             "cooldown_days": [5, 10, 20, 40],
             "late_entry_days": [1, 2, 3, 5],
+            "early_adverse_days": [1, 2, 3],
             "cost_bps": [10, 20, 50, 100],
             "data_root": "data",
             "output_dir": _default_output_dir(),

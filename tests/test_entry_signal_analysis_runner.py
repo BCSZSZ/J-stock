@@ -221,6 +221,8 @@ def test_run_entry_signal_analysis_priority15_writes_layered_and_columnar_artifa
             "signal_close": [99.0],
             "signal_close_to_next_open_gap_pct": [1.0],
             "entry_day_open_to_close_pct": [0.5],
+            "post_entry_1d_close_return_pct": [-0.8],
+            "post_entry_consecutive_down_1d": [True],
             "adv20_jpy": [1_000_000_000.0],
             "dollar_volume_jpy": [1_000_000_000.0],
             "turnover_median_20_jpy": [900_000_000.0],
@@ -252,6 +254,15 @@ def test_run_entry_signal_analysis_priority15_writes_layered_and_columnar_artifa
         regime_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
         stability_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
         signal_decay_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
+        early_adverse_summary=pd.DataFrame(
+            {
+                "entry_strategy": ["FakeEntry"],
+                "entry_filter_name": ["production"],
+                "days_after_entry": [1],
+                "event_count": [1],
+                "close_below_entry_rate": [1.0],
+            }
+        ),
         execution_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
         exit_rule_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
         walk_forward_summary=pd.DataFrame({"entry_strategy": ["FakeEntry"], "event_count": [1]}),
@@ -327,7 +338,11 @@ def test_run_entry_signal_analysis_priority15_writes_layered_and_columnar_artifa
     assert "alpha_5d_vs_universe_pct" in pd.read_parquet(summary.artifacts.event_metrics_alpha_parquet).columns
     assert "decay_1d_5d_pct" in pd.read_parquet(summary.artifacts.event_metrics_decay_parquet).columns
     assert "net_return_after_10bps_5d_pct" in pd.read_parquet(summary.artifacts.event_metrics_cost_parquet).columns
-    assert "signal_close_to_next_open_gap_pct" in pd.read_parquet(summary.artifacts.event_metrics_execution_parquet).columns
+    execution_columns = pd.read_parquet(summary.artifacts.event_metrics_execution_parquet).columns
+    assert "signal_close_to_next_open_gap_pct" in execution_columns
+    assert "post_entry_1d_close_return_pct" in execution_columns
+    assert Path(summary.artifacts.early_adverse_summary_csv or "").exists()
+    assert "Early Adverse Move Summary" in report_text
 
 
 def test_large_artifact_writer_supports_csv_and_both_modes(tmp_path) -> None:

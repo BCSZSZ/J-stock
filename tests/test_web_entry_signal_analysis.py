@@ -48,6 +48,7 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
         max_buy_per_industry_per_day=1,
         max_total_positions_per_industry=3,
         industry_reference_file="data/jpx_final_list.csv",
+        early_adverse_days=[1, 2, 3],
         output_dir="output/entry_signal_analysis_test",
     )
 
@@ -70,6 +71,7 @@ def test_build_cli_args_uses_request_values(monkeypatch) -> None:
     assert args[args.index("--max-buy-per-industry-per-day") + 1] == "1"
     assert args[args.index("--max-total-positions-per-industry") + 1] == "3"
     assert args[args.index("--industry-reference-file") + 1] == "data/jpx_final_list.csv"
+    assert args[args.index("--early-adverse-days") + 1 : args.index("--cost-bps")] == ["1", "2", "3"]
 
 
 def test_build_cli_args_falls_back_to_production_defaults(monkeypatch) -> None:
